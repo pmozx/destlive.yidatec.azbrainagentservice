@@ -36,6 +36,11 @@ pipeline {
         buildDiscarder(logRotator(numToKeepStr: '30'))
     }
 
+    environment {
+        DOCKER_REPO_USERNAME = 'qwerasd5'
+        DOCKER_REPO_PASSWORD = '15513974562_Meng'
+    }
+
     parameters {
         choice(
             name: 'ENV_NAME',
