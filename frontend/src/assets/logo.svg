@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#8b1e56" />
+      <stop offset="100%" stop-color="#c2497f" />
+    </linearGradient>
+  </defs>
+  <!-- 白色圆角底板 + 酒红紫节点图，深色顶栏上对比更清晰 -->
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="#ffffff" />
+  <circle cx="32" cy="32" r="8" fill="url(#brand)" />
+  <circle cx="19" cy="19" r="3.6" fill="url(#brand)" opacity="0.85" />
+  <circle cx="45" cy="19" r="3.6" fill="url(#brand)" opacity="0.85" />
+  <circle cx="19" cy="45" r="3.6" fill="url(#brand)" opacity="0.85" />
+  <circle cx="45" cy="45" r="3.6" fill="url(#brand)" opacity="0.85" />
+  <g stroke="url(#brand)" stroke-width="2.2" stroke-linecap="round" opacity="0.8">
+    <line x1="21.5" y1="21.5" x2="26.5" y2="26.5" />
+    <line x1="42.5" y1="21.5" x2="37.5" y2="26.5" />
+    <line x1="21.5" y1="42.5" x2="26.5" y2="37.5" />
+    <line x1="42.5" y1="42.5" x2="37.5" y2="37.5" />
+  </g>
+</svg>

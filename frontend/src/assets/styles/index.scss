@@ -1,0 +1,223 @@
+@use './variables';
+@use './reset';
+@use './mixins' as *;
+
+/* 页面根容器：宽度由内容区决定，内部区块统一拉满，避免各页面宽窄不一 */
+.page {
+  @include flex($direction: column, $gap: var(--app-gap));
+  width: 100%;
+  min-width: 0;
+
+  > * {
+    width: 100%;
+    min-width: 0;
+  }
+}
+
+.page-header {
+  @include flex($justify: space-between, $align: flex-start, $gap: 16px);
+  flex-wrap: wrap;
+
+  &__title {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.2px;
+    color: var(--app-text-primary);
+  }
+
+  &__desc {
+    margin-top: 6px;
+    font-size: 13px;
+    color: var(--app-text-secondary);
+  }
+}
+
+/* 小标题：字间距大写标签，与参考页的 KNOWLEDGE DISCOVERY 一致 */
+.eyebrow {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--el-color-primary);
+}
+
+/* 白色大圆角面板 */
+.panel {
+  @include panel;
+  overflow: hidden;
+}
+
+.app-card {
+  @include panel;
+}
+
+/* ==================== 文本工具类 ==================== */
+.text-secondary {
+  color: var(--app-text-secondary);
+}
+
+.text-mono {
+  font-family: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
+  font-size: 12px;
+}
+
+/* ==================== 路由过渡 ==================== */
+.fade-slide-enter-active,
+.fade-slide-leave-active {
+  transition:
+    opacity 0.22s ease,
+    transform 0.22s ease;
+}
+
+.fade-slide-enter-from {
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+.fade-slide-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+/* ==================== 第三方组件微调 ==================== */
+#nprogress {
+  .bar {
+    height: 2px;
+    background: var(--app-brand-light) !important;
+  }
+
+  .peg {
+    box-shadow:
+      0 0 10px var(--app-brand-light),
+      0 0 6px var(--app-brand-light) !important;
+  }
+}
+
+/* 按钮：主按钮使用品牌渐变，其余为浅描边圆角 */
+.el-button {
+  border-radius: var(--app-radius-sm);
+  font-weight: 500;
+
+  &--primary:not(.is-link):not(.is-text):not(.is-plain) {
+    border-color: transparent;
+    background-image: linear-gradient(135deg, var(--el-color-primary) 0%, var(--el-color-primary-dark-2) 100%);
+    box-shadow: 0 6px 16px color-mix(in srgb, var(--el-color-primary) 22%, transparent);
+
+    &:hover {
+      filter: brightness(1.08);
+    }
+  }
+}
+
+/* 输入类控件统一轻描边 + 圆角 */
+.el-input__wrapper,
+.el-textarea__inner {
+  border-radius: var(--app-radius-sm);
+  box-shadow: 0 0 0 1px var(--app-border-color) inset;
+
+  &:hover {
+    box-shadow: 0 0 0 1px var(--app-border-strong) inset;
+  }
+}
+
+.el-input__wrapper.is-focus,
+.el-textarea__inner:focus {
+  box-shadow: 0 0 0 1px var(--el-color-primary) inset;
+}
+
+.el-select__wrapper {
+  border-radius: var(--app-radius-sm);
+}
+
+/* 表格：浅色表头 + 去竖线，贴合参考页的轻盈感 */
+.el-table {
+  --el-table-border-color: var(--app-border-color);
+  --el-table-header-bg-color: var(--app-tint-bg);
+  --el-table-row-hover-bg-color: color-mix(in srgb, var(--el-color-primary) 4%, transparent);
+  --el-table-header-text-color: var(--app-text-secondary);
+  --el-table-text-color: var(--app-text-regular);
+  --el-table-bg-color: transparent;
+  --el-table-tr-bg-color: transparent;
+  font-size: 13px;
+
+  th.el-table__cell {
+    font-weight: 600;
+  }
+
+  &::before,
+  &__inner-wrapper::before {
+    display: none;
+  }
+}
+
+.el-card {
+  --el-card-border-radius: var(--app-radius-lg);
+  border: none;
+  box-shadow: var(--app-shadow-card);
+}
+
+/* 描述列表：标签列使用浅底 */
+.el-descriptions__label.el-descriptions__cell.is-bordered-label {
+  background-color: var(--app-tint-bg);
+  color: var(--app-text-secondary);
+  font-weight: 500;
+}
+
+.el-pagination.is-background .el-pager li.is-active {
+  background-image: linear-gradient(135deg, var(--el-color-primary) 0%, var(--el-color-primary-dark-2) 100%);
+}
+
+.el-tag {
+  border-radius: 6px;
+}
+
+.el-breadcrumb {
+  font-size: 13px;
+
+  &__inner.is-link:hover {
+    color: var(--el-color-primary);
+  }
+}
+
+/* 顶栏二级菜单：弹层挂载到 body，无法用 scoped 样式覆盖 */
+.el-menu--popup {
+  min-width: 150px;
+  padding: 6px;
+  border-radius: var(--app-radius-sm);
+  box-shadow: var(--app-shadow-card);
+
+  .el-menu-item {
+    height: 36px;
+    margin: 2px 0;
+    padding: 0 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    line-height: 36px;
+    color: var(--app-text-regular);
+
+    &:hover {
+      background-color: color-mix(in srgb, var(--el-color-primary) 8%, transparent);
+      color: var(--el-color-primary);
+    }
+
+    &.is-active {
+      color: var(--el-color-primary);
+      font-weight: 600;
+    }
+  }
+}
+
+/* 滚动条（reset 中已定义轨道与滑块，这里覆盖为品牌色） */
+::-webkit-scrollbar-thumb {
+  background-color: color-mix(in srgb, var(--app-brand) 22%, transparent);
+}

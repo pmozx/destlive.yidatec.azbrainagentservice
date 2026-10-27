@@ -1,0 +1,1 @@
+from app.core.logger import logger  # noqa: F401

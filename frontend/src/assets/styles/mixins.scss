@@ -1,0 +1,77 @@
+// 通用样式片段：全局与组件内均可通过 additionalData 直接使用（见 vite.config.js）
+// 只产出 mixin，不生成任何 CSS
+
+/// 一行 flex 布局
+/// @param {String} $justify 主轴对齐，默认 flex-start
+/// @param {String|null} $align 交叉轴对齐；不传时按方向取默认值：横向 center、纵向 stretch
+/// @param {String} $gap 间距，默认不输出
+/// @param {String} $direction 方向，默认 row
+/// @param {Bool} $inline 是否 inline-flex，默认 false
+@mixin flex($justify: flex-start, $align: null, $gap: null, $direction: row, $inline: false) {
+  @if $inline {
+    display: inline-flex;
+  } @else {
+    display: flex;
+  }
+
+  flex-direction: $direction;
+  justify-content: $justify;
+
+  // 纵向布局默认拉满交叉轴，避免子元素按内容收缩、页面宽度不统一
+  @if $align == null {
+    @if $direction == column {
+      align-items: stretch;
+    } @else {
+      align-items: center;
+    }
+  } @else {
+    align-items: $align;
+  }
+
+  @if $gap != null {
+    gap: $gap;
+  }
+}
+
+/// 水平垂直居中
+@mixin flex-center($direction: row) {
+  @include flex(center, center, null, $direction);
+}
+
+/// 单行省略
+@mixin ellipsis {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/// 多行省略
+@mixin ellipsis-lines($lines: 2) {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: $lines;
+}
+
+/// 白色大圆角面板
+@mixin panel($radius: var(--app-radius-lg)) {
+  border-radius: $radius;
+  background-color: var(--app-card-bg);
+  box-shadow: var(--app-shadow-card);
+}
+
+/// 顶栏菜单胶囊高亮：在菜单项内垂直居中，配合 position: relative + isolation: isolate 使用
+@mixin nav-pill($inset: 13px) {
+  &::before {
+    content: '';
+    position: absolute;
+    top: $inset;
+    right: 0;
+    bottom: $inset;
+    left: 0;
+    z-index: -1;
+    border-radius: 10px;
+    background-color: transparent;
+    transition: background-color 0.18s ease;
+  }
+}

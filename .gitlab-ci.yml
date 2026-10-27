@@ -1,0 +1,56 @@
+# ==============================================================================
+# 本仓库 GitLab CI（service_brain_agent）—— 单环境、单 Job 流水线
+#
+#   本文件不配置任何环境变量（含口令），唯一职责是把目标环境名传给一键脚本：
+#     devops/scripts/00-deploy-all.sh --env=$ENV_NAME
+#
+#   配置唯一来源为应用自身的 env/.env.<env>（部署时挂载进容器，由
+#   pydantic-settings 加载），流水线不复制、不渲染任何配置；镜像仓库口令来自
+#   执行机一次性 docker login（或导出 DOCKER_REPO_USERNAME / DOCKER_REPO_PASSWORD）；
+#   变量清单与流水线设计见 devops/README.md。
+#
+#   变量（均可被 Settings / Run pipeline 同名变量覆盖）：
+#     ENV_NAME        目标环境 dev | test | uat | prod（默认 dev；切环境走 Run pipeline 传值）
+#     RUNNER_TAG      GitLab Runner 的 tag，与注册 Runner 时设置的一致
+#     GIT_CLEAN_FLAGS 排除 env/（执行机本地多环境配置）与 devops/data/（运行数据），
+#                     防止 Runner 默认的 git clean -ffdx 把 gitignored 文件删掉
+#     IMAGE_TAG       可选，Run pipeline 临时指定；留空时脚本取时间戳 yyyyMMddHHmmss
+#
+#   触发：默认关闭（workflow.rules 为 when: never）。确认 Runner 已注册、
+#   部署机已备好 env/.env.<环境> 与 docker login 后，按下方注释启用。
+# ==============================================================================
+
+stages:
+  - deploy
+
+variables:
+  # 目标环境：应用配置为 env/.env.<ENV_NAME>（部署时挂载进容器）
+  ENV_NAME: "dev"
+  # GitLab Runner 的 tag，与注册 Runner 时设置的一致
+  RUNNER_TAG: "service-brain-agent"
+  # 保留执行机本地多环境配置与运行数据，不被 Runner 的 git clean 清掉
+  GIT_CLEAN_FLAGS: "-e env/ -e devops/data/"
+
+workflow:
+  rules:
+    # 启用方式（二选一或全开，取消注释即可）：
+    # - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"' # push 自动构建并部署
+    # - if: '$CI_PIPELINE_SOURCE == "web"' # Run pipeline 手动触发
+    - when: never
+
+# ------------------------------------------------------------------------------
+# 一键发布：build -> package -> deploy 在同一 Job 内串接，
+# 镜像 tag 经 image_tag.txt 在脚本间传递，不跨 Job 传 artifact
+# ------------------------------------------------------------------------------
+deploy-app:
+  stage: deploy
+  tags:
+    - "$RUNNER_TAG"
+  # 串行发布，避免并发覆盖
+  resource_group: "service-brain-agent-deploy"
+  before_script:
+    # 容器内 root 检出导致 git dubious ownership
+    - git config --global --add safe.directory "$CI_PROJECT_DIR"
+  script:
+    - chmod +x devops/scripts/00-deploy-all.sh
+    - devops/scripts/00-deploy-all.sh --env="$ENV_NAME"

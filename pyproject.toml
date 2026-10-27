@@ -1,0 +1,55 @@
+[project]
+name = "service_brain_agent"
+version = "0.1.0"
+description = "服务大脑智能体应用"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "aiofiles>=25.1.0",
+    "aiomysql[rsa]>=0.3.2",
+    "aiosqlite>=0.21.0",
+    "apscheduler>=3.11,<4",
+    "asyncpg>=0.32.0",
+    "fastapi>=0.135.2",
+    "greenlet>=3.5.4",
+    "httpx>=0.28.1",
+    "loguru==0.7.3",
+    "pgvector>=0.5.1",
+    "pydantic-settings>=2.14.2",
+    "pydantic[email]>=2.13.4",
+    "python-dotenv>=1.2.3",
+    "python-multipart>=0.0.22",
+    "sqlalchemy==2.0.51",
+    "typer==0.26.7",
+    "uvicorn[standard]>=0.42.0",
+    "yao-api>=0.1.1",
+]
+
+[tool.uv]
+default-groups = ["dev"]     # 本地 uv sync 含 dev；生产 pip -r requirements.txt 不含 pytest/ruff/fakeredis
+python-install-mirror = "https://registry.npmmirror.com/-/binary/python-build-standalone/"
+
+
+[[tool.uv.index]]
+name = "aliyun"
+url = "https://mirrors.aliyun.com/pypi/simple"
+default = true
+#[[tool.uv.index]]
+#name = "uv-agentsmirror"
+#url = "https://uv.agentsmirror.com/pypi/simple"
+#[[tool.uv.index]]
+#name = "tuna"
+#url = "https://pypi.mirrors.ustc.edu.cn/simple/"
+
+#[tool.pytest.ini_options]
+#pythonpath = ["."]
+#testpaths = ["tests"]
+#python_files = ["test*.py"]
+
+[dependency-groups]
+dev = [
+#    "fakeredis>=2.21.0,<3",   # 测试：内存 Redis，配合 TESTING
+    "pytest==9.0.2",
+    "pytest-asyncio>=0.24.0",  # 异步测试支持
+    "ruff==0.14.13",          # 代码检查/格式化
+]

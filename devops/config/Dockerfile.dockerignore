@@ -1,0 +1,61 @@
+# ==============================================================================
+# Dockerfile 的构建上下文排除清单（BuildKit 特性）
+#
+#   文件名为 <Dockerfile 名>.dockerignore，存在时代替仓库根 .dockerignore 生效，
+#   故这里是唯一事实来源——根 .dockerignore 不参与本镜像构建。
+#   由 devops/scripts/package.sh 以 DOCKER_BUILDKIT=1 显式启用。
+# ==============================================================================
+
+# 环境配置：口令与差异化配置只能由部署期注入，严禁进镜像
+env
+
+# 运行期产物：容器内由 bind 挂载提供
+logs
+data
+
+# 测试与本地缓存（镜像内不需要）
+tests
+pytest.ini
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/*.pyd
+**/.venv
+**/venv
+.pytest_cache
+.ruff_cache
+.mypy_cache
+
+# 本地数据库与临时文件
+*.db
+*.sqlite3
+*.log
+
+# 版本控制与编辑器
+.git
+.gitignore
+.gitattributes
+.idea
+.vscode
+
+# 前端依赖与构建中间产物（源码需要，见下方注释）
+frontend/node_modules
+frontend/dist
+frontend/.vite
+frontend/.cache
+
+# 前端构建产物：镜像内由 node 阶段重新构建，避免把本地产物打进镜像
+static/assets
+static/index.html
+static/favicon.svg
+
+# 部署与文档（镜像内不需要，减少构建上下文）。
+# 例外：entrypoint 脚本必须进上下文（Dockerfile 有 COPY devops/config/entrypoint/），
+# 故按「排除子级 + 例外回补」写法——dockerignore 与 gitignore 一样，父目录被排除后
+# 子路径无法用 ! 回补
+devops/*
+!devops/config
+devops/config/*
+!devops/config/entrypoint
+doc
+README.md

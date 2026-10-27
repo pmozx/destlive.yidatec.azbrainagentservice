@@ -1,0 +1,47 @@
+# ==============================================================================
+# 根构建上下文排除清单（仅用于 ad-hoc 手工构建）
+#
+#   正式镜像构建使用 devops/config/Dockerfile.dockerignore（BuildKit 特性）：
+#   该文件存在时代替本文件生效，是镜像构建的唯一事实来源。
+# ==============================================================================
+
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.venv
+venv
+.pytest_cache
+.ruff_cache
+.mypy_cache
+
+logs
+data
+*.log
+*.db
+*.sqlite3
+
+.git
+.gitignore
+.gitattributes
+.idea
+.vscode
+
+env
+tests
+pytest.ini
+
+frontend/node_modules
+frontend/dist
+frontend/.vite
+
+static/assets
+static/index.html
+static/favicon.svg
+
+devops/scripts
+devops/compose
+devops/common-server
+devops/data
+
+README.md
