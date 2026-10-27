@@ -4,7 +4,7 @@
 #   与 devops/compose/app.yml 互补：app.yml 只起应用、不编排中间件；本文件把
 #   数据库与模型推理服务纳入同一外部共享网络 service-brain-agent，应用按容器名
 #   直连，无需依赖对外发布端口：
-#     service-brain-postgres  5432   PostgreSQL 17 + pgvector
+#     service-brain-postgres  5432   PostgreSQL 17 + pgvector（宿主发布 39990）
 #     service-brain-ollama    11434  向量化：/api/embed，模型 bge-m3（1024 维）
 #     service-brain-rerank    8080   重排序：/v1/rerank，模型 bge-reranker-v2-m3
 #
@@ -15,11 +15,15 @@
 #   应用配置仍唯一来源 env/.env.<ENVIRONMENT>：指向自建中间件只需改
 #     DATABASE_TYPE=postgres
 #     DATABASE_HOST=service-brain-postgres
-#     DATABASE_PORT=5432
-#     DATABASE_NAME=service_brain_agent
+#     DATABASE_PORT=5432            # 容器内按容器名直连，用服务端口 5432
+#     DATABASE_NAME=service_brain
+#     DATABASE_USER=postgres
+#     DATABASE_PASSWORD=Yidatec@2026!
+#   端口口径：39990 只是宿主机发布端口（同网段开发机/客户端直连用），容器内部
+#   服务端口恒为 5432；容器内应用误填 39990 会连接被拒。
 #   口令两边必须一致：本文件 POSTGRES_PASSWORD 与 env/.env.<env> 的
-#   DATABASE_PASSWORD 必须是同一个值。取值已按 .env.example 内联到本文件，
-#   因此本编排无需 .env 即可 up -d；若希望口令不入库，把 POSTGRES_PASSWORD
+#   DATABASE_PASSWORD 必须是同一个值。取值已直接内联到本文件，因此本编排
+#   无需 .env 即可 up -d；若希望口令不入库，把 POSTGRES_PASSWORD
 #   改回 "${POSTGRES_PASSWORD:?}" 并在同目录 .env 提供实值。
 #
 #   向量能力：所选镜像自带 pgvector，initdb/00-init.sql 在数据目录首次初始化时
@@ -53,21 +57,23 @@ services:
     restart: unless-stopped
     environment:
       TZ: "Asia/Shanghai"
+      # 账号/口令/库名仅在数据目录为空（首次初始化）时生效：已有数据卷不会
+      # 重新应用这三项，需用 SQL 手工改口令与建库，或清空 volumes/postgres/data 重建
       POSTGRES_USER: "postgres"
-      POSTGRES_PASSWORD: "yd@123.."
-      POSTGRES_DB: "service_brain_agent"
+      POSTGRES_PASSWORD: "Yidatec@2026!"
+      POSTGRES_DB: "service_brain"
     ports:
       # 应用走内部网络无需发布；这里发布到所有网卡，便于同网段开发机直连
-      # （如 env/.env.dev 的 DATABASE_HOST 填本机局域网 IP）；仅本机使用可改为
-      # "127.0.0.1:5432:5432"
-      - "5432:5432"
+      # （如 env/.env.dev 的 DATABASE_HOST 填本机局域网 IP、DATABASE_PORT 填 39990）；
+      # 宿主端口 39990，容器内仍是 5432；仅本机使用可改为 "127.0.0.1:39990:5432"
+      - "39990:5432"
     volumes:
       - ./volumes/postgres/data:/var/lib/postgresql/data
       - ./initdb:/docker-entrypoint-initdb.d:ro
     # 并行查询与向量索引构建会用到共享内存，默认 64MB 偏小
     shm_size: "256mb"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d service_brain_agent"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d service_brain"]
       interval: 10s
       timeout: 5s
       retries: 10

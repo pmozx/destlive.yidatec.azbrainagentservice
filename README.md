@@ -106,7 +106,10 @@ npm run build   # 产物写入 ../backend/static，随后由 FastAPI /ui 托管
 ```ini
 DATABASE_TYPE=postgres
 DATABASE_HOST=localhost          # 容器部署时改成 service-brain-postgres
-DATABASE_PORT=5432
+DATABASE_PORT=39990              # 自建编排的宿主发布端口；容器内按容器名直连用 5432
+DATABASE_USER=postgres
+DATABASE_PASSWORD=Yidatec@2026!
+DATABASE_NAME=service_brain
 VECTOR_ENABLE=true
 VECTOR_DIM=1024                  # 须与 embedding 模型输出一致（bge-m3=1024）
 VECTOR_AUTO_CREATE=true          # 启动时幂等建扩展、切块表与 HNSW 索引

@@ -76,12 +76,14 @@ class Settings(BaseSettings):
     RELOAD: bool = Field(default=True, description="是否开启热重载")
 
     # ==================== 数据库配置 ====================
+    # 下列默认值仅用于 env 文件缺项时的兜底，实际取值以 env/.env.<env> 为准；
+    # 端口口径：39990 是宿主发布端口，容器内按容器名直连仍是 5432
     DATABASE_TYPE: str = Field(default=DatabaseTypeEnum.POSTGRES.value, description="数据库类型：postgres/mysql/sqlite")
     DATABASE_HOST: str = Field(default="localhost", description="数据库主机地址")
     DATABASE_PORT: int = Field(default=5432, description="数据库端口")
     DATABASE_USER: str = Field(default="postgres", description="数据库用户名")
-    DATABASE_PASSWORD: str = Field(default="123123", description="数据库密码")
-    DATABASE_NAME: str = Field(default="service_brain_agent", description="数据库名称")
+    DATABASE_PASSWORD: str = Field(default="Yidatec@2026!", description="数据库密码")
+    DATABASE_NAME: str = Field(default="service_brain", description="数据库名称")
     DATABASE_ECHO: bool = Field(default=False, description="是否输出 SQL 日志")
 
     # ==================== 向量存储配置（pgvector） ====================

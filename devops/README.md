@@ -248,10 +248,10 @@ docker compose -f devops/common-server/docker-compose.yml up -d
 ```ini
 DATABASE_TYPE=postgres
 DATABASE_HOST=service-brain-postgres
-DATABASE_PORT=5432
-DATABASE_NAME=service_brain_agent           # 须与编排里的 POSTGRES_DB 一致
+DATABASE_PORT=5432                    # 容器内直连服务端口；宿主发布端口为 39990
+DATABASE_NAME=service_brain           # 须与编排里的 POSTGRES_DB 一致
 DATABASE_USER=postgres
-DATABASE_PASSWORD=<与编排里的 POSTGRES_PASSWORD 一致>
+DATABASE_PASSWORD=Yidatec@2026!       # 须与编排里的 POSTGRES_PASSWORD 一致
 VECTOR_ENABLE=true
 VECTOR_DIM=1024                      # 须与 embedding 模型输出一致（bge-m3=1024）
 VECTOR_AUTO_CREATE=true
@@ -259,6 +259,7 @@ VECTOR_AUTO_CREATE=true
 
 > - 口令两边必须一致：编排里内联的 `POSTGRES_PASSWORD` 与 `backend/env/.env.<env>` 的 `DATABASE_PASSWORD` 必须相同；
 >   若要求口令不入库，把编排改回 `${POSTGRES_PASSWORD:?}` 并用同目录 `.env`（已 gitignore）注入；
+> - 端口口径：编排把容器 `5432` 发布为宿主 `39990`。容器内应用按容器名直连填 `5432`；宿主机/同网段客户端（如本机跑 `DATABASE_HOST=192.168.29.120` 的 dev）填 `39990`；
 > - 生产建议为应用单独建库账号并收敛权限，但 `CREATE EXTENSION` 需要超级用户：由 DBA 在部署机初始化时执行一次，
 > 应用账号只需库的 `USAGE` 与表读写权限；
 > - 同一台机器跑多个环境（如 test / prod）时，`POSTGRES_DB` 与 `DATABASE_NAME` 需逐环境对齐，或各起一套编排（改容器名与 `POSTGRES_PORT`）；
