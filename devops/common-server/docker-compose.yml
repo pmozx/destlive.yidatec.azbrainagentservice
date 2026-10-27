@@ -115,7 +115,7 @@ services:
 
   # 一次性拉取向量化模型：卷里已有则直接退出；失败时单独重跑本服务即可
   ollama-init:
-    image: ollama/ollama:0.40.11
+    image: ollama/ollama:0.40.6
     container_name: service-brain-ollama-init
     restart: "no"
     depends_on:
