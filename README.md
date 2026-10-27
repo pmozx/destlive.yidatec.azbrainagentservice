@@ -1,8 +1,8 @@
 # 智能体应用监控台（d00-fastapi-integration）
 
-基于 **FastAPI + Vue 3** 的前后端一体化示例工程：后端提供 Agent 运行时相关接口（用户、任务、接口自检等），前端为与之同源部署的监控台，构建产物由 FastAPI 的 `/ui` 直接托管。
+基于 **FastAPI + Vue 3** 的前后端一体化应用工程：后端提供日志审计与接口自检等基础能力，前端为与之同源部署的监控台，构建产物由 FastAPI 的 `/ui` 直接托管。
 
-- 后端：FastAPI 工厂模式 + 异步 SQLAlchemy 2.0 + APScheduler + loguru，路由自动扫描注册，同时提供 Swagger / ReDoc / YaoAPI 三套接口文档
+- 后端：FastAPI 工厂模式 + 异步 SQLAlchemy 2.0 + APScheduler + loguru，业务模块集中在 `app/modules`，由路由总表显式注册，同时提供 Swagger / ReDoc 接口文档
 - 前端：Vue 3 + Vite 7 + Element Plus，顶部横向导航 + 白色大圆角卡片布局，酒红紫主题，支持深色模式与主题色切换
 - 工程化：uv 管理 Python 依赖、npm 管理前端依赖；pytest + ruff；SCSS（BEM + mixins）
 
@@ -10,7 +10,7 @@
 
 | 层次 | 选型 |
 | --- | --- |
-| Web 框架 | FastAPI、uvicorn[standard]、YaoAPI |
+| Web 框架 | FastAPI、uvicorn[standard] |
 | 数据层 | SQLAlchemy 2.0（async）、asyncpg（PostgreSQL 主选）/ aiomysql / aiosqlite、alembic |
 | 向量存储 | PostgreSQL + pgvector（`pgvector` Python 包 + HNSW 余弦索引，表 `kb_chunk`） |
 | 配置与日志 | pydantic-settings、python-dotenv、loguru |
@@ -24,12 +24,11 @@
 d00-fastapi-integration/
 ├── main.py                  # 启动入口（默认 0.0.0.0:8002，热重载）
 ├── app/
-│   ├── __init__.py          # create_app：路由注册、YaoAPI、前端托管
-│   ├── api/                 # API 层：自动扫描注册 APIRouter
-│   │   ├── api00_start/ ~ api03_depends/   # 示例：基础/中间件/依赖注入
-│   │   ├── module01_base/item/             # item 模块 CRUD
-│   │   └── v1/module_system/user/          # 用户模块 CRUD
-│   ├── core/                # 数据库、向量存储（pgvector）、依赖、异常、日志、中间件、校验器
+│   ├── __init__.py          # create_app：lifespan、路由注册、前端托管
+│   ├── api/v1/routers.py    # 路由总表：域前缀 → 该域 controller 清单（唯一路由事实来源）
+│   ├── modules/             # 业务模块（域/功能五层：controller/service/crud/model/schema）
+│   │   └── system/log/      # 日志审计：sys_operation_log 查询、详情、删除、过期清理
+│   ├── core/                # 数据库、向量存储（pgvector）、依赖、异常、日志、操作日志路由类、校验器
 │   ├── config/              # 路径常量 + Settings（多环境）
 │   ├── common/              # 常量、枚举、响应体、请求体
 │   ├── utils/               # banner、密码、通用工具
@@ -71,7 +70,6 @@ uvicorn app:create_app --factory --host 0.0.0.0 --port 8002 --reload
 | Swagger | http://127.0.0.1:8002/docs |
 | ReDoc | http://127.0.0.1:8002/redoc |
 | OpenAPI JSON | http://127.0.0.1:8002/openapi.json |
-| YaoAPI 聚合文档 | http://127.0.0.1:8002/docs/yao-api |
 
 ### 前端
 
@@ -82,7 +80,7 @@ npm run dev     # 开发服务器 5173，访问 http://127.0.0.1:5173/ui/
 npm run build   # 产物写入 ../static，随后由 FastAPI /ui 托管
 ```
 
-开发环境通过 Vite 代理把 `/api00_start`、`/item`、`/system`、`/docs` 等前缀转发到 `http://127.0.0.1:8002`，因此前后端都使用同源相对路径，生产环境无需改配置。
+业务接口统一挂在 `/api/v1` 下（`app/api/v1/routers.py` 的 `API_PREFIX`），开发环境只需把该前缀经 Vite 代理转发到 `http://127.0.0.1:8002`；`/docs`、`/openapi.json`、`/healthz` 为应用级入口，仍在根路径，开发环境一并转发。前端 axios 默认 baseURL 为 `/api/v1`（`VITE_APP_BASE_API`），因此页面与接口始终同源，生产环境无需改配置。
 
 ## 配置说明
 
@@ -107,23 +105,21 @@ VECTOR_DIM=1024                  # 须与 embedding 模型输出一致（bge-m3=
 VECTOR_AUTO_CREATE=true          # 启动时幂等建扩展、切块表与 HNSW 索引
 ```
 
-向量接口：`GET /system/vector/status`、`POST /system/vector/chunks/upsert`、`POST /system/vector/chunks/search`、
-`DELETE /system/vector/chunks`（embedding 由调用方生成，接口只做维度校验与存取）。
+向量存储（`app/core/vector_store.py`）：启动时幂等建 `vector` 扩展、切块表与 HNSW 索引，为后续 RAG 能力预留；当前未注册对外向量接口。
 
 ### 前端环境
 
 | 文件 | 用途 |
 | --- | --- |
-| `.env.development` | 标题、`VITE_APP_BASE=/ui/`、代理目标与代理前缀 |
-| `.env.production` | 标题、base，接口走同源相对路径 |
+| `.env.development` | 标题、`VITE_APP_BASE=/ui/`、接口前缀 `VITE_APP_BASE_API=/api/v1`、代理目标 `VITE_API_BASE_URL` |
+| `.env.production` | 标题、base、接口前缀（页面与接口同源，无需跨域配置） |
 
 ## 前端功能
 
 | 路由 | 页面 | 说明 |
 | --- | --- | --- |
-| `/dashboard` | 运行总览 | Hero 检索、指标条、最近任务、快捷入口、后端服务信息 |
-| `/system/user` | 用户管理 | 对接 `/system/users`，分页查询、新增、编辑、详情、删除 |
-| `/monitor/agent` | 任务监控 | 任务列表筛选、分页、进度展示、详情抽屉（当前为示例数据） |
+| `/dashboard` | 运行总览 | Hero 检索、指标条、最近任务（示例数据）、快捷入口、后端服务信息 |
+| `/system/log` | 日志审计 | 对接 `/api/v1/system/log/operation`，分页查询、条件筛选、详情、批量删除、按天数清理 |
 | `/monitor/endpoint` | 接口自检 | 接口清单 + 逐个探测，JSON 展示响应与耗时 |
 
 布局与交互：
@@ -151,8 +147,7 @@ VECTOR_AUTO_CREATE=true          # 启动时幂等建扩展、切块表与 HNSW 
 
 ## 后端要点
 
-- 路由注册：`register_routers()` 先注册 `module_system`，再自动扫描 `app.api` 包下所有 `APIRouter` 实例
-- 中间件：`register_middlewares()` 已实现（装饰器 + 类中间件），当前在 `create_app()` 中默认注释，需要时取消
+- 路由注册：`register_routers()` 只挂载 `app/api/v1/routers.py` 的 `api_v1`；新增业务模块时在 `app/modules/<域>/<功能>/controller.py` 定义 Router，再到 `DOMAIN_CONTROLLERS` 登记，不做包扫描自动注册
 - 前端托管：`app.frontend("/ui", directory=STATIC_DIR, fallback="index.html")`，支持前端 history 路由直达
 - 日志：loguru 输出到控制台与 `logs/`，支持按大小滚动与 gzip 归档
 
@@ -180,6 +175,7 @@ devops/scripts/manual/rollback.sh prod 20261025213000
 
 - 应用运行配置唯一来源：`env/.env.<env>`（部署时挂载进容器 `/home/env/`，由 `app/config/setting.py` 加载）
 - 数据库：PostgreSQL 17 + pgvector；自建中间件用 `devops/common-server/docker-compose.yml`（`pgvector/pgvector:pg17`，首次初始化自动 `CREATE EXTENSION vector`）
+- 模型服务：同一个 compose 还编排 `ollama`（`bge-m3` 向量化，`/api/embed`）与 `rerank`（llama.cpp `--rerank`，`bge-reranker-v2-m3`，`/v1/rerank`），容器名 `service-brain-ollama` / `service-brain-rerank`，详见 [devops/README.md 6.5](./devops/README.md)
 - 环境矩阵：`dev` / `test` / `uat` / `prod`；容器内固定监听 `8002`，宿主机端口由 `APP_PORT` 控制
 - 流水线双入口：`.gitlab-ci.yml`（单 Job，默认关闭待启用）与 `Jenkinsfile`（手动触发）
 - 详细说明（目录结构、配置与口令契约、变量清单、落地步骤）：[devops/README.md](./devops/README.md)

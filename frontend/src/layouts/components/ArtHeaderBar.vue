@@ -79,10 +79,6 @@
                 <el-icon><Document /></el-icon>
                 接口文档
               </el-dropdown-item>
-              <el-dropdown-item command="yao">
-                <el-icon><Files /></el-icon>
-                YaoAPI 文档
-              </el-dropdown-item>
               <el-dropdown-item command="logout" divided>
                 <el-icon><SwitchButton /></el-icon>
                 退出登录
@@ -156,10 +152,6 @@ function refreshCurrent() {
 async function handleUserCommand(command) {
   if (command === 'docs') {
     window.open(appConfig.swaggerUrl, '_blank')
-    return
-  }
-  if (command === 'yao') {
-    window.open(appConfig.yaoApiUrl, '_blank')
     return
   }
   if (command === 'logout') {

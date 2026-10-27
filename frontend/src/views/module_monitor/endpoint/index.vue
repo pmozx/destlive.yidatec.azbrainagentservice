@@ -79,7 +79,7 @@ async function runProbe(item) {
   current.value = item
   loading.value = true
   try {
-    result.value = await probeEndpoint(item.method, item.path)
+    result.value = await probeEndpoint(item.method, item.path, { absolute: item.absolute })
     if (isSuccess.value) passedCount.value += 1
   } catch (error) {
     result.value = {

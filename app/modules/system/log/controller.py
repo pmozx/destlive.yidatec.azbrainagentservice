@@ -12,7 +12,7 @@ from app.core.router_class import OperationLogRoute
 from .schema import OperationLogCleanSchema, OperationLogDetailOutSchema, OperationLogOutSchema, OperationLogQueryParam
 from .service import OperationLogService
 
-LogRouter = APIRouter(route_class=OperationLogRoute, prefix="/log/operation", tags=["102-操作日志"])
+LogRouter = APIRouter(route_class=OperationLogRoute, prefix="/log/operation", tags=["101-操作日志"])
 
 
 @LogRouter.get("/list", summary="01-分页查询操作日志", response_model=ResponseSchema[PageResultSchema[OperationLogOutSchema]])

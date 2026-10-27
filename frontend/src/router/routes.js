@@ -26,14 +26,14 @@ export const constantRoutes = [
     path: '/system',
     name: 'System',
     component: Layout,
-    redirect: '/system/user',
+    redirect: '/system/log',
     meta: { title: '系统管理', icon: 'Setting' },
     children: [
       {
-        path: 'user',
-        name: 'SystemUser',
-        component: () => import('@/views/module_system/user/index.vue'),
-        meta: { title: '用户管理', icon: 'User' },
+        path: 'log',
+        name: 'SystemLog',
+        component: () => import('@/views/module_system/log/index.vue'),
+        meta: { title: '日志审计', icon: 'Tickets' },
       },
     ],
   },
@@ -41,15 +41,9 @@ export const constantRoutes = [
     path: '/monitor',
     name: 'Monitor',
     component: Layout,
-    redirect: '/monitor/agent',
+    redirect: '/monitor/endpoint',
     meta: { title: '服务监控', icon: 'Monitor' },
     children: [
-      {
-        path: 'agent',
-        name: 'MonitorAgent',
-        component: () => import('@/views/module_monitor/agent/index.vue'),
-        meta: { title: '任务监控', icon: 'DataLine' },
-      },
       {
         path: 'endpoint',
         name: 'MonitorEndpoint',

@@ -1,10 +1,7 @@
-import importlib
-import pkgutil
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, APIRouter
-from yao_api import YaoAPI
+from fastapi import FastAPI
 
 from app.config.path_conf import STATIC_DIR
 from app.core.logger import logger
@@ -17,7 +14,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     审计属辅助能力，初始化失败只告警不阻断启动。
     """
-    from app.api.v1.module_system.log.service import cleanup_expired_operation_logs, ensure_operation_log_table
+    from app.modules.system.log.service import cleanup_expired_operation_logs, ensure_operation_log_table
 
     try:
         await ensure_operation_log_table()
@@ -27,13 +24,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.error(f"❌ 操作日志审计初始化失败（审计功能不可用，业务不受影响）: {e!s}")
 
     # 向量存储（pgvector）：建扩展、切块表与 HNSW 索引，幂等；失败只告警，
-    # 由 /system/vector/status 暴露原因，避免数据库暂不可用时拖住整个应用启动
+    # 避免数据库暂不可用时拖住整个应用启动
     from app.core.vector_store import ensure_vector_store
 
     try:
         await ensure_vector_store()
     except Exception as e:
-        logger.error(f"❌ 向量存储初始化失败（pgvector 不可用，向量接口将返回错误）: {e!s}")
+        logger.error(f"❌ 向量存储初始化失败（pgvector 不可用，后续向量能力将不可用）: {e!s}")
 
     yield
 
@@ -47,66 +44,22 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await async_engine.dispose()
 
 
-
-def _auto_discover_routers(package_path: str) -> APIRouter:
-    """
-    自动扫描包下所有模块，收集所有 APIRouter 实例并注册到根路由器。
-    支持任意变量名：router、user_router、admin_router 等。
-
-    Args:
-        package_path: 包的导入路径，如 "app.api"
-
-    Returns:
-        包含所有子路由的根路由器
-
-    Example:
-        app.include_router(auto_discover_routers("app.api"))
-    """
-    root_router = APIRouter()
-    package = importlib.import_module(package_path)
-
-    for _, module_name, is_pkg in pkgutil.walk_packages(
-            package.__path__,
-            f"{package.__name__}."
-    ):
-        if is_pkg:
-            continue
-
-        module = importlib.import_module(module_name)
-
-        # 扫描模块中所有属性，找出所有 APIRouter 实例
-        for attr_name in dir(module):
-            attr = getattr(module, attr_name)
-            if isinstance(attr, APIRouter):
-                root_router.include_router(attr)
-
-    return root_router
-
 def register_routers(app: FastAPI) -> None:
     """
-    注册路由
+    注册路由：业务模块统一由 app/api/v1/routers.py 的总表挂载。
     :param app: FastAPI 应用
     :return: None
     """
-    from app.api.v1.module_system import system_router
-    app.include_router(system_router)
-    # 自动扫描并注册路由
-    root_router = _auto_discover_routers("app.api")
-    logger.info("自动扫描并注册路由: {}", root_router.routes)
-    app.include_router(root_router)
+    from app.api.v1.routers import API_PREFIX, DOMAIN_CONTROLLERS, api_v1
 
-def register_middlewares(app: FastAPI) -> None:
-    """
-    注册中间件
-    :param app: FastAPI 应用
-    :return: None
-    """
-    from core.middlewares import middleware_func, MiddlewareClass01, MiddlewareClass02
-    # 注册装饰器中间件
-    middleware_func(app)
-    # 注册类中间件（注意：类中间件永远比装饰器中间件先执行）
-    app.add_middleware(MiddlewareClass01)
-    app.add_middleware(MiddlewareClass02)
+    app.include_router(api_v1)
+    # include_router 只记录占位对象，按总表统计才准确反映已挂载的 controller 数量
+    logger.info(
+        "已注册业务路由前缀 {}：域 {} 个，controller {} 个",
+        API_PREFIX,
+        len(DOMAIN_CONTROLLERS),
+        sum(len(controllers) for controllers in DOMAIN_CONTROLLERS.values()),
+    )
 
 
 def create_app() -> FastAPI:
@@ -116,26 +69,11 @@ def create_app() -> FastAPI:
         version="1.0.0",
         lifespan=lifespan,
     )
-    # register_middlewares(app)
     register_routers(app)
     logger.info('==== fastapi 项目启动中 ====')
     logger.info('==== swagger 地址：http://127.0.0.1:8002/docs ====')
     logger.info('==== redoc 地址：http://127.0.0.1:8002/redoc ====')
     logger.info('==== openapi 地址：http://127.0.0.1:8002/openapi.json ====')
-
-    YaoAPI(
-        app,
-        mount_path="/docs/yao-api",
-        title="service_brain_agent",
-        description="服务大脑智能体应用",
-        version="1.0.0",
-        # group_order=["订单", "支付", "用户"],
-        # doc_username="admin",  # 可选：与 doc_password 成对设置才开启登录
-        # doc_password="yao123",  # 可选：与 doc_username 成对设置才开启登录
-        # aggregation=[{"name": "用户服务", "url": "http://user-svc/openapi.json"}],
-    )
-
-    logger.info('==== yao-api 地址：http://127.0.0.1:8002/docs/yao-api ====')
 
     @app.get("/healthz", include_in_schema=False)
     async def healthz():

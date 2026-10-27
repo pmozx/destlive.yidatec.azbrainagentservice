@@ -116,7 +116,7 @@ _pending_tasks: set[asyncio.Task[None]] = set()
 
 async def _write_operation_log_async(log_data: OperationLogRecord) -> None:
     """独立会话落库：不复用请求级会话（响应返回时该事务已结束）。"""
-    from app.api.v1.module_system.log.model import OperationLogModel  # 延迟导入：core 不反向依赖业务层
+    from app.modules.system.log.model import OperationLogModel  # 延迟导入：core 不反向依赖业务层
 
     try:
         async with async_session_factory() as session:

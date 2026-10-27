@@ -3,33 +3,22 @@ import { HttpMethod } from '@/enums'
 
 /**
  * 接口自检目录
- * 与后端 app/api 下的示例控制器保持一致，新增接口时在此登记即可
+ * 业务接口写相对路径，由 axios 统一加 /api/v1 前缀；
+ * 文档、健康检查等应用级入口标 absolute: true，直探根路径。
  */
 export const endpointCatalog = [
   {
-    group: 'FastAPI 基础示例',
+    group: '系统管理',
     items: [
-      { name: '路由定义', method: HttpMethod.GET, path: '/api01_basic/d01_router' },
-      { name: '路径参数', method: HttpMethod.GET, path: '/api01_basic/d02_path_param/1' },
-      { name: '查询参数', method: HttpMethod.GET, path: '/api01_basic/d03_query_param?skip=0&limit=5' },
-      { name: '响应体模型', method: HttpMethod.GET, path: '/api01_basic/d05_response_body/1' },
-      { name: '文件响应', method: HttpMethod.GET, path: '/api01_basic/d07_response_file' },
-      { name: '中间件', method: HttpMethod.GET, path: '/api02_middleware/d01_middleware' },
-      { name: '依赖注入', method: HttpMethod.GET, path: '/api03_depends/d01_common_parameters' },
-    ],
-  },
-  {
-    group: '业务模块',
-    items: [
-      { name: '用户分页列表', method: HttpMethod.GET, path: '/system/users/list?page_no=1&page_size=5' },
-      { name: '项目列表', method: HttpMethod.GET, path: '/item/list' },
+      { name: '操作日志列表', method: HttpMethod.GET, path: '/system/log/operation/list?page_no=1&page_size=5' },
     ],
   },
   {
     group: '文档与服务',
     items: [
-      { name: 'OpenAPI 规范', method: HttpMethod.GET, path: '/openapi.json' },
-      { name: 'Swagger UI', method: HttpMethod.GET, path: '/docs' },
+      { name: '健康检查', method: HttpMethod.GET, path: '/healthz', absolute: true },
+      { name: 'OpenAPI 规范', method: HttpMethod.GET, path: '/openapi.json', absolute: true },
+      { name: 'Swagger UI', method: HttpMethod.GET, path: '/docs', absolute: true },
     ],
   },
 ]
@@ -38,11 +27,19 @@ export const endpointCatalog = [
  * 发起一次接口自检请求
  * 返回完整响应信息，便于页面展示状态码、耗时与原始报文
  * @param {string} method 请求方法
- * @param {string} path 接口路径
+ * @param {string} path 接口路径（默认为业务接口，由 axios 统一加 /api/v1 前缀）
+ * @param {{ absolute?: boolean }} options absolute=true 时不加前缀，用于文档、健康检查等根路径接口
  */
-export async function probeEndpoint(method, path) {
+export async function probeEndpoint(method, path, options = {}) {
   const startedAt = performance.now()
-  const response = await request.request({ url: path, method, raw: true, quiet: true })
+  const response = await request.request({
+    url: path,
+    method,
+    raw: true,
+    quiet: true,
+    // 根路径接口需清空 baseURL，否则会被拼成 /api/v1/docs
+    ...(options.absolute ? { baseURL: '' } : {}),
+  })
   return {
     status: response.status,
     statusText: response.statusText,
@@ -53,5 +50,5 @@ export async function probeEndpoint(method, path) {
 
 /** 后端连通性探测（用于首页服务状态卡片） */
 export function checkBackendHealth() {
-  return probeEndpoint(HttpMethod.GET, '/api01_basic/d01_router')
+  return probeEndpoint(HttpMethod.GET, '/healthz', { absolute: true })
 }

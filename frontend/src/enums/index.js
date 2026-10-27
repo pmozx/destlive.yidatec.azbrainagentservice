@@ -51,15 +51,3 @@ export const AgentTaskStatusMeta = Object.freeze({
   [AgentTaskStatus.FAILED]: { label: '异常', type: 'danger' },
 })
 
-/** 性别字典，与后端字段约定一致（0 男 / 1 女 / 2 未知） */
-export const GenderEnum = Object.freeze({
-  MALE: '0',
-  FEMALE: '1',
-  UNKNOWN: '2',
-})
-
-export const GenderLabel = Object.freeze({
-  [GenderEnum.MALE]: '男',
-  [GenderEnum.FEMALE]: '女',
-  [GenderEnum.UNKNOWN]: '未知',
-})

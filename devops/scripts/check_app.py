@@ -48,7 +48,7 @@ def _rel(path: Path) -> str:
 
 
 def _normalize(name: str) -> str:
-    """按 PEP 503 归一化包名，使 yao_api / yao-api / yao.api 视为同一个包。"""
+    """按 PEP 503 归一化包名，使 my_pkg / my-pkg / my.pkg 视为同一个包。"""
     return re.sub(r"[-_.]+", "-", name).lower()
 
 

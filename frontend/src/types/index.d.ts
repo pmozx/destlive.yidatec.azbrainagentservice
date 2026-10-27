@@ -28,27 +28,26 @@ declare interface PageQuery {
   [key: string]: unknown
 }
 
-/** 用户管理列表项，对应 app/api/v1/module_system/user/schema.py 的 UserOutSchema */
-declare interface UserItem {
+/** 操作日志列表项，对应 app/modules/system/log/schema.py 的 OperationLogOutSchema */
+declare interface OperationLogItem {
   id: number
-  uuid?: string
-  username?: string
-  name?: string
-  mobile?: string
-  email?: string
-  gender?: string
+  username: string
+  status: number
+  description?: string
+  request_path: string
+  request_method: string
+  response_code: number
+  process_time?: string
+  request_ip?: string
   created_time?: string
-  updated_time?: string
 }
 
-/** 创建 / 修改用户的请求体 */
-declare interface UserPayload {
-  username?: string
-  password?: string
-  name?: string
-  mobile?: string
-  email?: string
-  gender?: string
+/** 操作日志详情，对应 OperationLogDetailOutSchema */
+declare interface OperationLogDetail extends OperationLogItem {
+  request_query?: string
+  request_payload?: string
+  response_json?: string
+  user_agent?: string
 }
 
 /** 路由元信息 */
@@ -68,13 +67,3 @@ declare interface MenuNode {
   children?: MenuNode[]
 }
 
-/** 前端内置的监控任务模型（后端接口就绪后替换为真实类型） */
-declare interface AgentTaskItem {
-  id: string
-  name: string
-  agent: string
-  status: string
-  progress: number
-  duration: number
-  startedAt: string
-}

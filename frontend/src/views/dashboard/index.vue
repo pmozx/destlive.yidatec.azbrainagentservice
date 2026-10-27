@@ -134,7 +134,7 @@
       <el-descriptions :column="2" size="small" border>
         <el-descriptions-item label="前端版本">v{{ appConfig.version }}</el-descriptions-item>
         <el-descriptions-item label="构建模式">{{ buildMode }}</el-descriptions-item>
-        <el-descriptions-item label="接口基础路径">{{ apiBase || '同源相对路径' }}</el-descriptions-item>
+        <el-descriptions-item label="接口基础路径">{{ apiBase }}</el-descriptions-item>
         <el-descriptions-item label="后端连通性">
           <el-tag :type="health.online ? 'success' : 'danger'" size="small">
             {{ health.online ? '在线' : '离线' }}
@@ -143,8 +143,6 @@
         </el-descriptions-item>
         <el-descriptions-item label="接口文档">
           <el-link type="primary" :underline="false" @click="openDoc(appConfig.swaggerUrl)">Swagger</el-link>
-          <el-divider direction="vertical" />
-          <el-link type="primary" :underline="false" @click="openDoc(appConfig.yaoApiUrl)">YaoAPI</el-link>
         </el-descriptions-item>
         <el-descriptions-item label="前端托管">app.frontend('/ui')</el-descriptions-item>
       </el-descriptions>
@@ -169,7 +167,7 @@ defineOptions({ name: 'DashboardView' })
 const router = useRouter()
 
 const buildMode = import.meta.env.MODE
-const apiBase = import.meta.env.VITE_API_BASE_URL
+const apiBase = import.meta.env.VITE_APP_BASE_API || '/api/v1'
 
 const panes = [
   { key: 'tasks', label: '最近任务' },

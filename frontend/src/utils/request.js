@@ -25,7 +25,8 @@ function resolveErrorMessage(error) {
 }
 
 const request = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || '',
+  // 业务接口统一前缀，与后端 app/api/v1/routers.py 的 API_PREFIX 一致
+  baseURL: import.meta.env.VITE_APP_BASE_API || '/api/v1',
   timeout: 15000,
   headers: { 'Content-Type': 'application/json;charset=utf-8' },
 })
@@ -42,7 +43,7 @@ request.interceptors.response.use(
     // 需要完整响应（状态码、耗时、原始报文）时传 { raw: true }
     if (config.raw) return response
 
-    // 非统一响应结构（如 /api00_start 直接返回 dict）原样返回
+    // 非统一响应结构（如 /healthz 直接返回 dict）原样返回
     if (!isApiResponse(data)) return data
 
     if (data.success === false || !SUCCESS_CODES.includes(data.code)) {

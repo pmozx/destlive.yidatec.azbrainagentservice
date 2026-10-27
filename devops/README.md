@@ -61,7 +61,7 @@ build（门禁校验） → package（构建并推送镜像） → deploy（dock
 | 配置注入   | `backend/env/.env.<env>` 挂载进容器                     | 同左：`env/.env.<env>` 挂载到 `/home/env/`                        |
 | 容器端口   | 容器内固定 8001，宿主机端口由 `BACKEND_PORT` 控制       | 容器内固定 **8002**，宿主机端口由 `APP_PORT` 控制（与 `main.py` 默认一致） |
 | 启动方式   | 入口脚本 `python main.py run --env=<env>`               | 入口脚本 `python -m uvicorn app:create_app --factory`（关掉热重载） |
-| 中间件     | `devops/common-server`（MySQL + Redis + Milvus）        | `devops/common-server`（**PostgreSQL 17 + pgvector**，可选用）      |
+| 中间件     | `devops/common-server`（MySQL + Redis + Milvus）        | `devops/common-server`（**PostgreSQL 17 + pgvector + Ollama / llama.cpp 模型服务**，可选用） |
 | 数据与向量 | 业务库 MySQL + 向量库 Milvus 两套存储                   | **单库合流**：业务表与向量表（`kb_chunk`）同在 PostgreSQL，靠 pgvector 检索 |
 
 ---
@@ -80,10 +80,11 @@ service_brain_agent/
     ├── compose/
     │   ├── app.yml                         # 应用服务编排（配置 bind 挂载 + 健康检查 + 外部共享网络）
     │   └── .env.example                    # compose 手工执行变量样例（真实 .env 不入库）
-    ├── common-server/
-    │   ├── docker-compose.yml              # 可选：自建 PostgreSQL 17 + pgvector（与应用同外部网络）
+    ├── common-server/                       # 可选：自建数据库与本地模型服务（常驻、与应用同外部网络）
+    │   ├── docker-compose.yml              # PostgreSQL 17 + pgvector、Ollama（bge-m3）、llama.cpp rerank
     │   ├── initdb/00-init.sql              # 数据目录首次初始化：CREATE EXTENSION vector
-    │   └── .env.example                    # 中间件初始化口令/端口插值样例（真实 .env 不入库）
+    │   ├── volumes/                        # 数据库、Ollama 模型、rerank GGUF 持久化（gitignore，自动创建）
+    │   └── .env.example                    # 取值清单（编排已内联这些值，默认不读取）
     ├── config/
     │   ├── Dockerfile                      # 两阶段镜像：node 构建前端 → uv 运行时
     │   ├── Dockerfile.dockerignore         # 该镜像的构建上下文排除清单（BuildKit 特性）
@@ -109,9 +110,9 @@ service_brain_agent/
 | ------------------ | ------------------------------- | -------- | ----------------------------------------------------------------------- |
 | 应用运行配置       | `env/.env.<env>`                | 是（模板） | 部署时 bind 挂载进容器 `/home/env/.env.<env>`，**部署脚本不解析、不渲染**；非开发环境的口令按部署机维护，不要提交实值 |
 | 部署侧非口令默认值 | `devops/scripts/deploy-defaults.sh` | 是   | 镜像仓库地址、镜像名、端口、网络名、基础镜像等；执行机可用同名环境变量覆盖 |
-| compose 插值变量   | `devops/compose/.env`、`devops/common-server/.env` | 否（gitignore） | 仅手工执行 compose 时需要；CI 由脚本导出变量 |
+| compose 插值变量   | `devops/compose/.env` | 否（gitignore） | 仅手工执行应用编排时需要；CI 由脚本导出变量。`devops/common-server` 的取值已内联在编排里，不需要 `.env` |
 | 镜像仓库口令       | 执行机 `~/.docker/config.json` 或 CI 变量 `DOCKER_REPO_USERNAME` / `DOCKER_REPO_PASSWORD` | **否** | 严禁写入仓库任何文件；仅 `package.sh` 推送镜像时使用 |
-| 运行数据           | `devops/data/logs`、`devops/common-server/volumes/postgres` | 否（gitignore） | 容器持久化目录，由脚本或 compose 自动创建 |
+| 运行数据           | `devops/data/logs`、`devops/common-server/volumes/{postgres,ollama,rerank}` | 否（gitignore） | 容器与模型持久化目录，由脚本或 compose 自动创建 |
 
 容器内只有 **一个**环境变量覆盖项：`ENVIRONMENT`（取值 `dev|test|uat|prod`）。应用 `app/config/setting.py` 读取该变量后加载 `/home/env/.env.<ENVIRONMENT>`，因此 `env/.env` 里的 `ENVIRONMENT=dev` 不会影响容器行为。
 
@@ -217,12 +218,14 @@ devops/scripts/manual/rollback.sh prod 20261025213000
 - compose 没有 Deployment 版本历史，**回滚 = 用历史 tag 重放部署**；
 - 回滚不改数据库结构：若目标版本早于最近的表结构变更，需人工确认 DDL 可回退性（本工程暂未接入 Alembic 迁移链，表结构变更需随发布单独评审）。
 
-### 6.3 中间件：自建 PostgreSQL + pgvector（可选）
+### 6.3 中间件与模型服务：自建数据库 / Ollama / llama.cpp（可选）
 
 ```bash
-# 一次性拉起（长期运行，不随应用发布重启）
-cp devops/common-server/.env.example devops/common-server/.env   # 填 POSTGRES_PASSWORD 等
+# 一次性拉起（长期运行，不随应用发布重启；取值已内联在编排里，无需 .env）
 docker compose -f devops/common-server/docker-compose.yml up -d
+
+# 若要求口令不入库：把编排里的 POSTGRES_PASSWORD 改回 ${POSTGRES_PASSWORD:?}，
+# 再 cp .env.example .env 填实值（.env 已 gitignore）
 ```
 
 镜像 `pgvector/pgvector:pg17` 自带 pgvector 扩展（实测 0.8.7）。`initdb/00-init.sql` 在数据目录**首次**初始化时执行
@@ -235,15 +238,16 @@ docker compose -f devops/common-server/docker-compose.yml up -d
 DATABASE_TYPE=postgres
 DATABASE_HOST=service-brain-postgres
 DATABASE_PORT=5432
-DATABASE_NAME=service_brain_agent           # 须与 devops/common-server/.env 的 POSTGRES_DB 一致
+DATABASE_NAME=service_brain_agent           # 须与编排里的 POSTGRES_DB 一致
 DATABASE_USER=postgres
-DATABASE_PASSWORD=<与 devops/common-server/.env 的 POSTGRES_PASSWORD 一致>
+DATABASE_PASSWORD=<与编排里的 POSTGRES_PASSWORD 一致>
 VECTOR_ENABLE=true
 VECTOR_DIM=1024                      # 须与 embedding 模型输出一致（bge-m3=1024）
 VECTOR_AUTO_CREATE=true
 ```
 
-> - 口令两边必须一致，且只存在于部署机（`env/.env.<env>` 与 `devops/common-server/.env`，均 gitignore / 不入库）；
+> - 口令两边必须一致：编排里内联的 `POSTGRES_PASSWORD` 与 `env/.env.<env>` 的 `DATABASE_PASSWORD` 必须相同；
+>   若要求口令不入库，把编排改回 `${POSTGRES_PASSWORD:?}` 并用同目录 `.env`（已 gitignore）注入；
 > - 生产建议为应用单独建库账号并收敛权限，但 `CREATE EXTENSION` 需要超级用户：由 DBA 在部署机初始化时执行一次，
 > 应用账号只需库的 `USAGE` 与表读写权限；
 > - 同一台机器跑多个环境（如 test / prod）时，`POSTGRES_DB` 与 `DATABASE_NAME` 需逐环境对齐，或各起一套编排（改容器名与 `POSTGRES_PORT`）；
@@ -254,21 +258,66 @@ VECTOR_AUTO_CREATE=true
 切块表 `kb_chunk`：`space_id` / `doc_id` / `chunk_index` 唯一约束（重复向量化幂等覆盖）、`content` 原文、
 `embedding vector(<VECTOR_DIM>)`、`meta jsonb`，索引为 HNSW + `vector_cosine_ops`（m=16, ef_construction=64）。
 
-| 接口 | 说明 |
-| ---- | ---- |
-| `GET /system/vector/status` | 自检：是否启用、维度、表名、索引名、切块总量、不可用原因 |
-| `POST /system/vector/chunks/upsert` | 批量写入切块（含向量），按 (space_id, doc_id, chunk_index) 幂等覆盖，建议 ≤32 条/批 |
-| `POST /system/vector/chunks/search` | 余弦相似度召回，支持 `space_id` / `doc_id` 过滤、`top_k`、`min_score` |
-| `DELETE /system/vector/chunks` | 按 `doc_id`（可选 `space_id`）删除整篇文档的切块 |
+向量能力以服务层形式提供（`app/core/vector_store.py`），对外 HTTP 接口留给后续知识库模块接入：
+
+| 能力 | 函数 | 说明 |
+| ---- | ---- | ---- |
+| 建扩展/表/索引 | `ensure_vector_store()` | 启动时幂等执行，数据库不可用时只告警不阻断启动 |
+| 幂等写入 | `upsert_chunks()` | 按 (space_id, doc_id, chunk_index) 覆盖，写入前校验维度 |
+| 相似度召回 | `search_chunks()` | 余弦召回，支持 `space_id` / `doc_id` 过滤、`top_k`、`min_score` |
+| 按文档删除 | `delete_chunks()` | 按 `doc_id`（可选 `space_id`）清理整篇切块 |
 
 - **分数口径**：`score = 1 - cosine_distance`，越大越相似；阈值需按实际 embedding 模型重标，不要跨模型复用；
-- **embedding 不在本工程生成**：接口接收调用方算好的向量，只做维度校验与存取，不绑定模型供应商；
+- **embedding 由调用方生成**：本工程只做维度校验与存取，不绑定模型供应商；自建模型服务见 6.5；
 - **维度不可原地变更**：`kb_chunk` 的向量列类型在进程导入期定型，`VECTOR_DIM` 改动后启动时会检测到表维度不一致并报错，
-  需新建表/库并重新灌入（与 `devops/README` 第 9 节限制一致）；
-- **接口不在审计范围内**：向量接口未挂 `OperationLogRoute`，避免上千维浮点数组写入审计表；
-- **排障入口**：`GET /system/vector/status` 返回 `chunk_total` 与 `message`，可快速区分「扩展未建」「表不存在」「配置未启用」。
+  需新建表/库并重新灌入（与第 9 节限制一致）；
+- **审计口径**：向量写入属高频批量路径，后续接入 HTTP 接口时不要挂 `OperationLogRoute`，避免上千维浮点数组落审计表。
 
-### 6.5 运维常用命令
+### 6.5 模型服务：Ollama 向量化 + llama.cpp 重排序（可选）
+
+同一个 `devops/common-server/docker-compose.yml` 还编排两个模型服务，常驻运行、与应用发布解耦：
+
+| 服务 | 容器名 | 端点 | 模型 | 镜像（锁版本） |
+| ---- | ------ | ---- | ---- | -------------- |
+| `ollama` | `service-brain-ollama` | `POST /api/embed` | `bge-m3`（1024 维，8K 上下文，多语言） | `ollama/ollama:0.40.11`（0.40 稳定线最新补丁） |
+| `rerank` | `service-brain-rerank` | `POST /v1/rerank` | `bge-reranker-v2-m3`（Q8_0，约 600MB） | `ghcr.io/ggml-org/llama.cpp:server-b11889`（按构建号固定） |
+
+```bash
+# 首次拉起：ollama-init 拉取 bge-m3，rerank-init 下载 GGUF（均为一次性容器）
+docker compose -f devops/common-server/docker-compose.yml up -d
+docker compose -f devops/common-server/docker-compose.yml logs -f ollama-init rerank-init
+
+# 模型制备失败时单独重跑（卷里已有会直接跳过）
+docker compose -f devops/common-server/docker-compose.yml up ollama-init
+docker compose -f devops/common-server/docker-compose.yml up rerank-init
+```
+
+应用侧走同一 `APP_NETWORK` 按容器名访问，无需发布端口（下列 curl 在应用容器内或已接入该网络的调试容器内执行）：
+
+```bash
+curl -fsS http://service-brain-ollama:11434/api/embed \
+  -d '{"model":"bge-m3","input":"测试文本"}'          # 返回 1024 维向量
+
+curl -fsS http://service-brain-rerank:8080/v1/rerank \
+  -d '{"query":"问题","documents":["候选一","候选二"],"top_n":2}'
+```
+
+> - **镜像锁版本**：两个推理镜像都用具体版本 tag，不用 `latest`。Ollama 每个发布版本都有同名 tag（当前 0.40.x 稳定线最新为 `0.40.11`）；
+>   llama.cpp **没有发布稳定版的机制**，官方只给浮动的 `server` / `server-cuda` 等 tag，逐次构建另打 `server-b<编号>`，
+>   因此按构建号固定（当前最新镜像为 `server-b11889`）。升级方式：改 `devops/common-server/docker-compose.yml` 里对应服务的
+>   `image` 后 `up -d`，再用上面的 curl 自检一次 embed 与 rerank；
+> - **rerank 为什么不用 Ollama**：Ollama 只提供 embed 端点，没有 rerank（交叉编码器打分）接口，社区 reranker 模型也注明
+>   需 llama.cpp 类运行时；重排序由 llama.cpp 的 `llama-server --rerank` 承担，两者都跑本地 GGUF、无需出网推理。
+>   若某版本启动报 pooling 相关错误，在 `command` 中补 `--pooling rank`；
+> - **维度必须对齐**：`bge-m3` 输出 1024 维，`env/.env.<env>` 的 `VECTOR_DIM` 必须为 1024，否则写入时会被维度校验拒绝；
+> - **CPU 即可运行**：两个模型常驻内存合计约 3GB；`RERANK_THREADS` 取宿主机逻辑核数一半，`OLLAMA_KEEP_ALIVE`（默认 24h）
+>   控制空闲卸载，避免每次检索冷加载；
+> - **GPU 可选**：给 `ollama` / `rerank` 加 `deploy.resources.reservations.devices`（宿主要装 NVIDIA Container Toolkit）；
+>   `ollama/ollama` 镜像自带 CUDA 判断无需换 tag，`llama.cpp:server` 是 CPU 构建，GPU 需改用 `server-cuda` 类 tag；
+> - **模型来源**：rerank GGUF 默认从 `hf-mirror.com` 下载（国内直连 huggingface.co 通常不通），可用 `RERANK_MODEL_URL`
+>   指向 ModelScope、内网制品库或其他镜像站地址。
+
+### 6.6 运维常用命令
 
 ```bash
 # 容器状态 / 日志
@@ -284,6 +333,10 @@ ls -lh devops/data/logs/fastapiadmin.log
 
 # 停止（不删数据卷/网络）
 docker compose -p service-brain-agent -f devops/compose/app.yml down
+
+# 公共中间件与模型服务（独立编排，与应用互不影响）
+docker compose -f devops/common-server/docker-compose.yml ps
+docker compose -f devops/common-server/docker-compose.yml down
 ```
 
 ---
@@ -315,7 +368,7 @@ docker compose -p service-brain-agent -f devops/compose/app.yml down
 2. **配置镜像仓库**：核对 `deploy-defaults.sh` 中 `DOCKER_REPO_URL` / `DOCKER_REPO_NAMESPACE`，或导出同名环境变量覆盖。
 3. **准备部署机**：安装 docker + compose 插件；执行机一次性 `docker login <DOCKER_REPO_URL>`。
 4. **准备环境文件**：在部署机放置 `env/.env.<env>`（参考 `env/.env.dev`，改 `DATABASE_*`、`LOGGER_LEVEL`、`DEBUG=false`、`RELOAD=false`）；生产口令不要提交入库。
-5. **（可选）自建数据库**：`devops/common-server` 拉起 PostgreSQL 17 + pgvector，并把 `DATABASE_HOST` 改为容器名；向量能力自检看 `GET /system/vector/status`。
+5. **（可选）自建数据库与模型服务**：`devops/common-server` 拉起 PostgreSQL 17 + pgvector、Ollama（bge-m3 向量化）与 llama.cpp（bge-reranker-v2-m3 重排序），把 `DATABASE_HOST` 改为容器名即可；模型地址与拉取方式见 6.5。
 6. **注册 Runner**：GitLab Runner 打 tag `service-brain-agent`（或改 CI 文件中的 `RUNNER_TAG`）；Jenkins 侧配置节点具备 docker CLI。
 7. **启用流水线**：在 `.gitlab-ci.yml` 中取消 `workflow.rules` 注释；或直接用 Jenkins `Build Now` 手动发布。
 8. **首轮试运行**：dev 验证 `/ui` 与 `/healthz` → test / uat / prod 逐级手动发布 → 演练一次回滚。

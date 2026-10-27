@@ -10,9 +10,8 @@ export const appConfig = Object.freeze({
   description: import.meta.env.VITE_APP_DESCRIPTION || '服务大脑智能体控制台',
   version: import.meta.env.VITE_APP_VERSION || '0.1.0',
   copyright: import.meta.env.VITE_APP_DESCRIPTION || '服务大脑智能体控制台',
-  // 后端接口文档入口（YaoAPI 聚合文档）
+  // 后端接口文档入口（Swagger UI）
   swaggerUrl: '/docs',
-  yaoApiUrl: '/docs/yao-api',
 })
 
 /** 顶栏功能区开关 */
@@ -25,14 +24,13 @@ export const headerBarConfig = Object.freeze({
   showUserCenter: true,
 })
 
-/** 快捷入口（fastEnter）：后续接入更多监控页面时在此登记 */
+/** 快捷入口（fastEnter）：后续接入更多页面时在此登记 */
 export const fastEnterConfig = Object.freeze({
   enabled: true,
   items: [
+    { title: '日志审计', path: '/system/log', icon: 'Tickets', desc: '查看写操作留痕' },
     { title: '接口自检', path: '/monitor/endpoint', icon: 'Connection', desc: '逐个探测后端接口' },
-    { title: '任务监控', path: '/monitor/agent', icon: 'DataLine', desc: '查看任务执行进度' },
-    { title: '用户管理', path: '/system/user', icon: 'User', desc: '维护平台用户' },
-    { title: '接口文档', path: '/docs', icon: 'Document', desc: 'Swagger 与 YaoAPI', external: true },
+    { title: '接口文档', path: '/docs', icon: 'Document', desc: 'Swagger 接口文档', external: true },
   ],
 })
 
