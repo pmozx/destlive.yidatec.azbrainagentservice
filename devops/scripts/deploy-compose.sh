@@ -3,7 +3,7 @@ set -e
 
 # ==============================================================================
 # compose 形态部署（只起应用容器；PostgreSQL/pgvector 不随本脚本编排，可由
-devops/common-server 自托管或由环境提供，见 devops/README.md）
+# devops/common-server 自托管或由环境提供，见 devops/README.md）
 #
 #   用法: deploy-compose.sh <IMAGE> <APP_NAME>
 #   依赖变量：APP_PORT / APP_NETWORK / ENVIRONMENT / APP_ENV_FILE
