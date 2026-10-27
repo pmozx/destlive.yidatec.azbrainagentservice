@@ -6,7 +6,7 @@
 #   devops/common-server 自托管，与应用的容器同在 APP_NETWORK 内按容器名直连；
 #   或由环境提供独立数据库实例）。
 #
-#   应用配置唯一来源 env/.env.<ENVIRONMENT>：原样 bind 挂载到容器
+#   应用配置唯一来源 backend/env/.env.<ENVIRONMENT>：原样 bind 挂载到容器
 #   /home/env/.env.<ENVIRONMENT>（只读），由应用（pydantic-settings）自行加载；
 #   容器仅覆盖一个环境变量 ENVIRONMENT（供入口脚本选择环境与配置文件）。
 #
@@ -31,7 +31,7 @@ services:
       ENVIRONMENT: "${ENVIRONMENT:?ENVIRONMENT 未设置（目标环境 dev|test|uat|prod）}"
     volumes:
       # 应用多环境配置：env 文件原样挂载进容器，由应用自行加载（只读）
-      - "../../env/.env.${ENVIRONMENT:?}:/home/env/.env.${ENVIRONMENT}:ro"
+      - "../../backend/env/.env.${ENVIRONMENT:?}:/home/env/.env.${ENVIRONMENT}:ro"
       # 日志需持久化，宿主目录由部署脚本预建（devops/data 已 gitignore）
       - "../data/logs:/home/logs"
     healthcheck:

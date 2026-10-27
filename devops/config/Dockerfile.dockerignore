@@ -7,15 +7,15 @@
 # ==============================================================================
 
 # 环境配置：口令与差异化配置只能由部署期注入，严禁进镜像
-env
+backend/env
 
 # 运行期产物：容器内由 bind 挂载提供
-logs
-data
+backend/logs
+backend/data
 
 # 测试与本地缓存（镜像内不需要）
-tests
-pytest.ini
+backend/tests
+backend/pytest.ini
 **/__pycache__
 **/*.pyc
 **/*.pyo
@@ -45,9 +45,9 @@ frontend/.vite
 frontend/.cache
 
 # 前端构建产物：镜像内由 node 阶段重新构建，避免把本地产物打进镜像
-static/assets
-static/index.html
-static/favicon.svg
+backend/static/assets
+backend/static/index.html
+backend/static/favicon.svg
 
 # 部署与文档（镜像内不需要，减少构建上下文）。
 # 例外：entrypoint 脚本必须进上下文（Dockerfile 有 COPY devops/config/entrypoint/），

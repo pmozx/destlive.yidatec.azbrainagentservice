@@ -27,17 +27,17 @@ data
 .idea
 .vscode
 
-env
-tests
-pytest.ini
+backend/env
+backend/tests
+backend/pytest.ini
 
 frontend/node_modules
 frontend/dist
 frontend/.vite
 
-static/assets
-static/index.html
-static/favicon.svg
+backend/static/assets
+backend/static/index.html
+backend/static/favicon.svg
 
 devops/scripts
 devops/compose

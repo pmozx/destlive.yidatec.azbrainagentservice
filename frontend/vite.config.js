@@ -52,10 +52,10 @@ export default defineConfig(({ mode }) => {
       port: 4173,
     },
     build: {
-      // 构建产物直接落到后端静态目录，FastAPI 无需额外拷贝
-      outDir: '../static',
+      // 构建产物直接落到后端静态目录（backend/static），FastAPI 无需额外拷贝
+      outDir: '../backend/static',
       assetsDir: 'assets',
-      // static 下还有后端演示资源（images/1.jpeg 等），不做整体清空，由 scripts/clean.mjs 精确清理
+      // backend/static 下还有后端演示资源（images/1.jpeg 等），不做整体清空，由 scripts/clean.mjs 精确清理
       emptyOutDir: false,
       sourcemap: false,
       chunkSizeWarningLimit: 1500,

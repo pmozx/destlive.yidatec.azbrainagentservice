@@ -7,21 +7,23 @@
 #       --build-arg NPM_REGISTRY=... --build-arg PYPI_INDEX_URL=... \
 #       -t <IMAGE_NAME>:<TAG> .
 #
-#   本工程为前后端一体化：前端在镜像内构建（node 阶段），产物并入后端 static/，
-#   由 FastAPI 的 app.frontend("/ui", ...) 同源托管，故运行期只需一个容器。
+#   本工程为前后端一体化：前端在镜像内构建（node 阶段），产物并入后端
+#   backend/static/，由 FastAPI 的 app.frontend("/ui", ...) 同源托管，故运行期
+#   只需一个容器。
 #
-#   镜像不含任何环境配置：env/ 由 Dockerfile.dockerignore 排除，运行期由部署侧把
-#   env/.env.<环境名> 原样挂载到 /home/env/（compose bind mount），应用经
-#   pydantic-settings 自行加载；容器级环境变量只覆盖 ENVIRONMENT 一项。
+#   镜像不含任何环境配置：backend/env/ 由 Dockerfile.dockerignore 排除，运行期由
+#   部署侧把 backend/env/.env.<环境名> 原样挂载到 /home/env/（compose bind mount），
+#   应用经 pydantic-settings 自行加载；容器级环境变量只覆盖 ENVIRONMENT 一项。
 #
-#   WORKDIR 固定 /home：app/config/path_conf.py 的 BASE_DIR 由代码位置推导为 /home，
-#   日志目录 /home/logs、静态目录 /home/static 均以此为前提，变更 WORKDIR 会导致
-#   日志与前端托管路径错位。
+#   构建上下文里的后端代码在 backend/ 下，镜像内仍展平到 /home（main.py、app/、
+#   static/ 平级），故 WORKDIR 固定 /home：backend/app/config/path_conf.py 的
+#   BASE_DIR 由代码位置推导为 /home，日志目录 /home/logs、静态目录 /home/static
+#   均以此为前提，变更 WORKDIR 会导致日志与前端托管路径错位。
 # ==============================================================================
 
 # ------------------------------------------------------------------------------
 # 阶段一：前端构建（Vue 3 + Vite 7）
-#   vite.config.js 的 build.outDir = ../static，产物落在 /build/static
+#   vite.config.js 的 build.outDir = ../backend/static，产物落在 /build/backend/static
 #   （相对 /build/frontend 的上一级），随后整体并入运行镜像的 /home/static
 # ------------------------------------------------------------------------------
 FROM node:22-alpine AS web
@@ -64,9 +66,9 @@ ENV PATH="/home/.venv/bin:${PATH}"
 WORKDIR /home
 
 # 先装依赖：uv 按 uv.lock 精确还原（--frozen：锁文件与 pyproject.toml 不一致即失败），
-# 仅 pyproject.toml / uv.lock 变更时重建该层；--no-install-project 不把本工程自身
-# 装进 venv（服务以 /home 为 CWD 直接跑 app 包）
-COPY pyproject.toml uv.lock /home/
+# 仅 backend/pyproject.toml / backend/uv.lock 变更时重建该层；--no-install-project 不把
+# 本工程自身装进 venv（服务以 /home 为 CWD 直接跑 app 包）
+COPY backend/pyproject.toml backend/uv.lock /home/
 RUN --mount=type=cache,target=/root/.cache/uv \
     if [ -n "${PYPI_INDEX_URL}" ]; then \
         uv sync --frozen --no-dev --no-install-project --index-url "${PYPI_INDEX_URL}"; \
@@ -74,13 +76,14 @@ RUN --mount=type=cache,target=/root/.cache/uv \
         uv sync --frozen --no-dev --no-install-project; \
     fi
 
-# 应用代码与后端静态资源（env、logs、data、.venv、static/assets 等由 .dockerignore 排除）
-COPY app/ /home/app/
-COPY main.py banner.txt /home/
-COPY static/ /home/static/
+# 应用代码与后端静态资源（backend/env、backend/logs、backend/data、.venv、static/assets
+# 等由 .dockerignore 排除）
+COPY backend/app/ /home/app/
+COPY backend/main.py backend/banner.txt /home/
+COPY backend/static/ /home/static/
 
 # 前端构建产物覆盖到 static（index.html / assets / favicon.svg）
-COPY --from=web /build/static/ /home/static/
+COPY --from=web /build/backend/static/ /home/static/
 
 # exec 形式的 ENTRYPOINT 不会展开 ${ENVIRONMENT}，环境选择由入口脚本完成
 COPY devops/config/entrypoint/00-select-env.sh /usr/local/bin/00-select-env.sh

@@ -29,7 +29,7 @@ cd "${PROJECT_ROOT}"
 
 [ -f "${DOCKERFILE}" ] || { echo "错误: 缺少 ${DOCKERFILE}" >&2; exit 1; }
 [ -f "${IGNORE_FILE}" ] || { echo "错误: 缺少 ${IGNORE_FILE}（镜像构建上下文排除清单）" >&2; exit 1; }
-[ -f "${PROJECT_ROOT}/uv.lock" ] || { echo "错误: 缺少 uv.lock（依赖锁文件必须入库）" >&2; exit 1; }
+[ -f "${PROJECT_ROOT}/backend/uv.lock" ] || { echo "错误: 缺少 backend/uv.lock（依赖锁文件必须入库）" >&2; exit 1; }
 
 # <Dockerfile>.dockerignore 是 BuildKit 特性：该文件存在时会「替代」根 .dockerignore，
 # 这里显式启用 BuildKit，避免普通 builder 忽略它而把 env/、.venv 等打进镜像

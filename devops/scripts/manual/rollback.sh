@@ -10,7 +10,7 @@ set -e
 #     rollback.sh uat                    # 交互输入历史 tag
 #
 #   ENV ∈ dev | test | uat | prod，与 manual/deploy.sh 一致（配置唯一来源
-#   env/.env.<ENV>，部署侧变量取 deploy-defaults.sh 默认值）。
+#   backend/env/.env.<ENV>，部署侧变量取 deploy-defaults.sh 默认值）。
 #
 #   compose 无 Deployment 版本历史，回滚方式为「用历史镜像 tag 重新 up -d」：
 #   镜像 tag 为时间戳（不可变），历史 tag 可在镜像仓库列表或部署机

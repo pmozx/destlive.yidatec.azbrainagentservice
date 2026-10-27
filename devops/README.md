@@ -7,7 +7,7 @@
 | 运行形态 | **docker compose 单机部署**（不涉及 Kubernetes）；一个应用容器承载前端静态资源与后端 API   |
 | 基线参考 | `fastapi_admin_backend`（后端）与 `fastapi_admin_web`（前端）的 CI + devops 实践，流程骨架沿用、按单体工程简化 |
 
-> **配置唯一来源：应用自身的多环境文件 `env/.env.<env>`**。`.gitlab-ci.yml` / `Jenkinsfile` 不配置任何环境变量（含口令），唯一职责是把目标环境名传给一键脚本 `devops/scripts/00-deploy-all.sh --env=<dev|test|uat|prod>`。应用运行配置不存在任何部署侧副本或渲染产物——`env/.env.<env>` 在部署时**原样 bind 挂载**进容器 `/home/env/.env.<env>`，由应用内 `pydantic-settings` 自行加载。部署侧仅保留少量非口令默认值（`devops/scripts/deploy-defaults.sh`，入库、可被同名环境变量覆盖）；镜像仓库口令依赖执行机一次性 `docker login` 预认证（或临时导出 `DOCKER_REPO_USERNAME` / `DOCKER_REPO_PASSWORD`）。
+> **配置唯一来源：应用自身的多环境文件 `backend/env/.env.<env>`**。`.gitlab-ci.yml` / `Jenkinsfile` 不配置任何环境变量（含口令），唯一职责是把目标环境名传给一键脚本 `devops/scripts/00-deploy-all.sh --env=<dev|test|uat|prod>`。应用运行配置不存在任何部署侧副本或渲染产物——`backend/env/.env.<env>` 在部署时**原样 bind 挂载**进容器 `/home/env/.env.<env>`，由应用内 `pydantic-settings` 自行加载。部署侧仅保留少量非口令默认值（`devops/scripts/deploy-defaults.sh`，入库、可被同名环境变量覆盖）；镜像仓库口令依赖执行机一次性 `docker login` 预认证（或临时导出 `DOCKER_REPO_USERNAME` / `DOCKER_REPO_PASSWORD`）。
 
 ---
 
@@ -23,17 +23,17 @@ build（门禁校验） → package（构建并推送镜像） → deploy（dock
 
 | 阶段    | 实现                                                                                                  |
 | ------- | ----------------------------------------------------------------------------------------------------- |
-| build   | `check_app.py`：`app/**` 与 `main.py` 语法可解析；`pyproject.toml` 直接依赖全部出现在 `uv.lock`；`PYTHON_IMAGE` 与 `.python-version` 版本一致；前端工程完整（`package.json` 含 `build`、`vue`/`vite` 依赖、`index.html`、`vite.config.js`、`static/`）；`env/.env.*` 的 `DATABASE_TYPE` 合法且 postgres 下 `VECTOR_DIM` 为正整数 |
+| build   | `check_app.py`：`backend/app/**` 与 `backend/main.py` 语法可解析；`backend/pyproject.toml` 直接依赖全部出现在 `backend/uv.lock`；`PYTHON_IMAGE` 与 `backend/.python-version` 版本一致；前端工程完整（`package.json` 含 `build`、`vue`/`vite` 依赖、`index.html`、`vite.config.js`、`backend/static/`）；`backend/env/.env.*` 的 `DATABASE_TYPE` 合法且 postgres 下 `VECTOR_DIM` 为正整数 |
 | package | `docker build -f devops/config/Dockerfile`：node 阶段构建前端 → uv 阶段装依赖并合并产物；推送时间戳 tag（`yyyyMMddHHmmss`） |
 | deploy  | `deploy-compose.sh`：确保共享网络存在 → `pull` → `up -d` → HTTP 健康探测（`/healthz`）                 |
 
 ### 1.2 为什么只需要一个容器
 
-本工程前端（`frontend/`）在构建期把产物写入后端 `static/`（`vite.config.js` 的 `build.outDir = ../static`），运行期由 `app.frontend("/ui", ...)` 托管。因此：
+本工程前端（`frontend/`）在构建期把产物写入后端 `backend/static/`（`vite.config.js` 的 `build.outDir = ../backend/static`），运行期由 `app.frontend("/ui", ...)` 托管。因此：
 
 - **无 nginx 容器、无跨容器网络调用**：页面与接口同源，`/ui` 与 `/api*` 由同一进程提供，不存在跨域与反向代理配置；
 - 前后端版本天然对齐：一次构建出一个镜像，不存在「前端已发、后端未发」的错配；
-- 环境差异只由挂载的 `env/.env.<env>` 决定，镜像本身与环境无关（同一镜像可用于四个环境）。
+- 环境差异只由挂载的 `backend/env/.env.<env>` 决定，镜像本身与环境无关（同一镜像可用于四个环境）。
 
 > 如后续引入独立网关（TLS 终结、多域名），只需在网关层反代到 `http://<部署机IP>:<APP_PORT>`，无需改动本仓库脚本。
 
@@ -41,13 +41,13 @@ build（门禁校验） → package（构建并推送镜像） → deploy（dock
 
 | 环境 | 配置文件             | 建议发布方式                                                          | 说明                                     |
 | ---- | -------------------- | --------------------------------------------------------------------- | ---------------------------------------- |
-| dev  | `env/.env.dev`       | CI 自动（push `develop`）或 Jenkins / Run pipeline 传 `ENV_NAME=dev`  | 开发联调机                               |
-| test | `env/.env.test`      | CI（Run pipeline 传 `ENV_NAME=test`）或部署机手动 `manual/deploy.sh test [TAG]` | 测试环境，独立数据库名            |
-| uat  | `env/.env.uat`       | 部署机手动 `manual/deploy.sh uat [TAG]`（交互确认）                   | 预发布，验证生产配置                     |
-| prod | `env/.env.prod`      | 部署机手动 `manual/deploy.sh prod [TAG]`（交互确认）                  | 生产，口令只在部署机维护                 |
+| dev  | `backend/env/.env.dev`       | CI 自动（push `develop`）或 Jenkins / Run pipeline 传 `ENV_NAME=dev`  | 开发联调机                               |
+| test | `backend/env/.env.test`      | CI（Run pipeline 传 `ENV_NAME=test`）或部署机手动 `manual/deploy.sh test [TAG]` | 测试环境，独立数据库名            |
+| uat  | `backend/env/.env.uat`       | 部署机手动 `manual/deploy.sh uat [TAG]`（交互确认）                   | 预发布，验证生产配置                     |
+| prod | `backend/env/.env.prod`      | 部署机手动 `manual/deploy.sh prod [TAG]`（交互确认）                  | 生产，口令只在部署机维护                 |
 
 - 发布到哪个环境由 `ENV_NAME` 决定；**发布到哪台机器由 Runner / Agent 所在节点决定**；
-- 目标机器上必须有 `env/.env.<env>`（缺文件脚本会报错并提示参考 `env/.env.dev`）；
+- 目标机器上必须有 `backend/env/.env.<env>`（缺文件脚本会报错并提示参考 `backend/env/.env.dev`）；
 - 全流程串行（GitLab `resource_group` / Jenkins `disableConcurrentBuilds`），避免并发覆盖。
 
 ### 1.4 与参考基座项目的差异
@@ -57,8 +57,8 @@ build（门禁校验） → package（构建并推送镜像） → deploy（dock
 | 服务个数   | 后端容器 + 前端 nginx 容器，靠共享 docker 网络互通      | **单容器**：前端静态资源随镜像构建、由 FastAPI 托管                |
 | 镜像构建   | 后端镜像（uv）、前端镜像（pnpm + nginx）各一个          | 一个 Dockerfile 两阶段：node 构建前端 → uv 运行时                 |
 | 部署形态   | compose（dev/sit）+ Kubernetes（uat/prod）双形态        | **仅 compose**，脚本内预留形态分派点                              |
-| 环境命名   | dev / sit / uat / prod                                  | **dev / test / uat / prod**（与本仓库 `env/` 文件一致）           |
-| 配置注入   | `backend/env/.env.<env>` 挂载进容器                     | 同左：`env/.env.<env>` 挂载到 `/home/env/`                        |
+| 环境命名   | dev / sit / uat / prod                                  | **dev / test / uat / prod**（与本仓库 `backend/env/` 文件一致）           |
+| 配置注入   | `backend/env/.env.<env>` 挂载进容器                     | 同左：`backend/env/.env.<env>` 挂载到 `/home/env/`                        |
 | 容器端口   | 容器内固定 8001，宿主机端口由 `BACKEND_PORT` 控制       | 容器内固定 **8002**，宿主机端口由 `APP_PORT` 控制（与 `main.py` 默认一致） |
 | 启动方式   | 入口脚本 `python main.py run --env=<env>`               | 入口脚本 `python -m uvicorn app:create_app --factory`（关掉热重载） |
 | 中间件     | `devops/common-server`（MySQL + Redis + Milvus）        | `devops/common-server`（**PostgreSQL 17 + pgvector + Ollama / llama.cpp 模型服务**，可选用） |
@@ -75,6 +75,17 @@ service_brain_agent/
 ├── .dockerignore                           # 根构建上下文排除（正式构建以 Dockerfile.dockerignore 为准）
 ├── .gitattributes                          # *.sh 强制 LF（避免 CRLF 导致 shebang 失效）
 ├── .gitignore                              # 忽略 image_tag.txt、devops/**/*.env、devops/data/ 等
+├── backend/                                # 后端工程：应用代码、依赖、运行目录与多环境配置
+│   ├── main.py                             # 启动入口（默认 0.0.0.0:8002，本地热重载）
+│   ├── app/                                # api / modules / core / config / common / utils / alembic
+│   ├── env/                                # 多环境配置 .env / .env.<dev|test|uat|prod>（入库模板）
+│   ├── static/                             # 前端构建产物（/ui 托管）+ 后端静态资源
+│   ├── logs/  data/                        # 运行日志、SQLite 数据文件（gitignore）
+│   ├── tests/                              # pytest 用例
+│   ├── pyproject.toml                      # 依赖声明（uv sync / uv run 均在 backend/ 下执行）
+│   ├── uv.lock                             # 依赖锁文件（必须入库，镜像按此精确还原）
+│   └── pytest.ini / .python-version / banner.txt
+├── frontend/                               # Vue 3 前端工程（构建产物输出到 backend/static）
 └── devops/
     ├── README.md                           # 本文件
     ├── compose/
@@ -108,15 +119,15 @@ service_brain_agent/
 
 | 内容               | 存放位置                        | 是否入库 | 说明                                                                    |
 | ------------------ | ------------------------------- | -------- | ----------------------------------------------------------------------- |
-| 应用运行配置       | `env/.env.<env>`                | 是（模板） | 部署时 bind 挂载进容器 `/home/env/.env.<env>`，**部署脚本不解析、不渲染**；非开发环境的口令按部署机维护，不要提交实值 |
+| 应用运行配置       | `backend/env/.env.<env>`                | 是（模板） | 部署时 bind 挂载进容器 `/home/env/.env.<env>`，**部署脚本不解析、不渲染**；非开发环境的口令按部署机维护，不要提交实值 |
 | 部署侧非口令默认值 | `devops/scripts/deploy-defaults.sh` | 是   | 镜像仓库地址、镜像名、端口、网络名、基础镜像等；执行机可用同名环境变量覆盖 |
 | compose 插值变量   | `devops/compose/.env` | 否（gitignore） | 仅手工执行应用编排时需要；CI 由脚本导出变量。`devops/common-server` 的取值已内联在编排里，不需要 `.env` |
 | 镜像仓库口令       | 执行机 `~/.docker/config.json` 或 CI 变量 `DOCKER_REPO_USERNAME` / `DOCKER_REPO_PASSWORD` | **否** | 严禁写入仓库任何文件；仅 `package.sh` 推送镜像时使用 |
 | 运行数据           | `devops/data/logs`、`devops/common-server/volumes/{postgres,ollama,rerank}` | 否（gitignore） | 容器与模型持久化目录，由脚本或 compose 自动创建 |
 
-容器内只有 **一个**环境变量覆盖项：`ENVIRONMENT`（取值 `dev|test|uat|prod`）。应用 `app/config/setting.py` 读取该变量后加载 `/home/env/.env.<ENVIRONMENT>`，因此 `env/.env` 里的 `ENVIRONMENT=dev` 不会影响容器行为。
+容器内只有 **一个**环境变量覆盖项：`ENVIRONMENT`（取值 `dev|test|uat|prod`）。应用 `app/config/setting.py` 读取该变量后加载 `/home/env/.env.<ENVIRONMENT>`，因此 `backend/env/.env` 里的 `ENVIRONMENT=dev` 不会影响容器行为。
 
-> `env/.env.<env>` 中的 `HOST` / `PORT` / `RELOAD` 只对**宿主机直跑**（`python main.py`）生效：容器内由入口脚本固定监听 `0.0.0.0:8002` 并关闭热重载（`main.py` 面向本地开发，`reload=True` 不适合容器）。**改容器内端口需同步改** `devops/config/entrypoint/00-select-env.sh`、`devops/compose/app.yml` 的 healthcheck 与 Dockerfile 的 `EXPOSE`。
+> `backend/env/.env.<env>` 中的 `HOST` / `PORT` / `RELOAD` 只对**宿主机直跑**（`cd backend && python main.py`）生效：容器内由入口脚本固定监听 `0.0.0.0:8002` 并关闭热重载（`main.py` 面向本地开发，`reload=True` 不适合容器）。**改容器内端口需同步改** `devops/config/entrypoint/00-select-env.sh`、`devops/compose/app.yml` 的 healthcheck 与 Dockerfile 的 `EXPOSE`。
 
 ---
 
@@ -126,23 +137,23 @@ service_brain_agent/
 
 任一校验失败即终止发布，避免把明显有问题的代码送进镜像：
 
-1. `app/**/*.py` 与 `main.py` 语法可解析（`ast.parse`）；
-2. `uv.lock` 存在，且 `pyproject.toml` 声明的直接依赖全部出现在锁文件（`uv sync --frozen` 才不会在镜像内失败）；
-3. `PYTHON_IMAGE` 与 `.python-version`（3.12）主次版本一致；
-4. 前端工程完整：`frontend/package.json` 可解析、含 `build` 脚本、`vue`（dependencies）与 `vite`（devDependencies）、无 `file:` / `link:` 本地路径依赖、`index.html` / `vite.config.js` / `static/` 存在。
+1. `backend/app/**/*.py` 与 `backend/main.py` 语法可解析（`ast.parse`）；
+2. `backend/uv.lock` 存在，且 `backend/pyproject.toml` 声明的直接依赖全部出现在锁文件（`uv sync --frozen` 才不会在镜像内失败）；
+3. `PYTHON_IMAGE` 与 `backend/.python-version`（3.12）主次版本一致；
+4. 前端工程完整：`frontend/package.json` 可解析、含 `build` 脚本、`vue`（dependencies）与 `vite`（devDependencies）、无 `file:` / `link:` 本地路径依赖、`index.html` / `vite.config.js` / `backend/static/` 存在。
 
-> **前置要求：`uv.lock` 必须入库**（本仓库 `.gitignore` 已移除该忽略项）。前端 lock 文件当前未入库，故镜像内使用 `npm install`；如需可复现的前端依赖，提交 `frontend/package-lock.json` 并把 Dockerfile 中的 `npm install` 改为 `npm ci`。
+> **前置要求：`backend/uv.lock` 必须入库**（本仓库 `.gitignore` 已移除该忽略项）。前端 lock 文件当前未入库，故镜像内使用 `npm install`；如需可复现的前端依赖，提交 `frontend/package-lock.json` 并把 Dockerfile 中的 `npm install` 改为 `npm ci`。
 
 ### 4.2 镜像结构（`devops/config/Dockerfile`）
 
 | 阶段 | 基础镜像                        | 作用                                                                 |
 | ---- | ------------------------------- | -------------------------------------------------------------------- |
-| web  | `node:22-alpine`                | `npm install` + `npm run build`，产物落在 `/build/static`             |
-| 运行 | `astral/uv:python3.12-bookworm-slim` | `uv sync --frozen --no-dev` 装依赖 → 复制 `app/`、`main.py`、`static/` → 合并前端产物 → 入口脚本 |
+| web  | `node:22-alpine`                | `npm install` + `npm run build`，产物落在 `/build/backend/static`     |
+| 运行 | `astral/uv:python3.12-bookworm-slim` | `uv sync --frozen --no-dev` 装依赖 → 复制 `backend/app/`、`backend/main.py`、`backend/static/` → 合并前端产物 → 入口脚本 |
 
-- `WORKDIR=/home`：`app/config/path_conf.py` 的 `BASE_DIR` 由代码位置推导为 `/home`，日志写 `/home/logs`（compose 挂载 `devops/data/logs`）、静态资源读 `/home/static`；
-- 镜像**不含 `env/`**：`Dockerfile.dockerignore` 排除，`package.sh` 构建后再断言 `/home/env` 为空、且无前端工程目录；
-- 依赖源：`uv.lock` 已固化镜像源地址；内网构建可传 `--build-arg PYPI_INDEX_URL=<私有源>` 与 `--build-arg NPM_REGISTRY=<私有 npm 源>`（默认 `https://registry.npmmirror.com`）。
+- `WORKDIR=/home`：`app/config/path_conf.py` 的 `BASE_DIR` 由代码位置推导为 `/home`（仓库内的 `backend/`），日志写 `/home/logs`（compose 挂载 `devops/data/logs`）、静态资源读 `/home/static`；
+- 镜像**不含 `backend/env/`**：`Dockerfile.dockerignore` 排除，`package.sh` 构建后再断言 `/home/env` 为空、且无前端工程目录；
+- 依赖源：`backend/uv.lock` 已固化镜像源地址；内网构建可传 `--build-arg PYPI_INDEX_URL=<私有源>` 与 `--build-arg NPM_REGISTRY=<私有 npm 源>`（默认 `https://registry.npmmirror.com`）。
 
 ### 4.3 镜像 tag 与推送
 
@@ -160,7 +171,7 @@ service_brain_agent/
 variables:
   ENV_NAME: "dev"                      # 目标环境，切环境走 Run pipeline 传值
   RUNNER_TAG: "service-brain-agent"    # 与注册 Runner 的 tag 一致
-  GIT_CLEAN_FLAGS: "-e env/ -e devops/data/"
+  GIT_CLEAN_FLAGS: "-e backend/env/ -e devops/data/"
 
 workflow:
   rules:
@@ -177,8 +188,8 @@ deploy-app:
     - devops/scripts/00-deploy-all.sh --env="$ENV_NAME"
 ```
 
-- **默认关闭**（`when: never`）。确认 Runner 已注册、部署机已备好 `env/.env.<env>` 与 `docker login` 后，取消上方两条 `rules` 注释即可启用（push `develop` 自动发布 dev；`Run pipeline` 手动指定环境）；
-- `GIT_CLEAN_FLAGS` 必须保留：Runner 默认 `git clean -ffdx` 会删掉 gitignored 的 `env/` 实值文件与 `devops/data/` 运行数据。
+- **默认关闭**（`when: never`）。确认 Runner 已注册、部署机已备好 `backend/env/.env.<env>` 与 `docker login` 后，取消上方两条 `rules` 注释即可启用（push `develop` 自动发布 dev；`Run pipeline` 手动指定环境）；
+- `GIT_CLEAN_FLAGS` 必须保留：Runner 默认 `git clean -ffdx` 会删掉 gitignored 的 `backend/env/` 实值文件与 `devops/data/` 运行数据。
 
 ### 5.2 Jenkins（`Jenkinsfile`）
 
@@ -199,7 +210,7 @@ devops/scripts/00-deploy-all.sh --env=dev
 
 执行内容：
 
-1. `deploy-defaults.sh` → `init_deploy_env <env>`：校验环境名、导出默认值、检查 `env/.env.<env>` 存在；
+1. `deploy-defaults.sh` → `init_deploy_env <env>`：校验环境名、导出默认值、检查 `backend/env/.env.<env>` 存在；
 2. `build.sh`：构建门禁；
 3. `package.sh`：`docker build` + 断言 + 推送，写 `image_tag.txt`；
 4. `deploy.sh` → `deploy-compose.sh`：创建共享网络（缺失时）、创建 `devops/data/logs`、`compose pull` + `up -d --remove-orphans`，再用 `http://127.0.0.1:<APP_PORT>/healthz` 轮询就绪（最多 60s，失败打印最近 50 行日志）。
@@ -232,7 +243,7 @@ docker compose -f devops/common-server/docker-compose.yml up -d
 `CREATE EXTENSION IF NOT EXISTS vector`；数据卷已存在时会跳过 initdb，此时由应用启动阶段按 `VECTOR_AUTO_CREATE`
 幂等补建（实现在 `app/core/vector_store.py`）。两条路径均幂等，重复执行无副作用。
 
-自建后把 `env/.env.<env>` 指向容器名即可（同一 `APP_NETWORK`）：
+自建后把 `backend/env/.env.<env>` 指向容器名即可（同一 `APP_NETWORK`）：
 
 ```ini
 DATABASE_TYPE=postgres
@@ -246,7 +257,7 @@ VECTOR_DIM=1024                      # 须与 embedding 模型输出一致（bge
 VECTOR_AUTO_CREATE=true
 ```
 
-> - 口令两边必须一致：编排里内联的 `POSTGRES_PASSWORD` 与 `env/.env.<env>` 的 `DATABASE_PASSWORD` 必须相同；
+> - 口令两边必须一致：编排里内联的 `POSTGRES_PASSWORD` 与 `backend/env/.env.<env>` 的 `DATABASE_PASSWORD` 必须相同；
 >   若要求口令不入库，把编排改回 `${POSTGRES_PASSWORD:?}` 并用同目录 `.env`（已 gitignore）注入；
 > - 生产建议为应用单独建库账号并收敛权限，但 `CREATE EXTENSION` 需要超级用户：由 DBA 在部署机初始化时执行一次，
 > 应用账号只需库的 `USAGE` 与表读写权限；
@@ -309,7 +320,7 @@ curl -fsS http://service-brain-rerank:8080/v1/rerank \
 > - **rerank 为什么不用 Ollama**：Ollama 只提供 embed 端点，没有 rerank（交叉编码器打分）接口，社区 reranker 模型也注明
 >   需 llama.cpp 类运行时；重排序由 llama.cpp 的 `llama-server --rerank` 承担，两者都跑本地 GGUF、无需出网推理。
 >   若某版本启动报 pooling 相关错误，在 `command` 中补 `--pooling rank`；
-> - **维度必须对齐**：`bge-m3` 输出 1024 维，`env/.env.<env>` 的 `VECTOR_DIM` 必须为 1024，否则写入时会被维度校验拒绝；
+> - **维度必须对齐**：`bge-m3` 输出 1024 维，`backend/env/.env.<env>` 的 `VECTOR_DIM` 必须为 1024，否则写入时会被维度校验拒绝；
 > - **CPU 即可运行**：两个模型常驻内存合计约 3GB；`RERANK_THREADS` 取宿主机逻辑核数一半，`OLLAMA_KEEP_ALIVE`（默认 24h）
 >   控制空闲卸载，避免每次检索冷加载；
 > - **GPU 可选**：给 `ollama` / `rerank` 加 `deploy.resources.reservations.devices`（宿主要装 NVIDIA Container Toolkit）；
@@ -345,7 +356,7 @@ docker compose -f devops/common-server/docker-compose.yml down
 
 | 变量                    | 来源                            | 默认值                                                     | 说明                                   |
 | ----------------------- | ------------------------------- | ---------------------------------------------------------- | -------------------------------------- |
-| `ENV_NAME` / `ENVIRONMENT` | CI 变量 / 脚本参数           | `dev`                                                      | 目标环境，决定挂载哪个 `env/.env.<env>` |
+| `ENV_NAME` / `ENVIRONMENT` | CI 变量 / 脚本参数           | `dev`                                                      | 目标环境，决定挂载哪个 `backend/env/.env.<env>` |
 | `IMAGE_TAG`             | CI 变量 / 环境变量              | 时间戳 `yyyyMMddHHmmss`                                    | 镜像 tag                               |
 | `RUNNER_TAG`            | CI 文件                         | `service-brain-agent`                                      | GitLab Runner tag                      |
 | `DOCKER_REPO_URL`       | `deploy-defaults.sh`            | 阿里云 ACR 个人版实例地址                                   | 镜像仓库地址（按实际环境覆盖）          |
@@ -364,10 +375,10 @@ docker compose -f devops/common-server/docker-compose.yml down
 
 ## 8. 落地步骤（Checklist）
 
-1. **入库锁文件**：确认 `uv.lock` 已提交（本仓库已从 `.gitignore` 移除该忽略项）；`frontend/package-lock.json` 可选。
+1. **入库锁文件**：确认 `backend/uv.lock` 已提交（本仓库已从 `.gitignore` 移除该忽略项）；`frontend/package-lock.json` 可选。
 2. **配置镜像仓库**：核对 `deploy-defaults.sh` 中 `DOCKER_REPO_URL` / `DOCKER_REPO_NAMESPACE`，或导出同名环境变量覆盖。
 3. **准备部署机**：安装 docker + compose 插件；执行机一次性 `docker login <DOCKER_REPO_URL>`。
-4. **准备环境文件**：在部署机放置 `env/.env.<env>`（参考 `env/.env.dev`，改 `DATABASE_*`、`LOGGER_LEVEL`、`DEBUG=false`、`RELOAD=false`）；生产口令不要提交入库。
+4. **准备环境文件**：在部署机放置 `backend/env/.env.<env>`（参考 `backend/env/.env.dev`，改 `DATABASE_*`、`LOGGER_LEVEL`、`DEBUG=false`、`RELOAD=false`）；生产口令不要提交入库。
 5. **（可选）自建数据库与模型服务**：`devops/common-server` 拉起 PostgreSQL 17 + pgvector、Ollama（bge-m3 向量化）与 llama.cpp（bge-reranker-v2-m3 重排序），把 `DATABASE_HOST` 改为容器名即可；模型地址与拉取方式见 6.5。
 6. **注册 Runner**：GitLab Runner 打 tag `service-brain-agent`（或改 CI 文件中的 `RUNNER_TAG`）；Jenkins 侧配置节点具备 docker CLI。
 7. **启用流水线**：在 `.gitlab-ci.yml` 中取消 `workflow.rules` 注释；或直接用 Jenkins `Build Now` 手动发布。
@@ -380,7 +391,7 @@ docker compose -f devops/common-server/docker-compose.yml down
 | 限制                                   | 影响                                                     | 后续做法                                                       |
 | -------------------------------------- | -------------------------------------------------------- | -------------------------------------------------------------- |
 | 仅 compose、单副本                     | 更新期间容器重启，服务短暂中断（数秒）                   | 需要零中断或集群化时，在 `deploy.sh` 增加 `DEPLOY_MODE=k8s` 分支 |
-| 无数据库迁移链                         | 表结构变更无版本管理，回滚不覆盖 DDL                     | 接入 Alembic（`app/alembic/versions` 目录已就位）并在启动前执行 `upgrade head` |
+| 无数据库迁移链                         | 表结构变更无版本管理，回滚不覆盖 DDL                     | 接入 Alembic（`backend/app/alembic/versions` 目录已就位）并在启动前执行 `upgrade head` |
 | 前端 lock 未入库                       | 同一 commit 两次构建可能得到不同前端依赖版本             | 提交 `package-lock.json` 并改 `npm ci`                          |
 | 健康检查不探 DB                        | `/healthz` 只反映进程存活，数据库不可用时仍报健康        | 需要就绪探针时，新增 `/readyz` 校验 `get_db_version()`          |
 | 单机 bind 挂载日志                     | 日志随宿主目录增长，需宿主侧轮转                         | 已启用 loguru 按日轮转（保留 30 天），必要时接入集中日志采集     |

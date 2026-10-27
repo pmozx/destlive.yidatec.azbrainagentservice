@@ -2,8 +2,7 @@ from datetime import datetime, UTC
 
 from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, declared_attr
-from sqlalchemy import DateTime, Integer, Index, String, Boolean, inspect, event
-from sqlalchemy.orm import Mapper
+from sqlalchemy import DateTime, Integer, Index, String, Boolean, inspect
 
 from app.utils.common_util import uuid4_str
 

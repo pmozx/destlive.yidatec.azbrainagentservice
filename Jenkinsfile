@@ -4,7 +4,7 @@
 //   本文件不配置任何环境变量（含口令），唯一职责是把目标环境名传给一键脚本：
 //     bash devops/scripts/00-deploy-all.sh --env=<ENV_NAME>
 //
-//   配置唯一来源为应用自身的 env/.env.<env>（部署时挂载进容器，由
+//   配置唯一来源为应用自身的 backend/env/.env.<env>（部署时挂载进容器，由
 //   pydantic-settings 加载），流水线不复制、不渲染任何配置；镜像仓库口令来自
 //   执行机一次性 docker login（或导出 DOCKER_REPO_USERNAME / DOCKER_REPO_PASSWORD）；
 //   变量清单与流水线设计见 devops/README.md。
@@ -21,7 +21,7 @@
 //   节点：当前 agent any（如需固定到部署机，可改为 agent { label 'service-brain-agent' }），
 //   需 git + bash + docker CLI（含 docker compose 插件）。不再使用 Jenkins 凭据：
 //   镜像仓库口令由执行机 docker login 预认证（~/.docker/config.json），
-//   应用口令存于部署机的 env/.env.<env>（严禁明文口令提交入库）。
+//   应用口令存于部署机的 backend/env/.env.<env>（严禁明文口令提交入库）。
 // ==============================================================================
 
 pipeline {
@@ -45,7 +45,7 @@ pipeline {
         choice(
             name: 'ENV_NAME',
             choices: ['dev', 'test', 'uat', 'prod'],
-            description: '目标环境：应用配置为 env/.env.<env>（部署时挂载进容器）'
+            description: '目标环境：应用配置为 backend/env/.env.<env>（部署时挂载进容器）'
         )
         string(
             name: 'IMAGE_TAG',

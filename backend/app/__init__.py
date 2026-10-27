@@ -80,7 +80,7 @@ def create_app() -> FastAPI:
         """容器健康检查探针：仅验证进程与 HTTP 栈可用，不探测数据库等外部依赖"""
         return {"status": "ok"}
 
-    # 挂载前端构建产物：frontend 执行 npm run build 后输出到 static 目录
+    # 挂载前端构建产物：frontend 执行 npm run build 后输出到 backend/static 目录
     app.frontend("/ui", directory=STATIC_DIR, fallback="index.html")
     logger.info('==== 前端页面地址：http://127.0.0.1:8002/ui ====')
 

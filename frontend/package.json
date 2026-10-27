@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "智能体应用前端（监控台），构建产物直接输出到后端 static 目录，由 FastAPI app.frontend('/ui') 托管",
+  "description": "智能体应用前端（监控台），构建产物直接输出到后端 backend/static 目录，由 FastAPI app.frontend('/ui') 托管",
   "scripts": {
     "dev": "vite",
     "build": "npm run clean && vite build",

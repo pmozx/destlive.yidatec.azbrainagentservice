@@ -1,6 +1,6 @@
 from pathlib import Path
 
-# 项目根目录
+# 后端工程根目录（仓库内为 backend/，镜像内为 /home；由本文件位置向上三级推导）
 BASE_DIR = Path(__file__).parent.parent.parent
 
 # alembic 迁移文件存放路径

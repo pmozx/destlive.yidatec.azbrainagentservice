@@ -2,14 +2,14 @@
 """构建门禁：镜像构建前的静态校验（纯标准库，可在 python:3.12-slim 容器内直接运行）。
 
 校验项：
-  1. app/ 与 main.py 下所有 .py 语法可解析，提前拦截语法错误；
-  2. uv.lock 存在，且 pyproject.toml 声明的直接依赖均出现在锁文件中
+  1. backend/app/ 与 backend/main.py 下所有 .py 语法可解析，提前拦截语法错误；
+  2. backend/uv.lock 存在，且 backend/pyproject.toml 声明的直接依赖均出现在锁文件中
      （镜像按 uv.lock 精确还原，两处不一致时镜像内会以 --frozen 构建失败）；
-  3. PYTHON_IMAGE 与 .python-version 的主次版本一致（传入了该变量时才校验）；
+  3. PYTHON_IMAGE 与 backend/.python-version 的主次版本一致（传入了该变量时才校验）；
   4. 前端工程完整：frontend/package.json 可解析、含 build 脚本与 vue/vite 依赖，
      frontend/index.html 与 vite.config.js 存在（镜像内 node 阶段据此构建）；
-  5. static/ 目录存在（镜像运行期以 /home/static 托管前端）；
-  6. env/.env.<env> 的数据库配置自洽：DATABASE_TYPE 合法，postgres 下 VECTOR_DIM 为正整数
+  5. backend/static/ 目录存在（镜像运行期以 /home/static 托管前端）；
+  6. backend/env/.env.<env> 的数据库配置自洽：DATABASE_TYPE 合法，postgres 下 VECTOR_DIM 为正整数
      （向量列类型在导入期定型，配置写错只会在运行期报错）。
 
 任一校验失败即退出码 1，由 devops/scripts/build.sh 终止发布。
@@ -24,18 +24,20 @@ import tomllib
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-APP_DIR = PROJECT_ROOT / "app"
-MAIN_FILE = PROJECT_ROOT / "main.py"
-LOCK_FILE = PROJECT_ROOT / "uv.lock"
-PYPROJECT_FILE = PROJECT_ROOT / "pyproject.toml"
-PY_VERSION_FILE = PROJECT_ROOT / ".python-version"
+# 后端工程：Python 依赖、应用代码与运行目录统一在 backend/ 下
+BACKEND_DIR = PROJECT_ROOT / "backend"
+APP_DIR = BACKEND_DIR / "app"
+MAIN_FILE = BACKEND_DIR / "main.py"
+LOCK_FILE = BACKEND_DIR / "uv.lock"
+PYPROJECT_FILE = BACKEND_DIR / "pyproject.toml"
+PY_VERSION_FILE = BACKEND_DIR / ".python-version"
 
 FRONTEND_DIR = PROJECT_ROOT / "frontend"
 PACKAGE_JSON = FRONTEND_DIR / "package.json"
 INDEX_HTML = FRONTEND_DIR / "index.html"
 VITE_CONFIG = FRONTEND_DIR / "vite.config.js"
-STATIC_DIR = PROJECT_ROOT / "static"
-ENV_DIR = PROJECT_ROOT / "env"
+STATIC_DIR = BACKEND_DIR / "static"
+ENV_DIR = BACKEND_DIR / "env"
 
 # 与 app/common/enums.py 的 DatabaseTypeEnum 保持一致
 _DATABASE_TYPES = {"mysql", "postgres", "sqlite"}
@@ -226,8 +228,8 @@ def main() -> int:
 
     print(f"[门禁] 语法校验：{checked} 个 .py 文件")
     print(f"[门禁] 依赖校验：pyproject.toml 声明 {len(declared)} 项，uv.lock 锁定 {len(locked)} 项")
-    print("[门禁] 前端校验：package.json / index.html / vite.config.js / static/")
-    print("[门禁] 环境校验：env/.env.* 的 DATABASE_TYPE 与 VECTOR_DIM")
+    print("[门禁] 前端校验：package.json / index.html / vite.config.js / backend/static/")
+    print("[门禁] 环境校验：backend/env/.env.* 的 DATABASE_TYPE 与 VECTOR_DIM")
 
     if errors:
         print("\n校验未通过：", file=sys.stderr)

@@ -81,7 +81,7 @@ services:
       - app
 
   # 向量化：bge-m3（多语言，1024 维，8K 上下文），走 Ollama 原生 /api/embed
-  # 镜像锁版本：Ollama 0.40.x 为当前稳定线，0.40.11 是该线最新补丁（2026-10-24）
+  # 镜像锁版本：ollama/ollama:0.40.6（已验证可用的稳定版，0.40.x 为当前稳定线）
   ollama:
     image: ollama/ollama:0.40.6
     container_name: service-brain-ollama
@@ -94,8 +94,8 @@ services:
       OLLAMA_NUM_PARALLEL: "2"
       OLLAMA_MAX_LOADED_MODELS: "2"
     ports:
-      # 仅绑回环：Ollama 无鉴权，不暴露到局域网；应用走内部网络按容器名访问
-      # - "127.0.0.1:11434:11434"
+      # Ollama 无鉴权：这里发布到所有网卡方便同网段调试；只本机使用请换回
+      # "127.0.0.1:11434:11434"，应用走内部网络按容器名访问，不依赖此端口
       - "11434:11434"
     volumes:
       - ./volumes/ollama:/root/.ollama
@@ -138,6 +138,10 @@ services:
     image: curlimages/curl:latest
     container_name: service-brain-rerank-init
     restart: "no"
+    # curlimages/curl 以非 root 的 curl_user 运行。当 bind 源目录尚不存在时，Docker 挂进
+    # 来的是 root 所有的空目录，curl 写不进去（报 curl: (23) ... Permission denied）。
+    # 这里显式以 root 执行，允许它在该目录下创建模型文件（仅一次性下载，无其他风险）
+    user: "0:0"
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |

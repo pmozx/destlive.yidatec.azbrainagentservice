@@ -8,7 +8,7 @@ set -e
 #   用法: deploy-compose.sh <IMAGE> <APP_NAME>
 #   依赖变量：APP_PORT / APP_NETWORK / ENVIRONMENT / APP_ENV_FILE
 #
-#   应用配置不做任何注入渲染：env/.env.${ENVIRONMENT} 由 app.yml bind 挂载到
+#   应用配置不做任何注入渲染：backend/env/.env.${ENVIRONMENT} 由 app.yml bind 挂载到
 #   容器 /home/env/.env.${ENVIRONMENT}（只读），应用（pydantic-settings）自行
 #   加载；容器仅覆盖 ENVIRONMENT 一个环境变量（见 app.yml）。
 #
@@ -33,7 +33,7 @@ fi
 : "${APP_PORT:?请配置 APP_PORT（宿主机暴露端口，如 8002）}"
 : "${APP_NETWORK:?请配置 APP_NETWORK（与中间件共用的 docker 网络名）}"
 : "${ENVIRONMENT:?请设置 ENVIRONMENT（目标环境名 dev|test|uat|prod）}"
-: "${APP_ENV_FILE:?请设置 APP_ENV_FILE（env/.env.<环境> 的绝对路径）}"
+: "${APP_ENV_FILE:?请设置 APP_ENV_FILE（backend/env/.env.<环境> 的绝对路径）}"
 
 [ -f "${COMPOSE_FILE}" ] || { echo "错误: 缺少 ${COMPOSE_FILE}" >&2; exit 1; }
 [ -f "${APP_ENV_FILE}" ] || { echo "错误: 缺少应用配置文件 ${APP_ENV_FILE}" >&2; exit 1; }
@@ -57,7 +57,7 @@ echo "compose 形态部署"
 echo "项目路径: ${PROJECT_ROOT}"
 echo "镜像: ${APP_IMAGE}"
 echo "容器名: ${APP_NAME}"
-echo "配置文件: env/.env.${ENVIRONMENT}（挂载进容器）"
+echo "配置文件: backend/env/.env.${ENVIRONMENT}（挂载进容器）"
 echo "宿主机端口: ${APP_PORT}（容器内固定 8002）"
 echo "共享网络: ${APP_NETWORK}"
 echo "=========================================="

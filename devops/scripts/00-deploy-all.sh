@@ -8,7 +8,7 @@ set -eo pipefail
 #   示例: 00-deploy-all.sh --env=dev
 #
 #   流水线（Jenkinsfile / .gitlab-ci.yml）不配置任何环境变量，只传环境名。
-#   应用运行配置的唯一来源是 env/.env.<env>：部署时挂载进容器、由应用自行加载，
+#   应用运行配置的唯一来源是 backend/env/.env.<env>：部署时挂载进容器、由应用自行加载，
 #   脚本不做任何渲染。部署侧变量（镜像名、端口、网络等）取
 #   devops/scripts/deploy-defaults.sh 的默认值（执行机可用同名环境变量覆盖）。
 #
@@ -54,7 +54,7 @@ echo "      service_brain_agent 一键构建+打包+部署"
 echo "============================================="
 echo "项目根目录：${PROJECT_ROOT}"
 echo "目标环境：${ENV_NAME}"
-echo "配置文件：env/.env.${ENV_NAME}（挂载进容器）"
+echo "配置文件：backend/env/.env.${ENV_NAME}（挂载进容器）"
 echo "镜像仓库：${DOCKER_REPO_URL}/${DOCKER_REPO_NAMESPACE}"
 echo "镜像 TAG：${IMAGE_TAG}"
 echo "宿主机端口：${APP_PORT}（容器内固定 8002）"

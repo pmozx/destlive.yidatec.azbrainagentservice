@@ -64,7 +64,7 @@ __pycache__/
 .coverage
 htmlcov/
 
-# 注意：env/ 是环境配置目录（.env.dev 等），不能加入忽略
+# 注意：backend/env/ 是环境配置目录（.env.dev 等），不能加入忽略
 
 ######################################################################
 # Frontend（frontend）
@@ -74,7 +74,7 @@ node_modules/
 .yarn/cache/
 .yarn/unplugged/
 
-# 前端构建中间产物（最终产物输出到 backend static/，由 fastapi app.frontend 托管）
+# 前端构建中间产物（最终产物输出到 backend/static/，由 fastapi app.frontend 托管）
 frontend/dist/
 frontend/.vite/
 frontend/.cache/
@@ -82,7 +82,7 @@ frontend/package-lock.json
 frontend/pnpm-lock.yaml
 frontend/pnpm-workspace.yaml
 
-# 本地环境覆盖文件（env/*.env.* 需入库，仅忽略 .local 覆盖）
+# 本地环境覆盖文件（backend/env/*.env.* 需入库，仅忽略 .local 覆盖）
 .env.local
 .env.*.local
 
@@ -93,10 +93,10 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-# 静态资源
-static/assets/
-static/index.html
-static/favicon.svg
+# 静态资源（后端静态目录下的前端构建产物）
+backend/static/assets/
+backend/static/index.html
+backend/static/favicon.svg
 
 ######################################################################
 # DevOps（部署与运行数据）
@@ -109,6 +109,6 @@ devops/data/
 devops/**/volumes/
 
 # 如需不提交前端构建产物（改由 CI 构建），取消下面三行注释
-# static/assets/
-# static/index.html
-# static/favicon.svg
+# backend/static/assets/
+# backend/static/index.html
+# backend/static/favicon.svg

@@ -4,7 +4,7 @@
 #   本文件不配置任何环境变量（含口令），唯一职责是把目标环境名传给一键脚本：
 #     devops/scripts/00-deploy-all.sh --env=$ENV_NAME
 #
-#   配置唯一来源为应用自身的 env/.env.<env>（部署时挂载进容器，由
+#   配置唯一来源为应用自身的 backend/env/.env.<env>（部署时挂载进容器，由
 #   pydantic-settings 加载），流水线不复制、不渲染任何配置；镜像仓库口令来自
 #   执行机一次性 docker login（或导出 DOCKER_REPO_USERNAME / DOCKER_REPO_PASSWORD）；
 #   变量清单与流水线设计见 devops/README.md。
@@ -12,7 +12,7 @@
 #   变量（均可被 Settings / Run pipeline 同名变量覆盖）：
 #     ENV_NAME        目标环境 dev | test | uat | prod（默认 dev；切环境走 Run pipeline 传值）
 #     RUNNER_TAG      GitLab Runner 的 tag，与注册 Runner 时设置的一致
-#     GIT_CLEAN_FLAGS 排除 env/（执行机本地多环境配置）与 devops/data/（运行数据），
+#     GIT_CLEAN_FLAGS 排除 backend/env/（执行机本地多环境配置）与 devops/data/（运行数据），
 #                     防止 Runner 默认的 git clean -ffdx 把 gitignored 文件删掉
 #     IMAGE_TAG       可选，Run pipeline 临时指定；留空时脚本取时间戳 yyyyMMddHHmmss
 #
@@ -24,12 +24,12 @@ stages:
   - deploy
 
 variables:
-  # 目标环境：应用配置为 env/.env.<ENV_NAME>（部署时挂载进容器）
+  # 目标环境：应用配置为 backend/env/.env.<ENV_NAME>（部署时挂载进容器）
   ENV_NAME: "dev"
   # GitLab Runner 的 tag，与注册 Runner 时设置的一致
   RUNNER_TAG: "service-brain-agent"
   # 保留执行机本地多环境配置与运行数据，不被 Runner 的 git clean 清掉
-  GIT_CLEAN_FLAGS: "-e env/ -e devops/data/"
+  GIT_CLEAN_FLAGS: "-e backend/env/ -e devops/data/"
 
 workflow:
   rules:

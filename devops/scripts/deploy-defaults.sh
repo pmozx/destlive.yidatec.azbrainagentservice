@@ -3,7 +3,7 @@
 # ==============================================================================
 # 部署侧公共默认值与环境初始化（被 00-deploy-all.sh / manual/*.sh source）
 #
-#   应用运行配置的唯一来源是 env/.env.<env>：部署时挂载进容器
+#   应用运行配置的唯一来源是 backend/env/.env.<env>：部署时挂载进容器
 #   /home/env/.env.<env>，由应用（pydantic-settings）自行加载，部署脚本不做
 #   任何渲染 / 拆分 / 拷贝。本文件只负责部署侧变量的默认值与必需要素校验：
 #
@@ -13,7 +13,7 @@
 #       `docker login <DOCKER_REPO_URL>` 预认证（凭证持久化于 ~/.docker/config.json），
 #       或临时导出 DOCKER_REPO_USERNAME / DOCKER_REPO_PASSWORD（仅 package.sh 推送镜像时使用）。
 #
-#   环境矩阵：dev | test | uat | prod（与 env/ 下的文件一一对应）。
+#   环境矩阵：dev | test | uat | prod（与 backend/env/ 下的文件一一对应）。
 # ==============================================================================
 
 # 初始化部署环境：校验环境名、导出部署侧变量默认值、校验应用配置文件存在
@@ -52,13 +52,13 @@ init_deploy_env() {
     export APP_PORT="${APP_PORT:-8002}"
     export APP_NETWORK="${APP_NETWORK:-service-brain-agent}"
 
-    # 应用运行配置唯一来源：env/.env.<env>（挂载进容器，应用自行加载）
+    # 应用运行配置唯一来源：backend/env/.env.<env>（挂载进容器，应用自行加载）
     local project_root
     project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-    export APP_ENV_FILE="${project_root}/env/.env.${env_name}"
+    export APP_ENV_FILE="${project_root}/backend/env/.env.${env_name}"
     if [ ! -f "${APP_ENV_FILE}" ]; then
-        echo "错误: 缺少应用配置文件 env/.env.${env_name}" >&2
-        echo "      请参考 env/.env.dev 创建该文件（非开发环境的口令不要提交入库）" >&2
+        echo "错误: 缺少应用配置文件 backend/env/.env.${env_name}" >&2
+        echo "      请参考 backend/env/.env.dev 创建该文件（非开发环境的口令不要提交入库）" >&2
         exit 1
     fi
 }

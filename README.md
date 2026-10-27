@@ -21,33 +21,37 @@
 ## 目录结构
 
 ```text
-d00-fastapi-integration/
-├── main.py                  # 启动入口（默认 0.0.0.0:8002，热重载）
-├── app/
-│   ├── __init__.py          # create_app：lifespan、路由注册、前端托管
-│   ├── api/v1/routers.py    # 路由总表：域前缀 → 该域 controller 清单（唯一路由事实来源）
-│   ├── modules/             # 业务模块（域/功能五层：controller/service/crud/model/schema）
-│   │   └── system/log/      # 日志审计：sys_operation_log 查询、详情、删除、过期清理
-│   ├── core/                # 数据库、向量存储（pgvector）、依赖、异常、日志、操作日志路由类、校验器
-│   ├── config/              # 路径常量 + Settings（多环境）
-│   ├── common/              # 常量、枚举、响应体、请求体
-│   ├── utils/               # banner、密码、通用工具
-│   └── alembic/             # 数据库迁移
-├── env/                     # 多环境配置：.env / .env.dev / .env.test / .env.prod ...
-├── static/                  # 前端构建产物（/ui 托管）
-├── tests/                   # pytest 用例
-├── logs/  data/             # 运行日志、SQLite 数据文件
-└── frontend/                # Vue 3 前端工程
-    ├── src/
-    │   ├── api/             # 接口封装（module_system / module_monitor）
-    │   ├── layouts/         # 顶栏、页签、设置抽屉、布局骨架
-    │   ├── views/           # dashboard、module_system、module_monitor、error
-    │   ├── components/      # SectionCard、StatCard、JsonViewer、TaskStatusTag
-    │   ├── assets/styles/   # SCSS：index / reset / variables / mixins
-    │   ├── router/ store/ config/ hooks/ utils/ enums/
-    │   └── main.js
-    ├── vite.config.js       # base=/ui/，构建输出到 ../static
-    └── scripts/clean.mjs    # 构建前精确清理 static
+service_brain_agent/                # 仓库根：前后端一体化工程
+├── backend/                       # 后端工程（Python 依赖与运行目录的唯一入口）
+│   ├── main.py                  # 启动入口（默认 0.0.0.0:8002，热重载）
+│   ├── app/
+│   │   ├── __init__.py          # create_app：lifespan、路由注册、前端托管
+│   │   ├── api/v1/routers.py    # 路由总表：域前缀 → 该域 controller 清单（唯一路由事实来源）
+│   │   ├── modules/             # 业务模块（域/功能五层：controller/service/crud/model/schema）
+│   │   │   └── system/log/      # 日志审计：sys_operation_log 查询、详情、删除、过期清理
+│   │   ├── core/                # 数据库、向量存储（pgvector）、依赖、异常、日志、操作日志路由类、校验器
+│   │   ├── config/              # 路径常量 + Settings（多环境）
+│   │   ├── common/              # 常量、枚举、响应体、请求体
+│   │   ├── utils/               # banner、密码、通用工具
+│   │   └── alembic/             # 数据库迁移
+│   ├── env/                     # 多环境配置：.env / .env.dev / .env.test / .env.prod ...
+│   ├── static/                  # 前端构建产物（/ui 托管）与后端静态资源
+│   ├── tests/                   # pytest 用例
+│   ├── logs/  data/             # 运行日志、SQLite 数据文件
+│   ├── pyproject.toml / uv.lock # 依赖声明与锁文件（uv sync / uv run 均在 backend/ 下执行）
+│   └── pytest.ini / .python-version / banner.txt
+├── frontend/                    # Vue 3 前端工程
+│   ├── src/
+│   │   ├── api/                 # 接口封装（module_system / module_monitor）
+│   │   ├── layouts/             # 顶栏、页签、设置抽屉、布局骨架
+│   │   ├── views/               # dashboard、module_system、module_monitor、error
+│   │   ├── components/          # SectionCard、StatCard、JsonViewer、TaskStatusTag
+│   │   ├── assets/styles/       # SCSS：index / reset / variables / mixins
+│   │   ├── router/ store/ config/ hooks/ utils/ enums/
+│   │   └── main.js
+│   ├── vite.config.js           # base=/ui/，构建输出到 ../backend/static
+│   └── scripts/clean.mjs        # 构建前精确清理 backend/static
+└── devops/                      # CI/CD 与部署（Dockerfile / compose / 脚本，详见 devops/README.md）
 ```
 
 ## 快速开始
@@ -55,10 +59,13 @@ d00-fastapi-integration/
 ### 后端
 
 ```bash
+# 进入后端工程目录（Python 依赖与 main.py 均在此）
+cd backend
+
 # 安装依赖（含 dev 组）
 uv sync
 
-# 启动（仓库内已带 .venv 时也可直接运行）
+# 启动（backend/ 下已带 .venv 时也可直接运行）
 python main.py
 # 等价写法
 uvicorn app:create_app --factory --host 0.0.0.0 --port 8002 --reload
@@ -77,7 +84,7 @@ uvicorn app:create_app --factory --host 0.0.0.0 --port 8002 --reload
 cd frontend
 npm install
 npm run dev     # 开发服务器 5173，访问 http://127.0.0.1:5173/ui/
-npm run build   # 产物写入 ../static，随后由 FastAPI /ui 托管
+npm run build   # 产物写入 ../backend/static，随后由 FastAPI /ui 托管
 ```
 
 业务接口统一挂在 `/api/v1` 下（`app/api/v1/routers.py` 的 `API_PREFIX`），开发环境只需把该前缀经 Vite 代理转发到 `http://127.0.0.1:8002`；`/docs`、`/openapi.json`、`/healthz` 为应用级入口，仍在根路径，开发环境一并转发。前端 axios 默认 baseURL 为 `/api/v1`（`VITE_APP_BASE_API`），因此页面与接口始终同源，生产环境无需改配置。
@@ -86,13 +93,13 @@ npm run build   # 产物写入 ../static，随后由 FastAPI /ui 托管
 
 ### 后端多环境
 
-`app/config/setting.py` 按 Spring Boot profiles 的方式选择配置：
+`backend/app/config/setting.py` 按 Spring Boot profiles 的方式选择配置：
 
 1. 优先读取系统环境变量 `ENVIRONMENT`
-2. 其次读取 `env/.env` 中的 `ENVIRONMENT`
-3. 都未设置时使用 `dev`，加载 `env/.env.dev`
+2. 其次读取 `backend/env/.env` 中的 `ENVIRONMENT`
+3. 都未设置时使用 `dev`，加载 `backend/env/.env.dev`
 
-数据库类型由 `DATABASE_TYPE` 决定（`postgres` / `mysql` / `sqlite`），异步驱动与连接串自动拼接；连接池、会话、日志级别均可在 `env/.env.{environment}` 中覆盖。
+数据库类型由 `DATABASE_TYPE` 决定（`postgres` / `mysql` / `sqlite`），异步驱动与连接串自动拼接；连接池、会话、日志级别均可在 `backend/env/.env.{environment}` 中覆盖。
 
 本工程默认使用 **PostgreSQL**，并通过 **pgvector** 承担向量存储：
 
@@ -105,7 +112,7 @@ VECTOR_DIM=1024                  # 须与 embedding 模型输出一致（bge-m3=
 VECTOR_AUTO_CREATE=true          # 启动时幂等建扩展、切块表与 HNSW 索引
 ```
 
-向量存储（`app/core/vector_store.py`）：启动时幂等建 `vector` 扩展、切块表与 HNSW 索引，为后续 RAG 能力预留；当前未注册对外向量接口。
+向量存储（`backend/app/core/vector_store.py`）：启动时幂等建 `vector` 扩展、切块表与 HNSW 索引，为后续 RAG 能力预留；当前未注册对外向量接口。
 
 ### 前端环境
 
@@ -147,17 +154,18 @@ VECTOR_AUTO_CREATE=true          # 启动时幂等建扩展、切块表与 HNSW 
 
 ## 后端要点
 
-- 路由注册：`register_routers()` 只挂载 `app/api/v1/routers.py` 的 `api_v1`；新增业务模块时在 `app/modules/<域>/<功能>/controller.py` 定义 Router，再到 `DOMAIN_CONTROLLERS` 登记，不做包扫描自动注册
+- 路由注册：`register_routers()` 只挂载 `backend/app/api/v1/routers.py` 的 `api_v1`；新增业务模块时在 `backend/app/modules/<域>/<功能>/controller.py` 定义 Router，再到 `DOMAIN_CONTROLLERS` 登记，不做包扫描自动注册
 - 前端托管：`app.frontend("/ui", directory=STATIC_DIR, fallback="index.html")`，支持前端 history 路由直达
-- 日志：loguru 输出到控制台与 `logs/`，支持按大小滚动与 gzip 归档
+- 日志：loguru 输出到控制台与 `backend/logs/`，支持按大小滚动与 gzip 归档
 
 ## 测试与质量
 
 ```bash
+cd backend                 # 依赖声明与 pytest.ini 均在 backend/
 uv run pytest              # 单元测试
 uv run ruff check .        # 静态检查
 uv run ruff format .       # 格式化
-cd frontend && npm run build   # 前端构建校验
+cd ../frontend && npm run build   # 前端构建校验
 ```
 
 ## 部署（Docker Compose）
@@ -173,7 +181,7 @@ devops/scripts/manual/deploy.sh prod 20261026103000
 devops/scripts/manual/rollback.sh prod 20261025213000
 ```
 
-- 应用运行配置唯一来源：`env/.env.<env>`（部署时挂载进容器 `/home/env/`，由 `app/config/setting.py` 加载）
+- 应用运行配置唯一来源：`backend/env/.env.<env>`（部署时挂载进容器 `/home/env/`，由 `backend/app/config/setting.py` 加载）
 - 数据库：PostgreSQL 17 + pgvector；自建中间件用 `devops/common-server/docker-compose.yml`（`pgvector/pgvector:pg17`，首次初始化自动 `CREATE EXTENSION vector`）
 - 模型服务：同一个 compose 还编排 `ollama`（`bge-m3` 向量化，`/api/embed`）与 `rerank`（llama.cpp `--rerank`，`bge-reranker-v2-m3`，`/v1/rerank`），容器名 `service-brain-ollama` / `service-brain-rerank`，详见 [devops/README.md 6.5](./devops/README.md)
 - 环境矩阵：`dev` / `test` / `uat` / `prod`；容器内固定监听 `8002`，宿主机端口由 `APP_PORT` 控制
@@ -182,8 +190,8 @@ devops/scripts/manual/rollback.sh prod 20261025213000
 
 ## 约定与注意事项
 
-- `static/` 是前端构建产物目录；`npm run build` 只清理 `assets/`、`index.html`、`favicon.svg`，保留 `static/images/` 等后端演示资源
-- `env/` 是配置目录（不是虚拟环境），不要加入 `.gitignore`
+- `backend/static/` 是前端构建产物目录；`npm run build` 只清理 `assets/`、`index.html`、`favicon.svg`，保留 `backend/static/images/` 等后端演示资源
+- `backend/env/` 是配置目录（不是虚拟环境），不要加入 `.gitignore`
 - 默认主题色在 `index.html` 首屏脚本中预置，避免闪蓝；若浏览器 localStorage 存有旧主题色，可在「界面设置 → 恢复默认设置」后生效
-- 服务端口以 `main.py` 为准（8002）；`env` 中的 `HOST`/`PORT` 便于外部部署时对齐
+- 服务端口以 `backend/main.py` 为准（8002）；`backend/env` 中的 `HOST`/`PORT` 便于外部部署时对齐
 - 仓库根目录 `00-document/`、`01-document-AI Agent/` 为配套学习笔记，与运行无关
