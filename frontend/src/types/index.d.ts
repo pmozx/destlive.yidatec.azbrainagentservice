@@ -28,7 +28,7 @@ declare interface PageQuery {
   [key: string]: unknown
 }
 
-/** 操作日志列表项，对应 app/modules/system/log/schema.py 的 OperationLogOutSchema */
+/** 接口审计日志列表项，对应 app/modules/system/api_log/schema.py 的 SystemApiLogOutSchema */
 declare interface OperationLogItem {
   id: number
   username: string
@@ -42,7 +42,7 @@ declare interface OperationLogItem {
   created_time?: string
 }
 
-/** 操作日志详情，对应 OperationLogDetailOutSchema */
+/** 接口审计日志详情，对应 SystemApiLogDetailOutSchema */
 declare interface OperationLogDetail extends OperationLogItem {
   request_query?: string
   request_payload?: string

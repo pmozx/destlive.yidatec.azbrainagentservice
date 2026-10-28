@@ -3,8 +3,8 @@ from pydantic import BaseModel, Field
 from app.core.base_schema import BaseQueryParam, BaseSchema
 
 
-class OperationLogCreateSchema(BaseModel):
-    """审计写入模型（字段与 OperationLogRecord / OperationLogModel 保持一致）"""
+class SystemApiLogCreateSchema(BaseModel):
+    """审计写入模型（字段与 ApiLogRecord / SystemApiLogModel 保持一致）"""
 
     username: str = Field(default="anonymous", max_length=64, description="操作人")
     status: int = Field(default=0, ge=0, le=1, description="操作状态(0:成功 1:失败)")
@@ -20,8 +20,8 @@ class OperationLogCreateSchema(BaseModel):
     user_agent: str | None = Field(default=None, max_length=255, description="浏览器 UA")
 
 
-class OperationLogOutSchema(BaseSchema):
-    """操作日志列表响应（不返回请求/响应大字段，避免列表页数据量爆炸）"""
+class SystemApiLogOutSchema(BaseSchema):
+    """接口审计日志列表响应（不返回请求/响应大字段，避免列表页数据量爆炸）"""
 
     username: str = Field(..., description="操作人")
     status: int = Field(default=0, description="操作状态(0:成功 1:失败)")
@@ -33,8 +33,8 @@ class OperationLogOutSchema(BaseSchema):
     request_ip: str | None = Field(default=None, description="请求IP")
 
 
-class OperationLogDetailOutSchema(OperationLogOutSchema):
-    """操作日志详情响应（含请求/响应体）"""
+class SystemApiLogDetailOutSchema(SystemApiLogOutSchema):
+    """接口审计日志详情响应（含请求/响应体）"""
 
     request_query: str | None = Field(default=None, description="查询字符串")
     request_payload: str | None = Field(default=None, description="请求参数")
@@ -42,8 +42,8 @@ class OperationLogDetailOutSchema(OperationLogOutSchema):
     user_agent: str | None = Field(default=None, description="浏览器 UA")
 
 
-class OperationLogQueryParam(BaseQueryParam):
-    """操作日志查询参数（json_schema_extra 中的 q 决定 CRUD 层比较方式）"""
+class SystemApiLogQueryParam(BaseQueryParam):
+    """接口审计日志查询参数（json_schema_extra 中的 q 决定 CRUD 层比较方式）"""
 
     request_path: str | None = Field(None, description="请求路径", json_schema_extra={"q": "like"})
     request_method: str | None = Field(None, description="请求方式", json_schema_extra={"q": "eq"})
@@ -53,7 +53,7 @@ class OperationLogQueryParam(BaseQueryParam):
     request_ip: str | None = Field(None, description="请求IP", json_schema_extra={"q": "like"})
 
 
-class OperationLogCleanSchema(BaseModel):
+class SystemApiLogCleanSchema(BaseModel):
     """过期清理参数"""
 
     days: int = Field(default=90, ge=1, le=3650, description="保留天数，早于该天数的日志将被物理删除")

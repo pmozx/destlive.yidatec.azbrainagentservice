@@ -3,7 +3,7 @@
     <div class="page-header">
       <div>
         <h2 class="page-header__title">日志审计</h2>
-        <p class="page-header__desc">对接后端 /api/v1/system/log/operation 接口，查看写操作的请求留痕、响应摘要与耗时</p>
+        <p class="page-header__desc">对接后端 /api/v1/system/api-log 接口，查看写操作的请求留痕、响应摘要与耗时</p>
       </div>
       <div class="page-header__actions">
         <el-button size="small" @click="openClean">

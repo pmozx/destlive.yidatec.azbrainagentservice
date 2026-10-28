@@ -12,7 +12,7 @@
 | --- | --- |
 | Web 框架 | FastAPI、uvicorn[standard] |
 | 数据层 | SQLAlchemy 2.0（async）、asyncpg（PostgreSQL 主选）/ aiomysql / aiosqlite、alembic |
-| 向量存储 | PostgreSQL + pgvector（`pgvector` Python 包 + HNSW 余弦索引，表 `kb_chunk`） |
+| 向量存储 | PostgreSQL + pgvector（`pgvector` Python 包 + HNSW 余弦索引，表 `sbp_ai_kb_chunk`） |
 | 配置与日志 | pydantic-settings、python-dotenv、loguru |
 | 调度 | APScheduler 3.x |
 | 前端 | Vue 3.5、Vite 7、Vue Router 4、Pinia 3、Element Plus 2.x、SCSS(sass) |
@@ -27,9 +27,11 @@ service_brain_agent/                # 仓库根：前后端一体化工程
 │   ├── app/
 │   │   ├── __init__.py          # create_app：lifespan、路由注册、前端托管
 │   │   ├── api/v1/routers.py    # 路由总表：域前缀 → 该域 controller 清单（唯一路由事实来源）
-│   │   ├── modules/             # 业务模块（域/功能五层：controller/service/crud/model/schema）
-│   │   │   └── system/log/      # 日志审计：sys_operation_log 查询、详情、删除、过期清理
-│   │   ├── core/                # 数据库、向量存储（pgvector）、依赖、异常、日志、操作日志路由类、校验器
+│   │   ├── modules/             # 业务模块：域/功能两级，表名统一前缀 sbp_ai_[域缩写]_
+│   │   │   ├── system/api_log/ # 系统管理：接口审计日志（sbp_ai_system_api_log）
+│   │   │   ├── kb/chunk/       # 知识库管理：知识切块与向量存储（sbp_ai_kb_chunk）
+│   │   │   └── voice/          # 语音质检管理：二期预留（sbp_ai_voice_*）
+│   │   ├── core/                # 数据库、依赖、异常、日志、审计路由类、校验器
 │   │   ├── config/              # 路径常量 + Settings（多环境）
 │   │   ├── common/              # 常量、枚举、响应体、请求体
 │   │   ├── utils/               # banner、密码、通用工具
@@ -115,7 +117,7 @@ VECTOR_DIM=1024                  # 须与 embedding 模型输出一致（bge-m3=
 VECTOR_AUTO_CREATE=true          # 启动时幂等建扩展、切块表与 HNSW 索引
 ```
 
-向量存储（`backend/app/core/vector_store.py`）：启动时幂等建 `vector` 扩展、切块表与 HNSW 索引，为后续 RAG 能力预留；当前未注册对外向量接口。
+向量存储（`backend/app/modules/kb/chunk/vector_store.py`）：启动时幂等建 `vector` 扩展、切块表与 HNSW 索引，为后续 RAG 能力预留；当前未注册对外向量接口。
 
 ### 前端环境
 
@@ -129,7 +131,7 @@ VECTOR_AUTO_CREATE=true          # 启动时幂等建扩展、切块表与 HNSW 
 | 路由 | 页面 | 说明 |
 | --- | --- | --- |
 | `/dashboard` | 运行总览 | Hero 检索、指标条、最近任务（示例数据）、快捷入口、后端服务信息 |
-| `/system/log` | 日志审计 | 对接 `/api/v1/system/log/operation`，分页查询、条件筛选、详情、批量删除、按天数清理 |
+| `/system/log` | 日志审计 | 对接 `/api/v1/system/api-log`，分页查询、条件筛选、详情、批量删除、按天数清理 |
 | `/monitor/endpoint` | 接口自检 | 接口清单 + 逐个探测，JSON 展示响应与耗时 |
 
 布局与交互：
@@ -158,6 +160,8 @@ VECTOR_AUTO_CREATE=true          # 启动时幂等建扩展、切块表与 HNSW 
 ## 后端要点
 
 - 路由注册：`register_routers()` 只挂载 `backend/app/api/v1/routers.py` 的 `api_v1`；新增业务模块时在 `backend/app/modules/<域>/<功能>/controller.py` 定义 Router，再到 `DOMAIN_CONTROLLERS` 登记，不做包扫描自动注册
+- 命名口径：表名 `sbp_ai_[域缩写]_[业务名]`（`system` / `kb` / `voice`），与目录、模型类一一对应，详见 `backend/app/modules/__init__.py`
+- 审计开关：`API_LOG_*`（接口审计日志，落表 `sbp_ai_system_api_log`）
 - 前端托管：`app.frontend("/ui", directory=STATIC_DIR, fallback="index.html")`，支持前端 history 路由直达
 - 日志：loguru 输出到控制台与 `backend/logs/`，支持按大小滚动与 gzip 归档
 

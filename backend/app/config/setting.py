@@ -110,23 +110,23 @@ class Settings(BaseSettings):
     # ==================== 日志配置 ====================
     LOGGER_LEVEL: str = Field(default="INFO", description="日志级别")
 
-    # ==================== 操作日志审计配置 ====================
-    OPERATION_LOG_ENABLE: bool = Field(default=True, description="是否开启操作日志审计")
-    OPERATION_RECORD_METHOD: list[str] = Field(
+    # ==================== 接口审计日志配置（表 sbp_ai_system_api_log） ====================
+    API_LOG_ENABLE: bool = Field(default=True, description="是否开启接口审计日志")
+    API_LOG_RECORD_METHOD: list[str] = Field(
         default=["POST", "PUT", "PATCH", "DELETE"],
         description="需要记录的请求方法（GET/HEAD/OPTIONS 默认不记录，避免查询与预检淹没写操作）",
     )
-    OPERATION_LOG_SKIP_PATHS: list[str] = Field(
+    API_LOG_SKIP_PATHS: list[str] = Field(
         default=["/docs", "/redoc", "/openapi.json", "/ui", "/static"],
         description="不参与审计的路径前缀：接口文档、前端产物与静态资源",
     )
-    OPERATION_LOG_MAX_PAYLOAD: int = Field(default=2000, description="请求/响应体入库最大字符数，超出截断")
-    OPERATION_LOG_USER_HEADER: str = Field(
+    API_LOG_MAX_PAYLOAD: int = Field(default=2000, description="请求/响应体入库最大字符数，超出截断")
+    API_LOG_USER_HEADER: str = Field(
         default="",
         description="回填操作人的请求头名；留空表示只认 request.state 回填，避免客户端伪造操作人",
     )
-    OPERATION_LOG_AUTO_CREATE: bool = Field(default=True, description="启动时自动创建审计表（已存在则跳过）")
-    OPERATION_LOG_RETENTION_DAYS: int = Field(default=90, description="审计日志保留天数，<=0 表示启动时不做过期清理")
+    API_LOG_AUTO_CREATE: bool = Field(default=True, description="启动时自动创建审计表（已存在则跳过）")
+    API_LOG_RETENTION_DAYS: int = Field(default=90, description="审计日志保留天数，<=0 表示启动时不做过期清理")
     TRUSTED_PROXY_HOPS: int = Field(default=0, description="前置可信反向代理跳数，0 表示忽略代理头、仅取 TCP 对端地址")
 
     # 数据库驱动映射（数据库类型 -> 异步驱动）

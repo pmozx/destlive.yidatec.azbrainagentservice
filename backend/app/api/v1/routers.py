@@ -9,13 +9,13 @@
 
 from fastapi import APIRouter
 
-from app.modules.system.log.controller import LogRouter
+from app.modules.system.api_log.controller import SystemApiLogRouter
 
 API_PREFIX = "/api/v1"
 
 DOMAIN_CONTROLLERS: dict[str, list[APIRouter]] = {
     "/system": [
-        LogRouter,
+        SystemApiLogRouter,
     ],
 }
 

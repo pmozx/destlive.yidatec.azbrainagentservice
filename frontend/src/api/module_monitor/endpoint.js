@@ -10,7 +10,7 @@ export const endpointCatalog = [
   {
     group: '系统管理',
     items: [
-      { name: '操作日志列表', method: HttpMethod.GET, path: '/system/log/operation/list?page_no=1&page_size=5' },
+      { name: '接口审计日志列表', method: HttpMethod.GET, path: '/system/api-log/list?page_no=1&page_size=5' },
     ],
   },
   {

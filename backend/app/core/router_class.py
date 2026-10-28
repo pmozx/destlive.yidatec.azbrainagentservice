@@ -1,8 +1,8 @@
-"""操作日志审计：路由级采集 + 后台异步落库。
+"""接口审计日志：路由级采集 + 后台异步落库（落表 sbp_ai_system_api_log）。
 
-用法：``APIRouter(route_class=OperationLogRoute, ...)``，整组接口即获得审计能力，业务代码零侵入。
+用法：``APIRouter(route_class=ApiLogRoute, ...)``，整组接口即获得审计能力，业务代码零侵入。
 
-与 fastapi_admin_backend 的 OperationLogRoute 保持同一套骨架（方法白名单 + 字段脱敏 + 独立会话落库），
+骨架沿用基座后端的 OperationLogRoute（方法白名单 + 字段脱敏 + 独立会话落库），
 针对轻量应用补了三处缺口：
 1. 业务异常同样留痕：原实现 ``await handler()`` 在 try 之外，抛异常（400/401/403/校验失败）的请求一条都不落，
    而这类请求恰恰是审计最需要的；
@@ -88,13 +88,13 @@ def set_audit_username(request: Request, username: str | None) -> None:
 def _resolve_username(request: Request) -> str:
     """操作人优先级：request.state 回填 > 配置的请求头 > anonymous。"""
     username = getattr(request.state, "audit_username", None)
-    if not username and settings.OPERATION_LOG_USER_HEADER:
-        username = request.headers.get(settings.OPERATION_LOG_USER_HEADER)
+    if not username and settings.API_LOG_USER_HEADER:
+        username = request.headers.get(settings.API_LOG_USER_HEADER)
     return str(username or _ANONYMOUS)[:64]
 
 
-class OperationLogRecord(TypedDict):
-    """审计落库记录（字段与 OperationLogModel 一一对应）。"""
+class ApiLogRecord(TypedDict):
+    """审计落库记录（字段与 SystemApiLogModel 一一对应）。"""
 
     username: str
     status: int
@@ -114,26 +114,26 @@ class OperationLogRecord(TypedDict):
 _pending_tasks: set[asyncio.Task[None]] = set()
 
 
-async def _write_operation_log_async(log_data: OperationLogRecord) -> None:
+async def _write_api_log_async(log_data: ApiLogRecord) -> None:
     """独立会话落库：不复用请求级会话（响应返回时该事务已结束）。"""
-    from app.modules.system.log.model import OperationLogModel  # 延迟导入：core 不反向依赖业务层
+    from app.modules.system.api_log.model import SystemApiLogModel  # 延迟导入：core 不反向依赖业务层
 
     try:
         async with async_session_factory() as session:
-            session.add(OperationLogModel(**log_data))
+            session.add(SystemApiLogModel(**log_data))
             await session.commit()
     except Exception:
-        logger.exception("操作日志写入失败: path={}", log_data.get("request_path"))
+        logger.exception("接口审计日志写入失败: path={}", log_data.get("request_path"))
 
 
-def _schedule_write(log_data: OperationLogRecord) -> None:
+def _schedule_write(log_data: ApiLogRecord) -> None:
     """异步落库（不阻塞响应），写失败只记应用日志。"""
-    task = asyncio.create_task(_write_operation_log_async(log_data))
+    task = asyncio.create_task(_write_api_log_async(log_data))
     _pending_tasks.add(task)
     task.add_done_callback(_pending_tasks.discard)
 
 
-async def flush_pending_writes(timeout: float = 5.0) -> int:
+async def flush_pending_api_logs(timeout: float = 5.0) -> int:
     """等待在途审计写入结束：供应用关停时调用，避免连接池被提前释放导致日志丢失。"""
     pending = [task for task in _pending_tasks if not task.done()]
     if not pending:
@@ -171,7 +171,7 @@ async def _extract_request_payload(request: Request) -> str | None:
         oper_param["path_params"] = dict(request.path_params)
     if not oper_param:
         return None
-    return _truncate(json.dumps(oper_param, ensure_ascii=False), settings.OPERATION_LOG_MAX_PAYLOAD)
+    return _truncate(json.dumps(oper_param, ensure_ascii=False), settings.API_LOG_MAX_PAYLOAD)
 
 
 def _extract_response_json(response: Response) -> str | None:
@@ -185,7 +185,7 @@ def _extract_response_json(response: Response) -> str | None:
         data = _redact_sensitive(json.loads(bytes(body).decode()))
     except (json.JSONDecodeError, UnicodeDecodeError):
         return None
-    return _truncate(json.dumps(data, ensure_ascii=False), settings.OPERATION_LOG_MAX_PAYLOAD)
+    return _truncate(json.dumps(data, ensure_ascii=False), settings.API_LOG_MAX_PAYLOAD)
 
 
 def _route_summary(request: Request) -> str:
@@ -196,12 +196,12 @@ def _route_summary(request: Request) -> str:
 
 def _should_record(request: Request) -> bool:
     """过滤：总开关、请求方法白名单、文档/静态资源路径。"""
-    if not settings.OPERATION_LOG_ENABLE:
+    if not settings.API_LOG_ENABLE:
         return False
-    if request.method not in settings.OPERATION_RECORD_METHOD:
+    if request.method not in settings.API_LOG_RECORD_METHOD:
         return False
     path = request.url.path
-    return not any(path.startswith(prefix) for prefix in settings.OPERATION_LOG_SKIP_PATHS)
+    return not any(path.startswith(prefix) for prefix in settings.API_LOG_SKIP_PATHS)
 
 
 async def _build_log_data(
@@ -212,7 +212,7 @@ async def _build_log_data(
     description: str,
     response_json: str | None,
     start: float,
-) -> OperationLogRecord:
+) -> ApiLogRecord:
     """组装一条审计记录（耗时单位统一为毫秒）。"""
     return {
         "username": _resolve_username(request),
@@ -220,7 +220,7 @@ async def _build_log_data(
         "description": description,
         "request_path": request.url.path,
         "request_method": request.method,
-        "request_query": _truncate(request.url.query, settings.OPERATION_LOG_MAX_PAYLOAD) or None,
+        "request_query": _truncate(request.url.query, settings.API_LOG_MAX_PAYLOAD) or None,
         "request_payload": await _extract_request_payload(request),
         "response_code": response_code,
         "response_json": response_json,
@@ -242,7 +242,7 @@ async def _record_success(request: Request, response: Response, start: float) ->
             start=start,
         )
     except Exception:
-        logger.warning("操作日志采集失败: {}", request.url.path, exc_info=True)
+        logger.warning("接口审计日志采集失败: {}", request.url.path, exc_info=True)
         return
 
     _schedule_write(log_data)
@@ -260,15 +260,15 @@ async def _record_failure(request: Request, exc: Exception, start: float) -> Non
             status=1,
             response_code=response_code,
             description=f"{summary} | {message}" if summary else message,
-            response_json=_truncate(json.dumps({"error": message}, ensure_ascii=False), settings.OPERATION_LOG_MAX_PAYLOAD),
+            response_json=_truncate(json.dumps({"error": message}, ensure_ascii=False), settings.API_LOG_MAX_PAYLOAD),
             start=start,
         )
         _schedule_write(log_data)
     except Exception:
-        logger.warning("操作日志异常路径采集失败: {}", request.url.path, exc_info=True)
+        logger.warning("接口审计日志异常路径采集失败: {}", request.url.path, exc_info=True)
 
 
-class OperationLogRoute(APIRoute):
+class ApiLogRoute(APIRoute):
     """审计路由类 — 按配置的请求方法自动记录请求/响应并后台异步写入。"""
 
     def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:

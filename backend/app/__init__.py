@@ -10,22 +10,22 @@ from app.core.logger import logger
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """
-    应用生命周期：启动时准备操作日志审计（建表 + 过期清理），关闭时释放数据库连接。
+    应用生命周期：启动时准备接口审计日志（建表 + 过期清理），关闭时释放数据库连接。
 
     审计属辅助能力，初始化失败只告警不阻断启动。
     """
-    from app.modules.system.log.service import cleanup_expired_operation_logs, ensure_operation_log_table
+    from app.modules.system.api_log.service import cleanup_expired_api_logs, ensure_api_log_table
 
     try:
-        await ensure_operation_log_table()
-        purged = await cleanup_expired_operation_logs()
-        logger.info("==== 操作日志审计就绪（启动清理过期记录 {} 条）====", purged)
+        await ensure_api_log_table()
+        purged = await cleanup_expired_api_logs()
+        logger.info("==== 接口审计日志就绪（启动清理过期记录 {} 条）====", purged)
     except Exception as e:
-        logger.error(f"❌ 操作日志审计初始化失败（审计功能不可用，业务不受影响）: {e!s}")
+        logger.error(f"❌ 接口审计日志初始化失败（审计功能不可用，业务不受影响）: {e!s}")
 
     # 向量存储（pgvector）：建扩展、切块表与 HNSW 索引，幂等；失败只告警，
     # 避免数据库暂不可用时拖住整个应用启动
-    from app.core.vector_store import ensure_vector_store
+    from app.modules.kb.chunk.vector_store import ensure_vector_store
 
     try:
         await ensure_vector_store()
@@ -35,12 +35,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     yield
 
     from app.core.database import async_engine
-    from app.core.router_class import flush_pending_writes
+    from app.core.router_class import flush_pending_api_logs
 
     # 先等在途审计写入结束，再释放连接池，避免关停瞬间丢日志
-    flushed = await flush_pending_writes()
+    flushed = await flush_pending_api_logs()
     if flushed:
-        logger.info("==== 关停前等待 {} 条操作日志写入完成 ====", flushed)
+        logger.info("==== 关停前等待 {} 条接口审计日志写入完成 ====", flushed)
     await async_engine.dispose()
 
 

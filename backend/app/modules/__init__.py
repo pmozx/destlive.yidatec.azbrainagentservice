@@ -1,1 +1,18 @@
-"""业务模块包：按领域（如 system）与功能（如 log）分目录，对外仅暴露 controller 中的 Router。"""
+"""业务模块包：按「域 / 功能」两级分目录，对外仅暴露 controller 中的 Router。
+
+命名规范（目录、表名、类名三者一一对应，便于 grep 与评审）：
+
+1. 表名统一前缀 ``sbp_ai_``，形如 ``sbp_ai_[模块简写]_[业务名]``；
+2. 模块简写即域目录名，当前三个域：
+   - ``system``  系统管理          → 表前缀 ``sbp_ai_system_``
+   - ``kb``      知识库管理        → 表前缀 ``sbp_ai_kb_``
+   - ``voice``   语音质检管理      → 表前缀 ``sbp_ai_voice_``
+3. 功能目录名（如 ``api_log``、``chunk``）与表名的业务段一致；
+4. 模型类名 = 去掉前缀的表名转 PascalCase + ``Model``，同目录的 CRUD / Service / Router / Schema
+   复用同一词干，例如：
+
+   ``sbp_ai_system_api_log`` ↔ ``modules/system/api_log/`` ↔ ``SystemApiLogModel`` /
+   ``SystemApiLogCRUD`` / ``SystemApiLogService`` / ``SystemApiLogOutSchema`` / ``SystemApiLogRouter``
+
+5. 索引名 ``ix_[表名]_[列]``、唯一约束 ``uq_[表名]_[列]``，同样带完整表名，避免多表索引重名。
+"""

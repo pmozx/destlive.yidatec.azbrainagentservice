@@ -1,4 +1,4 @@
-"""pgvector 向量存储：建表/索引、幂等写入、余弦相似度检索。
+"""pgvector 向量存储（知识库管理域）：建表/索引、幂等写入、余弦相似度检索。
 
 设计约定：
 1. 仅 PostgreSQL + pgvector 可用；其它数据库调用即报错，不做静默降级，
@@ -8,81 +8,26 @@
 3. embedding 由调用方生成后传入，本模块不绑定具体模型供应商；维度校验在此收口；
 4. 距离度量固定 cosine，检索分数统一换算为 ``1 - cosine_distance``（越大越相似）；
 5. 表与扩展的创建是幂等的：initdb 脚本已建过也没关系，重复执行无副作用。
+
+表 ``sbp_ai_kb_chunk`` 的模型见同目录 ``model.py``；本文件只承载存取能力，
+对外 HTTP 接口留给知识库模块的 controller 层接入。
 """
 
 from datetime import UTC, datetime
-from typing import Any, Final, Sequence
+from typing import Any, Sequence
 
 from fastapi import status
-from pgvector.sqlalchemy import Vector
-from sqlalchemy import (
-    BigInteger,
-    DateTime,
-    Index,
-    Integer,
-    String,
-    Text,
-    UniqueConstraint,
-    delete,
-    func,
-    select,
-    text,
-)
-from sqlalchemy.dialects.postgresql import JSONB, insert
+from sqlalchemy import delete, func, select, text
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Mapped, mapped_column
 
 from app.common.enums import DatabaseTypeEnum
 from app.config.setting import settings
-from app.core.base_model import MappedBase
 from app.core.database import async_engine
 from app.core.exceptions import CustomException
 from app.core.logger import logger
 
-# 表名固定：DDL 走 f-string 拼接，不接受外部配置，避免标识符注入
-VECTOR_TABLE_NAME: Final[str] = "kb_chunk"
-VECTOR_INDEX_NAME: Final[str] = "ix_kb_chunk_embedding_hnsw"
-
-
-class KnowledgeChunkModel(MappedBase):
-    """知识切块表：原文与向量同库存储，便于用一条 SQL 完成"过滤 + 召回"。
-
-    刻意不继承 ModelMixin：本表不使用软删除与操作人字段，Mixin 的 status 复合索引
-    会引用不存在的列（同 OperationLogModel 的处理方式）。
-    """
-
-    __tablename__: str = VECTOR_TABLE_NAME
-    __table_args__: tuple = (
-        UniqueConstraint("space_id", "doc_id", "chunk_index", name="uq_kb_chunk_doc_index"),
-        Index("ix_kb_chunk_space_doc", "space_id", "doc_id"),
-        {"comment": "知识切块表（含 pgvector 向量）"},
-    )
-
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True, comment="主键ID")
-    space_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True, comment="知识空间ID")
-    doc_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True, comment="文档ID")
-    chunk_index: Mapped[int] = mapped_column(Integer, nullable=False, comment="切块序号（同文档内从 0 递增）")
-    content: Mapped[str] = mapped_column(Text, nullable=False, comment="切块原文")
-    page_no: Mapped[int | None] = mapped_column(Integer, default=None, nullable=True, comment="原文页码")
-    meta: Mapped[dict[str, Any]] = mapped_column(
-        JSONB, default=dict, nullable=False, comment="业务附加信息（标题、来源、分类等）"
-    )
-    embedding: Mapped[list[float]] = mapped_column(
-        Vector(settings.VECTOR_DIM), nullable=False, comment=f"向量（{settings.VECTOR_DIM} 维，cosine）"
-    )
-    created_time: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        default=lambda: datetime.now(UTC),
-        nullable=False,
-        comment="创建时间",
-    )
-    updated_time: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        default=lambda: datetime.now(UTC),
-        onupdate=lambda: datetime.now(UTC),
-        nullable=False,
-        comment="更新时间",
-    )
+from .model import KB_CHUNK_EMBEDDING_INDEX_NAME, KB_CHUNK_TABLE_NAME, KbChunkModel
 
 
 def vector_store_ready() -> bool:
@@ -121,7 +66,7 @@ async def _existing_vector_dim(conn) -> int | None:
             "SELECT format_type(atttypid, atttypmod) FROM pg_attribute "
             "WHERE attrelid = to_regclass(:table_name) AND attname = 'embedding' AND attnum > 0"
         ),
-        {"table_name": VECTOR_TABLE_NAME},
+        {"table_name": KB_CHUNK_TABLE_NAME},
     )
     row = result.first()
     if row is None or not row[0]:
@@ -144,23 +89,23 @@ async def ensure_vector_store() -> None:
 
     async with async_engine.begin() as conn:
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-        await conn.run_sync(KnowledgeChunkModel.__table__.create, checkfirst=True)
+        await conn.run_sync(KbChunkModel.__table__.create, checkfirst=True)
         existing_dim = await _existing_vector_dim(conn)
         if existing_dim is not None and existing_dim != settings.VECTOR_DIM:
             raise CustomException(
                 msg=(
-                    f"切块表 {VECTOR_TABLE_NAME} 的向量维度为 {existing_dim}，与 VECTOR_DIM={settings.VECTOR_DIM} 不一致；"
+                    f"切块表 {KB_CHUNK_TABLE_NAME} 的向量维度为 {existing_dim}，与 VECTOR_DIM={settings.VECTOR_DIM} 不一致；"
                     "换维度无法原地修改，需重建表并重新灌入向量"
                 )
             )
         await conn.execute(
             text(
-                f"CREATE INDEX IF NOT EXISTS {VECTOR_INDEX_NAME} ON {VECTOR_TABLE_NAME} "
+                f"CREATE INDEX IF NOT EXISTS {KB_CHUNK_EMBEDDING_INDEX_NAME} ON {KB_CHUNK_TABLE_NAME} "
                 "USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64)"
             )
         )
 
-    logger.info("==== 向量存储就绪（表 {}，维度 {}，索引 HNSW/cosine）====", VECTOR_TABLE_NAME, settings.VECTOR_DIM)
+    logger.info("==== 向量存储就绪（表 {}，维度 {}，索引 HNSW/cosine）====", KB_CHUNK_TABLE_NAME, settings.VECTOR_DIM)
 
 
 async def upsert_chunks(session: AsyncSession, chunks: Sequence[dict[str, Any]]) -> int:
@@ -190,12 +135,12 @@ async def upsert_chunks(session: AsyncSession, chunks: Sequence[dict[str, Any]])
             }
         )
 
-    stmt = insert(KnowledgeChunkModel).values(rows)
+    stmt = insert(KbChunkModel).values(rows)
     stmt = stmt.on_conflict_do_update(
         index_elements=[
-            KnowledgeChunkModel.space_id,
-            KnowledgeChunkModel.doc_id,
-            KnowledgeChunkModel.chunk_index,
+            KbChunkModel.space_id,
+            KbChunkModel.doc_id,
+            KbChunkModel.chunk_index,
         ],
         set_={
             "content": stmt.excluded.content,
@@ -229,21 +174,21 @@ async def search_chunks(
         raise CustomException(msg="top_k 必须大于 0", status_code=status.HTTP_400_BAD_REQUEST)
 
     vector = validate_embedding(query_embedding)
-    distance = KnowledgeChunkModel.embedding.cosine_distance(vector).label("distance")
+    distance = KbChunkModel.embedding.cosine_distance(vector).label("distance")
     stmt = select(
-        KnowledgeChunkModel.id,
-        KnowledgeChunkModel.space_id,
-        KnowledgeChunkModel.doc_id,
-        KnowledgeChunkModel.chunk_index,
-        KnowledgeChunkModel.page_no,
-        KnowledgeChunkModel.content,
-        KnowledgeChunkModel.meta,
+        KbChunkModel.id,
+        KbChunkModel.space_id,
+        KbChunkModel.doc_id,
+        KbChunkModel.chunk_index,
+        KbChunkModel.page_no,
+        KbChunkModel.content,
+        KbChunkModel.meta,
         distance,
     )
     if space_id:
-        stmt = stmt.where(KnowledgeChunkModel.space_id == space_id)
+        stmt = stmt.where(KbChunkModel.space_id == space_id)
     if doc_id:
-        stmt = stmt.where(KnowledgeChunkModel.doc_id == doc_id)
+        stmt = stmt.where(KbChunkModel.doc_id == doc_id)
     stmt = stmt.order_by(distance).limit(top_k)
 
     result = await session.execute(stmt)
@@ -273,9 +218,9 @@ async def delete_chunks(session: AsyncSession, *, doc_id: str, space_id: str | N
     if not doc_id:
         raise CustomException(msg="doc_id 不能为空", status_code=status.HTTP_400_BAD_REQUEST)
 
-    stmt = delete(KnowledgeChunkModel).where(KnowledgeChunkModel.doc_id == doc_id)
+    stmt = delete(KbChunkModel).where(KbChunkModel.doc_id == doc_id)
     if space_id:
-        stmt = stmt.where(KnowledgeChunkModel.space_id == space_id)
+        stmt = stmt.where(KbChunkModel.space_id == space_id)
     result = await session.execute(stmt)
     return getattr(result, "rowcount", 0) or 0
 
@@ -283,8 +228,8 @@ async def delete_chunks(session: AsyncSession, *, doc_id: str, space_id: str | N
 async def count_chunks(session: AsyncSession, *, space_id: str | None = None) -> int:
     """统计切块数量（可按知识空间过滤），用于运维自检。"""
     _require_postgres()
-    stmt = select(func.count()).select_from(KnowledgeChunkModel)
+    stmt = select(func.count()).select_from(KbChunkModel)
     if space_id:
-        stmt = stmt.where(KnowledgeChunkModel.space_id == space_id)
+        stmt = stmt.where(KbChunkModel.space_id == space_id)
     result = await session.execute(stmt)
     return int(result.scalar_one())

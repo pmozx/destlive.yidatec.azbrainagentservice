@@ -62,7 +62,7 @@ build（门禁校验） → package（构建并推送镜像） → deploy（dock
 | 容器端口   | 容器内固定 8001，宿主机端口由 `BACKEND_PORT` 控制       | 容器内固定 **8002**，宿主机端口由 `APP_PORT` 控制（与 `main.py` 默认一致） |
 | 启动方式   | 入口脚本 `python main.py run --env=<env>`               | 入口脚本 `python -m uvicorn app:create_app --factory`（关掉热重载） |
 | 中间件     | `devops/common-server`（MySQL + Redis + Milvus）        | `devops/common-server`（**PostgreSQL 17 + pgvector + Ollama / llama.cpp 模型服务**，可选用） |
-| 数据与向量 | 业务库 MySQL + 向量库 Milvus 两套存储                   | **单库合流**：业务表与向量表（`kb_chunk`）同在 PostgreSQL，靠 pgvector 检索 |
+| 数据与向量 | 业务库 MySQL + 向量库 Milvus 两套存储                   | **单库合流**：业务表与向量表（`sbp_ai_kb_chunk`）同在 PostgreSQL，靠 pgvector 检索 |
 
 ---
 
@@ -241,7 +241,7 @@ docker compose -f devops/common-server/docker-compose.yml up -d
 
 镜像 `pgvector/pgvector:pg17` 自带 pgvector 扩展（实测 0.8.7）。`initdb/00-init.sql` 在数据目录**首次**初始化时执行
 `CREATE EXTENSION IF NOT EXISTS vector`；数据卷已存在时会跳过 initdb，此时由应用启动阶段按 `VECTOR_AUTO_CREATE`
-幂等补建（实现在 `app/core/vector_store.py`）。两条路径均幂等，重复执行无副作用。
+幂等补建（实现在 `app/modules/kb/chunk/vector_store.py`）。两条路径均幂等，重复执行无副作用。
 
 自建后把 `backend/env/.env.<env>` 指向容器名即可（同一 `APP_NETWORK`）：
 
@@ -267,10 +267,10 @@ VECTOR_AUTO_CREATE=true
 
 ### 6.4 向量存储（pgvector）
 
-切块表 `kb_chunk`：`space_id` / `doc_id` / `chunk_index` 唯一约束（重复向量化幂等覆盖）、`content` 原文、
+切块表 `sbp_ai_kb_chunk`：`space_id` / `doc_id` / `chunk_index` 唯一约束（重复向量化幂等覆盖）、`content` 原文、
 `embedding vector(<VECTOR_DIM>)`、`meta jsonb`，索引为 HNSW + `vector_cosine_ops`（m=16, ef_construction=64）。
 
-向量能力以服务层形式提供（`app/core/vector_store.py`），对外 HTTP 接口留给后续知识库模块接入：
+向量能力以服务层形式提供（知识库管理域：`app/modules/kb/chunk/vector_store.py`），对外 HTTP 接口留给后续知识库 controller 接入：
 
 | 能力 | 函数 | 说明 |
 | ---- | ---- | ---- |
@@ -281,9 +281,9 @@ VECTOR_AUTO_CREATE=true
 
 - **分数口径**：`score = 1 - cosine_distance`，越大越相似；阈值需按实际 embedding 模型重标，不要跨模型复用；
 - **embedding 由调用方生成**：本工程只做维度校验与存取，不绑定模型供应商；自建模型服务见 6.5；
-- **维度不可原地变更**：`kb_chunk` 的向量列类型在进程导入期定型，`VECTOR_DIM` 改动后启动时会检测到表维度不一致并报错，
+- **维度不可原地变更**：`sbp_ai_kb_chunk` 的向量列类型在进程导入期定型，`VECTOR_DIM` 改动后启动时会检测到表维度不一致并报错，
   需新建表/库并重新灌入（与第 9 节限制一致）；
-- **审计口径**：向量写入属高频批量路径，后续接入 HTTP 接口时不要挂 `OperationLogRoute`，避免上千维浮点数组落审计表。
+- **审计口径**：向量写入属高频批量路径，后续接入 HTTP 接口时不要挂 `ApiLogRoute`，避免上千维浮点数组落审计表。
 
 ### 6.5 模型服务：Ollama 向量化 + llama.cpp 重排序（可选）
 
