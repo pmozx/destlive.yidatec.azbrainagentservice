@@ -34,6 +34,12 @@ const request = axios.create({
 request.interceptors.request.use((config) => {
   const token = getToken()
   if (token) config.headers.Authorization = `Bearer ${token}`
+  // FormData 必须交给浏览器自己定 Content-Type（它要补 boundary）：
+  // 若沿用实例默认的 application/json，axios 1.x 的 transformRequest 会把 FormData
+  // 直接 JSON.stringify 掉，后端 multipart 解析拿到的 body 是空的，只会报字段缺失。
+  if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
+    config.headers.setContentType(null)
+  }
   return config
 })
 

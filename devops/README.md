@@ -61,8 +61,9 @@ build（门禁校验） → package（构建并推送镜像） → deploy（dock
 | 配置注入   | `backend/env/.env.<env>` 挂载进容器                     | 同左：`backend/env/.env.<env>` 挂载到 `/home/env/`                        |
 | 容器端口   | 容器内固定 8001，宿主机端口由 `BACKEND_PORT` 控制       | 容器内固定 **8002**，宿主机端口由 `APP_PORT` 控制（与 `main.py` 默认一致） |
 | 启动方式   | 入口脚本 `python main.py run --env=<env>`               | 入口脚本 `python -m uvicorn app:create_app --factory`（关掉热重载） |
-| 中间件     | `devops/common-server`（MySQL + Redis + Milvus）        | `devops/common-server`（**PostgreSQL 17 + pgvector + Ollama / llama.cpp 模型服务**，可选用） |
-| 数据与向量 | 业务库 MySQL + 向量库 Milvus 两套存储                   | **单库合流**：业务表与向量表（`sbp_ai_kb_chunk`）同在 PostgreSQL，靠 pgvector 检索 |
+| 中间件     | `devops/common-server`（MySQL + Redis + Milvus）        | `devops/common-server`（**PostgreSQL 17 + pgvector + MinIO + Ollama / llama.cpp 模型服务**，可选用） |
+| 数据与向量 | 业务库 MySQL + 向量库 Milvus 两套存储                   | **单库合流**：业务表、知识空间表（`sbp_ai_integration_space` / `_document`）与向量表（`sbp_ai_integration_chunk`）同在 PostgreSQL，靠 pgvector 检索 |
+| 对象存储   | 业务库 MySQL + 向量库 Milvus                            | **MinIO（S3 协议）**：文档原件与解析产物落桶，镜像锁 RELEASE，应用侧走 boto3 + path-style |
 
 ---
 
@@ -92,7 +93,7 @@ service_brain_agent/
     │   ├── app.yml                         # 应用服务编排（配置 bind 挂载 + 健康检查 + 外部共享网络）
     │   └── .env.example                    # compose 手工执行变量样例（真实 .env 不入库）
     ├── common-server/                       # 可选：自建数据库与本地模型服务（常驻、与应用同外部网络）
-    │   ├── docker-compose.yml              # PostgreSQL 17 + pgvector、Ollama（bge-m3）、llama.cpp rerank
+    │   ├── docker-compose.yml              # PostgreSQL 17 + pgvector、MinIO（S3）、Ollama（bge-m3）、llama.cpp rerank
     │   ├── initdb/00-init.sql              # 数据目录首次初始化：CREATE EXTENSION vector
     │   ├── volumes/                        # 数据库、Ollama 模型、rerank GGUF 持久化（gitignore，自动创建）
     │   └── .env.example                    # 取值清单（编排已内联这些值，默认不读取）
@@ -123,7 +124,7 @@ service_brain_agent/
 | 部署侧非口令默认值 | `devops/scripts/deploy-defaults.sh` | 是   | 镜像仓库地址、镜像名、端口、网络名、基础镜像等；执行机可用同名环境变量覆盖 |
 | compose 插值变量   | `devops/compose/.env` | 否（gitignore） | 仅手工执行应用编排时需要；CI 由脚本导出变量。`devops/common-server` 的取值已内联在编排里，不需要 `.env` |
 | 镜像仓库口令       | 执行机 `~/.docker/config.json` 或 CI 变量 `DOCKER_REPO_USERNAME` / `DOCKER_REPO_PASSWORD` | **否** | 严禁写入仓库任何文件；仅 `package.sh` 推送镜像时使用 |
-| 运行数据           | `devops/data/logs`、`devops/common-server/volumes/{postgres,ollama,rerank}` | 否（gitignore） | 容器与模型持久化目录，由脚本或 compose 自动创建 |
+| 运行数据           | `devops/data/logs`、`devops/common-server/volumes/{postgres,minio,ollama,rerank}` | 否（gitignore） | 容器、对象存储与模型持久化目录，由脚本或 compose 自动创建 |
 
 容器内只有 **一个**环境变量覆盖项：`ENVIRONMENT`（取值 `dev|test|uat|prod`）。应用 `app/config/setting.py` 读取该变量后加载 `/home/env/.env.<ENVIRONMENT>`，因此 `backend/env/.env` 里的 `ENVIRONMENT=dev` 不会影响容器行为。
 
@@ -229,7 +230,7 @@ devops/scripts/manual/rollback.sh prod 20261025213000
 - compose 没有 Deployment 版本历史，**回滚 = 用历史 tag 重放部署**；
 - 回滚不改数据库结构：若目标版本早于最近的表结构变更，需人工确认 DDL 可回退性（本工程暂未接入 Alembic 迁移链，表结构变更需随发布单独评审）。
 
-### 6.3 中间件与模型服务：自建数据库 / Ollama / llama.cpp（可选）
+### 6.3 中间件与模型服务：自建数据库 / MinIO / Ollama / llama.cpp（可选）
 
 ```bash
 # 一次性拉起（长期运行，不随应用发布重启；取值已内联在编排里，无需 .env）
@@ -241,7 +242,7 @@ docker compose -f devops/common-server/docker-compose.yml up -d
 
 镜像 `pgvector/pgvector:pg17` 自带 pgvector 扩展（实测 0.8.7）。`initdb/00-init.sql` 在数据目录**首次**初始化时执行
 `CREATE EXTENSION IF NOT EXISTS vector`；数据卷已存在时会跳过 initdb，此时由应用启动阶段按 `VECTOR_AUTO_CREATE`
-幂等补建（实现在 `app/modules/kb/chunk/vector_store.py`）。两条路径均幂等，重复执行无副作用。
+幂等补建（实现在 `app/modules/integration/chunk/vector_store.py`）。两条路径均幂等，重复执行无副作用。
 
 自建后把 `backend/env/.env.<env>` 指向容器名即可（同一 `APP_NETWORK`）：
 
@@ -267,23 +268,29 @@ VECTOR_AUTO_CREATE=true
 
 ### 6.4 向量存储（pgvector）
 
-切块表 `sbp_ai_kb_chunk`：`space_id` / `doc_id` / `chunk_index` 唯一约束（重复向量化幂等覆盖）、`content` 原文、
+分片表 `sbp_ai_integration_chunk`：`space_id` / `doc_id` / `chunk_index` 唯一约束（重复向量化幂等覆盖）、`content` 原文、
 `embedding vector(<VECTOR_DIM>)`、`meta jsonb`，索引为 HNSW + `vector_cosine_ops`（m=16, ef_construction=64）。
 
-向量能力以服务层形式提供（知识库管理域：`app/modules/kb/chunk/vector_store.py`），对外 HTTP 接口留给后续知识库 controller 接入：
+表结构尚未定稿（后续可能拆原文/向量表、补分类与权重列），因此当前寄存在待集成区
+（`app/modules/integration/chunk/vector_store.py`），并已挂 `/api/v1/integration/chunk` 的 CRUD 与检索接口；
+定稿后整体迁入知识库域，表名改回 `sbp_ai_kb_chunk`、路由改 `/kb/chunk`。
+
+服务层函数：
 
 | 能力 | 函数 | 说明 |
 | ---- | ---- | ---- |
 | 建扩展/表/索引 | `ensure_vector_store()` | 启动时幂等执行，数据库不可用时只告警不阻断启动 |
 | 幂等写入 | `upsert_chunks()` | 按 (space_id, doc_id, chunk_index) 覆盖，写入前校验维度 |
 | 相似度召回 | `search_chunks()` | 余弦召回，支持 `space_id` / `doc_id` 过滤、`top_k`、`min_score` |
-| 按文档删除 | `delete_chunks()` | 按 `doc_id`（可选 `space_id`）清理整篇切块 |
+| 按文档删除 | `delete_chunks()` | 按 `doc_id`（可选 `space_id`）清理整篇分片 |
 
 - **分数口径**：`score = 1 - cosine_distance`，越大越相似；阈值需按实际 embedding 模型重标，不要跨模型复用；
 - **embedding 由调用方生成**：本工程只做维度校验与存取，不绑定模型供应商；自建模型服务见 6.5；
-- **维度不可原地变更**：`sbp_ai_kb_chunk` 的向量列类型在进程导入期定型，`VECTOR_DIM` 改动后启动时会检测到表维度不一致并报错，
+- **维度不可原地变更**：`sbp_ai_integration_chunk` 的向量列类型在进程导入期定型，`VECTOR_DIM` 改动后启动时会检测到表维度不一致并报错，
   需新建表/库并重新灌入（与第 9 节限制一致）；
-- **审计口径**：向量写入属高频批量路径，后续接入 HTTP 接口时不要挂 `ApiLogRoute`，避免上千维浮点数组落审计表。
+- **审计口径**：向量写入属高频批量路径，批量写入函数不挂 `ApiLogRoute`；`/api/v1/integration/chunk` 的 CRUD 端点一次性操作单条/少量分片，保留审计。
+- **旧表清理**：从 `sbp_ai_kb_chunk` 迁到 `sbp_ai_integration_chunk` 后，旧表不再被引用。dev 环境可直接 `DROP TABLE` 重建；
+  若需保留历史数据，`ALTER TABLE sbp_ai_kb_chunk RENAME TO sbp_ai_integration_chunk` 后重建 HNSW 索引（索引名已改为 `ix_sbp_ai_integration_chunk_embedding_hnsw`）。
 
 ### 6.5 模型服务：Ollama 向量化 + llama.cpp 重排序（可选）
 
@@ -329,7 +336,77 @@ curl -fsS http://service-brain-rerank:8080/v1/rerank \
 > - **模型来源**：rerank GGUF 默认从 `hf-mirror.com` 下载（国内直连 huggingface.co 通常不通），可用 `RERANK_MODEL_URL`
 >   指向 ModelScope、内网制品库或其他镜像站地址。
 
-### 6.6 运维常用命令
+### 6.6 对象存储：MinIO（S3 兼容，可选）
+
+`devops/common-server/docker-compose.yml` 的 `minio` 服务提供 S3 兼容对象存储，用于存放文档原件与解析产物：
+
+| 项 | 值 |
+| --- | --- |
+| 镜像 | `minio/minio:RELEASE.2024-12-18T13-15-44Z`（锁 RELEASE，不用 latest） |
+| 容器名 | `service-brain-minio` |
+| S3 API | 容器内 `9000`，宿主发布 `39900` |
+| 管理控制台 | 容器内 `9001`，宿主发布 `39901` |
+| 数据卷 | `devops/common-server/volumes/minio/data`（gitignore） |
+| 根账号 | 内联在编排里（与数据库同口令），见 `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` |
+
+```bash
+# 单独拉起对象存储
+docker compose -f devops/common-server/docker-compose.yml up -d minio
+# 控制台：http://<部署机IP>:39901（账号见编排）
+```
+
+应用侧配置（`backend/env/.env.<env>`）：
+
+```ini
+S3_ENABLE=true
+S3_ENDPOINT=http://service-brain-minio:9000    # 容器内按容器名；宿主进程改 http://<IP>:39900
+S3_ACCESS_KEY=service-brain
+S3_SECRET_KEY=...
+S3_BUCKET=service-brain                        # dev/test/uat 各建一个桶隔离
+S3_ADDRESSING_STYLE=path                       # MinIO 必须 path-style
+S3_AUTO_CREATE=true                            # 启动时幂等建桶
+```
+
+> - **桶由应用建**：启动时 `head_bucket → create_bucket`（`S3_AUTO_CREATE`），与建向量表/审计表同一策略，重复执行无副作用；
+>   因此编排里不塞 `minio-init` 容器，少维护一个 `mc` 镜像 tag；
+> - **寻址风格**：务必保持 `path`。`virtual` 会把桶名拼成 `service-brain-minio.<域名>`，内网无此 DNS 记录，所有请求直接失败；
+> - **凭据**：编排内联的是 root 账号，仅适合联调；正式环境用 `mc admin user add` 建最小权限子账号（只给目标桶读写）并写入 env；
+> - **自检**：「系统集成 → 集成自检」的「对象存储」卡片会真实建桶、写入探针对象、读回比对后删除，
+>   一次暴露凭据错、权限不足、寻址配错与网络不通（临时对象在 `_self_check/` 前缀下，读完即删）；
+> - **预签名链接**：链接 host 就是 `S3_ENDPOINT`；要让浏览器直接打开，endpoint 必须是对外可达地址，
+>   容器内按容器名填写时外部打不开；
+> - **桶内布局**：原件 `spaces/{空间code}/{doc_id}/{原文件名}`，解析产物 `spaces/{空间code}/{doc_id}/parsed/{full.md, content_list.json, images/*}`（`S3_KEY_PREFIX` 非空时整体挂在它下面）。
+>   键全部由空间与文档标识推导，库里不存产物键，因此删文档时按 `parsed/` 前缀整目录清理；
+> - **批量删除的兼容坑**：早期/当前版本的 MinIO 对 `DeleteObjects` 强制要求 `Content-MD5`，而新版 botocore 改发 CRC32 校验头，
+>   批量接口会回 `MissingContentMD5`；客户端已退化为逐个 `delete_object`，日志里会有一条 warning（属预期降级，不是故障）；
+> - **镜像名**：是 `minio/minio`（不是 `milvusdb/minio`），Milvus 官方编排引用的也是 `minio/minio` 的同一 RELEASE 构建。
+
+### 6.7 知识空间表（上传与线程池解析）
+
+知识空间与文档表同样暂寄待集成区，应用启动时 `ensure_space_tables()` 幂等建表（`checkfirst=True`，只建这两张表、不改其它表结构）：
+
+| 表 | 用途 | 关键约束 |
+| --- | --- | --- |
+| `sbp_ai_integration_space` | 知识空间 | `code` 唯一；它同时是分片表的 `space_id`，创建后不可修改 |
+| `sbp_ai_integration_document` | 空间文档 | `doc_id` 唯一；`space_id + status` 索引（列表按空间+状态过滤） |
+
+> - **原件不入库**：文档字节只落对象存储（见 6.6），库里只留 `object_key`；上传只做「写桶 + 落库为待解析」，
+>   解析必须显式提交（选中 / 整空间 / 强制重跑），避免误传大文件直接占满解析线程池；
+> - **状态机**：`0 待解析 / 1 解析中 / 2 已完成 / 3 失败`，只在 `space/task.py` 里推进；任务跑在请求之外，
+>   用独立会话回写，服务重启时会把残留「解析中」改回「待解析」并附提示原因；
+> - **并发口径**：进程内信号量把同时在解析的文档数限制在 `PARSE_THREAD_POOL_SIZE`，解析/分片在解析线程池，
+>   向量化是异步 HTTP，写库按 `doc_id` 幂等覆盖；
+> - **单副本前提**：任务登记表在进程内存里。多副本部署时同一文档可能被两个实例同时解析——不会写重复分片，
+>   但会重复消耗模型资源；需要水平扩展时先把任务落表并换分布式队列；
+> - **级联删除**：删文档/删空间会连带删分片、原件与解析产物（失败只告警），所以“删不掉”不会成为无法收拾的状态；
+> - **解析产物**：解析完成才落 `full.md` / `content_list.json` / `images/*`，落盘失败只告警——分片已入库就算解析成功，
+>   前端详情弹窗的「解析产物预览」直接读桶里的 Markdown（图片走 `/document/asset/...` 接口），没产物的旧文档提示「先提交解析」；
+> - **页码依赖 precise**：`MINERU_API_TOKEN` 为空走 flash，只回 Markdown（无 `content_list`），分片 `page_no` 只能留空，
+>   按页码分页查不到数据；配了 token 走 precise 才有版块信息与图片，历史文档需在页面点「强制重新解析」补页码；
+> - **解析途中被删**：删除只清「当时已有」的数据，正在跑的解析随后还会写一份，所以任务回写状态时会发现文档已不存在，
+>   随即按 `doc_id` 撤销本次分片与 `parsed/` 产物，不留无主数据。
+
+### 6.8 运维常用命令
 
 ```bash
 # 容器状态 / 日志
@@ -380,7 +457,7 @@ docker compose -f devops/common-server/docker-compose.yml down
 2. **配置镜像仓库**：核对 `deploy-defaults.sh` 中 `DOCKER_REPO_URL` / `DOCKER_REPO_NAMESPACE`，或导出同名环境变量覆盖。
 3. **准备部署机**：安装 docker + compose 插件；执行机一次性 `docker login <DOCKER_REPO_URL>`。
 4. **准备环境文件**：在部署机放置 `backend/env/.env.<env>`（参考 `backend/env/.env.dev`，改 `DATABASE_*`、`LOGGER_LEVEL`、`DEBUG=false`、`RELOAD=false`）；生产口令不要提交入库。
-5. **（可选）自建数据库与模型服务**：`devops/common-server` 拉起 PostgreSQL 17 + pgvector、Ollama（bge-m3 向量化）与 llama.cpp（bge-reranker-v2-m3 重排序），把 `DATABASE_HOST` 改为容器名即可；模型地址与拉取方式见 6.5。
+5. **（可选）自建数据库与模型服务**：`devops/common-server` 拉起 PostgreSQL 17 + pgvector、MinIO（S3 对象存储）、Ollama（bge-m3 向量化）与 llama.cpp（bge-reranker-v2-m3 重排序），把 `DATABASE_HOST` / `S3_ENDPOINT` 改为容器名即可；模型与对象存储地址见 6.5 / 6.6。
 6. **注册 Runner**：GitLab Runner 打 tag `service-brain-agent`（或改 CI 文件中的 `RUNNER_TAG`）；Jenkins 侧配置节点具备 docker CLI。
 7. **启用流水线**：在 `.gitlab-ci.yml` 中取消 `workflow.rules` 注释；或直接用 Jenkins `Build Now` 手动发布。
 8. **首轮试运行**：dev 验证 `/ui` 与 `/healthz` → test / uat / prod 逐级手动发布 → 演练一次回滚。

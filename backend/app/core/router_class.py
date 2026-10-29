@@ -10,6 +10,11 @@
    ``set_audit_username`` 供认证依赖/中间件回填；
 3. 落库统一走独立任务，不再写 ``response.background``：既不会覆盖业务自身的后台任务，也避开
    「请求事务待提交 / 后台任务待写锁」在 SQLite 单写者下互等的问题。
+
+契约接入层（T1.4）另补两处：
+4. 安全校验留痕：``set_audit_security`` 写入 ``auth_mode`` / ``client_id`` / ``request_id`` /
+   ``security_check(JSONB)``，由 ``/v1`` 的验签依赖在失败点逐步回填，被拒请求也能落审计；
+5. ``status`` 按响应码判定（<400 成功、≥400 失败），不再把 4xx 记成成功。
 """
 
 import asyncio
@@ -19,6 +24,7 @@ from collections.abc import Callable, Coroutine
 from typing import Any, TypedDict
 
 from fastapi import Request, Response
+from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRoute
 
 from app.config.setting import settings
@@ -93,6 +99,25 @@ def _resolve_username(request: Request) -> str:
     return str(username or _ANONYMOUS)[:64]
 
 
+def set_audit_security(
+    request: Request,
+    *,
+    auth_mode: str | None = None,
+    client_id: str | None = None,
+    request_id: str | None = None,
+    security_check: dict[str, Any] | None = None,
+) -> None:
+    """回填本次请求的鉴权上下文：验签依赖每完成一步就调一次，失败也留下已知部分。
+
+    四个字段直接对应 ``sbp_ai_system_api_log`` 的扩展列（T1.0 已建），这里只负责放到
+    ``request.state``，真正的落库由 ``_build_log_data`` 统一取值，业务代码零侵入。
+    """
+    request.state.audit_auth_mode = auth_mode
+    request.state.audit_client_id = client_id
+    request.state.audit_request_id = request_id
+    request.state.audit_security_check = security_check
+
+
 class ApiLogRecord(TypedDict):
     """审计落库记录（字段与 SystemApiLogModel 一一对应）。"""
 
@@ -108,6 +133,10 @@ class ApiLogRecord(TypedDict):
     process_time: str
     request_ip: str | None
     user_agent: str | None
+    auth_mode: str | None
+    client_id: str | None
+    request_id: str | None
+    security_check: dict[str, Any] | None
 
 
 # 落库任务持强引用防 GC 提前回收（事件循环只持有弱引用）
@@ -195,13 +224,16 @@ def _route_summary(request: Request) -> str:
 
 
 def _should_record(request: Request) -> bool:
-    """过滤：总开关、请求方法白名单、文档/静态资源路径。"""
+    """过滤：总开关、文档/静态资源路径、请求方法白名单（契约 `/v1` 不受方法白名单限制）。"""
     if not settings.API_LOG_ENABLE:
         return False
-    if request.method not in settings.API_LOG_RECORD_METHOD:
-        return False
     path = request.url.path
-    return not any(path.startswith(prefix) for prefix in settings.API_LOG_SKIP_PATHS)
+    if any(path.startswith(prefix) for prefix in settings.API_LOG_SKIP_PATHS):
+        return False
+    if request.method in settings.API_LOG_RECORD_METHOD:
+        return True
+    # 契约口径（T1.4）：/v1 的 20 个接口全量留痕，#02 这类 GET 轮询不能因为方法白名单被过滤掉
+    return any(path.startswith(prefix) for prefix in settings.API_LOG_FORCE_PATHS)
 
 
 async def _build_log_data(
@@ -227,6 +259,11 @@ async def _build_log_data(
         "process_time": f"{(time.perf_counter() - start) * 1000:.1f}ms",
         "request_ip": _get_client_ip(request),
         "user_agent": (request.headers.get("User-Agent") or None),
+        # 鉴权四字段：/api/v1（JWT）与 /v1（HMAC）同表落库，来源是 set_audit_security 的 state 回填
+        "auth_mode": getattr(request.state, "audit_auth_mode", None),
+        "client_id": getattr(request.state, "audit_client_id", None),
+        "request_id": getattr(request.state, "audit_request_id", None),
+        "security_check": getattr(request.state, "audit_security_check", None),
     }
 
 
@@ -235,7 +272,8 @@ async def _record_success(request: Request, response: Response, start: float) ->
     try:
         log_data = await _build_log_data(
             request,
-            status=0 if response.status_code < 500 else 1,
+            # 4xx 是「被拒绝的请求」，审计口径属失败；只有 2xx/3xx 才算成功
+            status=0 if response.status_code < 400 else 1,
             response_code=response.status_code,
             description=_route_summary(request),
             response_json=_extract_response_json(response),
@@ -253,6 +291,9 @@ async def _record_failure(request: Request, exc: Exception, start: float) -> Non
     try:
         status_code = getattr(exc, "status_code", 500)
         response_code = status_code if isinstance(status_code, int) else 500
+        if isinstance(exc, RequestValidationError):
+            # FastAPI 的参数校验异常状态码是 422，但 /v1 契约把校验失败归一成 400，审计须与响应一致
+            response_code = 400
         message = str(getattr(exc, "msg", None) or exc or type(exc).__name__)
         summary = _route_summary(request)
         log_data = await _build_log_data(

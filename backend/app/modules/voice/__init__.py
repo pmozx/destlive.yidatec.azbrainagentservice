@@ -1,5 +1,7 @@
-"""语音质检管理域：通话录音解析与质检编排，表前缀 ``sbp_ai_voice_``（二期交付）。
+"""语音质检域：规则与版本、质检任务与结果、报告、发现、复核、评估集，表前缀 ``sbp_ai_voice_``。
 
-二期落地时按「域 / 功能」两级新增子目录，例如 ``voice/task/``（``sbp_ai_voice_task``）、
-``voice/rule/``（``sbp_ai_voice_rule``），命名口径见 ``app/modules/__init__.py``。
+本期**只建表**（接口文档未提供，实现暂缓）：表结构先落库，后续实现只写业务代码，不再动 schema。
+导入 ``models`` 即注册到元数据，勿删。
 """
+
+from . import models  # noqa: F401  # 导入即注册（勿删）

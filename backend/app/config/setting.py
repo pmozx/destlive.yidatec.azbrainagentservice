@@ -20,6 +20,18 @@ from app.common.enums import DatabaseTypeEnum
 _ENVIRONMENT_KEY:Final[str] = "ENVIRONMENT"
 _DEFAULT_ENVIRONMENT:Final[str] = "dev"
 
+def _get_environment() -> str:
+    """
+    解析当前运行环境名。
+    优先级：操作系统环境变量 > env/.env 文件 > 默认 dev 环境
+    :return: 环境名（dev/prod）
+    """
+    environment = os.environ.get(_ENVIRONMENT_KEY)
+    if not environment:
+        base_config: Dict[str, Optional[str]] = dotenv_values(BASE_ENV_FILE)
+        environment = base_config.get(_ENVIRONMENT_KEY)
+    return environment or _DEFAULT_ENVIRONMENT
+
 def _get_env_file() -> Path:
     """
     确定当前运行环境并返回对应的环境配置文件路径。
@@ -27,17 +39,8 @@ def _get_env_file() -> Path:
     优先级：操作系统环境变量 > env/.env 文件 > 默认 dev 环境
     :return: 环境配置文件路径
     """
-    # 1. 优先从操作系统环境变量中获取
-    environment = os.environ.get(_ENVIRONMENT_KEY)
-
-    # 2. 操作系统环境变量未设置时，从 env/.env 文件中读取
-    if not environment:
-        base_config: Dict[str, Optional[str]] = dotenv_values(BASE_ENV_FILE)
-        environment = base_config.get(_ENVIRONMENT_KEY)
-
-    # 3. 以上均未配置时，使用默认 dev 环境
-    if not environment:
-        environment = _DEFAULT_ENVIRONMENT
+    # 1~3. 解析环境名（环境变量 > env/.env > 默认 dev）
+    environment = _get_environment()
 
     # 拼接环境配置文件路径：env/.env.{environment}
     env_file = ENV_DIR / f".env.{environment}"
@@ -64,6 +67,7 @@ class Settings(BaseSettings):
     }
 
     # ==================== 应用配置 ====================
+    ENVIRONMENT: str = Field(default=_get_environment(), description="当前运行环境：dev/prod（prod 不回显异常细节）")
     TITLE: str = Field(default="service_brain_agent", description="应用标题")
     DESCRIPTION: str = Field(default="服务大脑智能体应用", description="应用描述")
     VERSION: str = Field(default="1.0.0", description="应用版本")
@@ -89,7 +93,86 @@ class Settings(BaseSettings):
     # ==================== 向量存储配置（pgvector） ====================
     VECTOR_ENABLE: bool = Field(default=True, description="是否启用 pgvector 向量存储（仅 DATABASE_TYPE=postgres 生效）")
     VECTOR_DIM: int = Field(default=1024, description="向量维度，须与 embedding 模型输出一致（bge-m3 为 1024）")
-    VECTOR_AUTO_CREATE: bool = Field(default=True, description="启动时自动创建 vector 扩展、切块表与 HNSW 索引")
+    VECTOR_AUTO_CREATE: bool = Field(default=True, description="启动时自动创建 vector 扩展、分片表与 HNSW 索引")
+
+    # ==================== 模型服务集成配置（LLM / Embedding / Rerank，两个集成域共用） ====================
+    # 三类推理服务都按“OpenAI 兼容 / 私有化部署”统一收口；地址留空 = 尚未接入，调用时抛可读 503，
+    # 不做静默降级（避免“看起来跑通、实际未向量化”）。
+    LLM_BASE_URL: str = Field(default="", description="聊天模型地址（OpenAI 兼容，如 https://api.deepseek.com/v1、自建 vLLM/Azure 网关）")
+    LLM_API_KEY: str = Field(default="", description="聊天模型密钥（私有化部署可留空）")
+    LLM_MODEL: str = Field(default="", description="聊天模型名称")
+    LLM_TIMEOUT: float = Field(default=60.0, description="聊天请求超时（秒）")
+    LLM_MAX_RETRIES: int = Field(default=2, description="聊天请求重试次数（仅超时/429/5xx 重试）")
+
+    EMBEDDING_PROTOCOL: str = Field(default="openai", description="向量化协议：openai（/v1/embeddings）或 ollama（/api/embed）")
+    EMBEDDING_BASE_URL: str = Field(default="", description="向量化服务地址；ollama 填到端口（如 http://service-brain-ollama:11434）")
+    EMBEDDING_API_KEY: str = Field(default="", description="向量化服务密钥（ollama 私有化无需）")
+    EMBEDDING_MODEL: str = Field(default="bge-m3", description="向量化模型名称，输出维度须与 VECTOR_DIM 一致")
+    EMBEDDING_BATCH_SIZE: int = Field(default=16, description="单次向量化条数（过大易触发服务端 413/超时）")
+    EMBEDDING_TIMEOUT: float = Field(default=60.0, description="向量化请求超时（秒）")
+
+    RERANK_BASE_URL: str = Field(default="", description="重排序服务地址（llama.cpp --rerank，如 http://service-brain-rerank:8080）")
+    RERANK_PATH: str = Field(default="/v1/rerank", description="重排序接口路径")
+    RERANK_API_KEY: str = Field(default="", description="重排序服务密钥（私有化可留空）")
+    RERANK_MODEL: str = Field(default="bge-reranker-v2-m3", description="重排序模型名称（服务端单模型时可留空）")
+    RERANK_TIMEOUT: float = Field(default=30.0, description="重排序请求超时（秒）")
+
+    PARSE_THREAD_POOL_SIZE: int = Field(default=4, description="文档解析线程池并发（CPU/IO 密集，建议不超过逻辑核数）")
+    PARSE_CHUNK_SIZE: int = Field(default=800, description="默认分片长度（字符数）")
+    PARSE_CHUNK_OVERLAP: int = Field(default=120, description="默认相邻分片重叠字符数，须小于分片长度")
+
+    # ==================== AI 问答检索生成配置（app/modules/integration_chat） ====================
+    # 模型本身不再建表配置：LLM_* / EMBEDDING_* / RERANK_* 即运行时唯一来源，
+    # 此处只保留「检索与生成策略」参数，换模型无需改代码。
+    KB_RETRIEVE_TOP_K: int = Field(default=20, description="向量召回候选条数（精排前的粗排窗口）")
+    KB_RETRIEVE_MIN_SCORE: float = Field(default=0.2, description="向量召回余弦相似度下限（1-距离）")
+    KB_RERANK_TOP_N: int = Field(default=8, description="精排后保留条数（拼上下文的上限）")
+    KB_RERANK_MIN_SCORE: float = Field(default=0.3, description="精排相关度绝对下限；重排序服务不可用时该闸门跳过")
+    KB_RERANK_RELATIVE_RATIO: float = Field(default=0.6, description="精排相对闸门：低于最高分该比例的命中被丢弃")
+    KB_GRADE_MIN_CHUNKS: int = Field(default=1, description="命中条数下限，低于该值直接拒答")
+    KB_CONTEXT_MAX_CHARS: int = Field(default=6000, description="拼给模型的知识片段总字符上限")
+    KB_SNIPPET_CHARS: int = Field(default=160, description="引用来源摘要片段长度")
+    KB_HISTORY_TURNS: int = Field(default=4, description="带入多轮上下文的历史消息条数")
+    KB_ANSWER_TEMPERATURE: float = Field(default=0.2, description="回答温度（知识问答建议低温）")
+    KB_ANSWER_MAX_TOKENS: int = Field(default=1500, description="回答最大 token 数")
+    KB_LLM_TIMEOUT: float = Field(default=90.0, description="单轮回答整体超时（秒）")
+    KB_LLM_FIRST_TOKEN_TIMEOUT: float = Field(default=15.0, description="首 token 超时（秒），超时转错误帧而不是无限等待")
+    KB_FOLLOWUP_COUNT: int = Field(default=3, description="问题拓展条数")
+
+    # ---- 集成期知识空间（文档上传 → 线程池解析 → 分片入库）----
+    KB_SEED_ENABLE: bool = Field(
+        default=True, description="启动时导入 sql/ 下的种子数据（一张表一个同名 JSON，表非空则整表跳过）"
+    )
+    SPACE_UPLOAD_MAX_FILES: int = Field(default=10, description="单次批量上传文档数上限")
+    SPACE_UPLOAD_MAX_SIZE_MB: int = Field(default=50, description="单个文档大小上限（MB），超限逐份报错不回滚整批")
+
+    # ---- MinerU 文档解析（当前暂定的“内容提取”主路径）----
+    # 只处理二进制/版面类文档（PDF / Office / 图片）；纯文本与 HTML 仍走内置解析器，不浪费一次上传。
+    MINERU_ENABLE: bool = Field(default=True, description="是否用 MinerU 接管 PDF/Office/图片解析")
+    MINERU_API_TOKEN: str = Field(default="", description="MinerU API Token（密钥，仅写 env）；留空则降级为 flash 模式")
+    MINERU_BASE_URL: str = Field(default="", description="MinerU 标准 API 地址（留空用 SDK 官方默认，私有化部署时覆盖）")
+    MINERU_FLASH_BASE_URL: str = Field(default="", description="MinerU 轻量解析 API 地址（留空用 SDK 内置默认）")
+    MINERU_MODEL: str = Field(default="vlm", description="精准解析模型：vlm / pipeline / html")
+    MINERU_TIMEOUT: int = Field(default=300, description="解析轮询总超时（秒）；大文档成分钟级，不建议调小")
+    MINERU_OCR: bool = Field(default=True, description="是否启用 OCR（扫描件必须开）")
+    MINERU_LANGUAGE: str = Field(default="ch", description="文档语言代码（ch/en 等，影响 OCR 识别）")
+
+    # ---- S3 兼容对象存储（当前对接自建 MinIO）----
+    # 走 S3 协议而不是 MinIO 私有 API：日后换云厂商只改 endpoint 与凭据；
+    # endpoint 留空 = 未接入，调用时抛可读 503。MinIO 必须 path-style 寻址。
+    S3_ENABLE: bool = Field(default=False, description="是否启用对象存储（文档原件/解析产物）")
+    S3_ENDPOINT: str = Field(default="", description="S3 兼容服务地址；容器内填 http://service-brain-minio:9000，宿主进程填 http://<IP>:39900")
+    S3_ACCESS_KEY: str = Field(default="", description="访问密钥（建议用最小权限子账号，不用 root）")
+    S3_SECRET_KEY: str = Field(default="", description="访问密钥（敏感，仅写 env）")
+    S3_BUCKET: str = Field(default="service-brain", description="默认桶名，启动时按 S3_AUTO_CREATE 幂等创建")
+    S3_REGION: str = Field(default="us-east-1", description="区域；MinIO 不区分，但签名必须带（非 us-east-1 会附带 LocationConstraint）")
+    S3_USE_SSL: bool = Field(default=False, description="endpoint 是否走 HTTPS（内网 MinIO 通常为 false）")
+    S3_ADDRESSING_STYLE: str = Field(default="path", description="寻址风格：path（MinIO 必需）/ virtual（云厂商子域名风格）")
+    S3_AUTO_CREATE: bool = Field(default=True, description="启动时自动建桶（已存在则跳过）")
+    S3_TIMEOUT: float = Field(default=30.0, description="连接与读超时（秒）；大文件上传可适当调大")
+    S3_PRESIGN_EXPIRE: int = Field(default=3600, description="预签名下载链接有效期（秒）")
+    S3_KEY_PREFIX: str = Field(default="", description="对象键统一前缀（多环境共用一个桶时用于隔离）")
+    IO_THREAD_POOL_SIZE: int = Field(default=4, description="阻塞 IO 线程池并发（对象存储上传/下载等网络等待）")
 
     # 连接池配置
     ECHO_POOL: bool = Field(default=False, description="是否输出连接池日志")
@@ -120,6 +203,10 @@ class Settings(BaseSettings):
         default=["/docs", "/redoc", "/openapi.json", "/ui", "/static"],
         description="不参与审计的路径前缀：接口文档、前端产物与静态资源",
     )
+    API_LOG_FORCE_PATHS: list[str] = Field(
+        default=["/v1"],
+        description="命中即忽略方法白名单的路径前缀：契约 /v1 的 GET（如 #02 轮询）也必须全量留痕",
+    )
     API_LOG_MAX_PAYLOAD: int = Field(default=2000, description="请求/响应体入库最大字符数，超出截断")
     API_LOG_USER_HEADER: str = Field(
         default="",
@@ -128,6 +215,38 @@ class Settings(BaseSettings):
     API_LOG_AUTO_CREATE: bool = Field(default=True, description="启动时自动创建审计表（已存在则跳过）")
     API_LOG_RETENTION_DAYS: int = Field(default=90, description="审计日志保留天数，<=0 表示启动时不做过期清理")
     TRUSTED_PROXY_HOPS: int = Field(default=0, description="前置可信反向代理跳数，0 表示忽略代理头、仅取 TCP 对端地址")
+
+    # ==================== 正式接入层（/v1，T1.1–T1.5，app/contract） ====================
+    # 与 POC 互斥：本组开启时 POC 的 /v1 路由不再挂载（同一路径不能挂两份实现）。
+    # 密钥只写在 env：CONTRACT_V1_SHARED_SECRET 为空视为「未配置」，验签直接 503
+    # AUTHORIZATION_UNAVAILABLE —— 宁可服务不可用，也不能因为缺密钥就把签名校验放过。
+    CONTRACT_V1_ENABLE: bool = Field(default=True, description="是否挂载正式 /v1 契约路由（开启后 POC 路由自动下线）")
+    CONTRACT_V1_CLIENT_ID: str = Field(default="gsi-service", description="契约认可的调用方标识（X-AI-Client-Id）")
+    CONTRACT_V1_SHARED_SECRET: str = Field(default="", description="HMAC 共享密钥；留空＝未配置，验签回 503 而非放行")
+    CONTRACT_CLOCK_SKEW_MS: int = Field(default=300_000, description="时间戳容许窗口（毫秒），契约口径前后 5 分钟")
+    CONTRACT_NONCE_TTL_SECONDS: int = Field(
+        default=600, description="nonce 台账保留时长（秒）；须 ≥ 2×时钟窗口，否则窗口内重放可能漏判"
+    )
+    CONTRACT_AUTHORIZATION_MAX_TTL_MS: int = Field(default=120_000, description="authorization 签发-过期最大跨度（毫秒）")
+    CONTRACT_IDEMPOTENCY_TTL_DAYS: int = Field(default=90, description="幂等台账保留天数（墓碑不清理）；契约同步查询窗口 30 分钟")
+    CONTRACT_TENANT_ID: str = Field(default="gsi-default", description="契约固定租户（v2.1 口径）")
+
+    # ==================== POC 接入验证（/v1，T0.1–T0.4 用，正式实现自 T1.x 起重做） ====================
+    # 只服务 POC：自签测试密钥、临时表（poc_v1_*）、内存 nonce；与 GSI 真实密钥/
+    # 审计扩展/幂等台账均无关，T1.1 起按生产口径替换，本组配置届时整体下线。
+    POC_V1_ENABLE: bool = Field(
+        default=True, description="是否挂载 POC 的 /v1 路由与临时表（CONTRACT_V1_ENABLE=true 时强制下线）"
+    )
+    POC_V1_CLIENT_ID: str = Field(default="gsi-service", description="POC 认可的调用方标识（正式以双方约定为准）")
+    POC_V1_SHARED_SECRET: str = Field(
+        default="poc-self-signed-secret",
+        description="POC 自签测试密钥（HMAC 共享密钥）；生产密钥只在 env 配置，不入代码",
+    )
+    POC_V1_CLOCK_SKEW_MS: int = Field(default=300_000, description="时间戳容许窗口（毫秒），契约口径前后 5 分钟")
+    POC_V1_MAX_FILE_MB: int = Field(default=10, description="#01 拉取文件的大小上限（MB），超限 413")
+    POC_RETRIEVE_TOP_K: int = Field(default=20, description="POC 单路召回候选条数（RRF 融合前）")
+    POC_RETRIEVE_TOP_N: int = Field(default=8, description="POC 融合后进入生成上下文的条数")
+    POC_RRF_K: int = Field(default=60, description="RRF 融合常数 k（越大越平缓）")
 
     # 数据库驱动映射（数据库类型 -> 异步驱动）
     _DB_DRIVERS: dict = {

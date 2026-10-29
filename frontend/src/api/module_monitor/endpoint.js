@@ -14,6 +14,24 @@ export const endpointCatalog = [
     ],
   },
   {
+    group: '集成-知识库',
+    items: [
+      { name: '知识空间列表', method: HttpMethod.GET, path: '/integration-kb/space/list?page_no=1&page_size=5' },
+      { name: '知识分类树', method: HttpMethod.GET, path: '/integration-kb/category/tree' },
+      { name: '知识文档列表', method: HttpMethod.GET, path: '/integration-kb/document/list?page_no=1&page_size=5' },
+      { name: '知识分片列表', method: HttpMethod.GET, path: '/integration-kb/chunk/list?page_no=1&page_size=5' },
+      { name: '解析任务列表', method: HttpMethod.GET, path: '/integration-kb/task/list?page_no=1&page_size=5' },
+      { name: '运营统计总览', method: HttpMethod.GET, path: '/integration-kb/stats/overview' },
+    ],
+  },
+  {
+    group: '集成-AI问答',
+    items: [
+      { name: '问答范围', method: HttpMethod.GET, path: '/integration-chat/scope' },
+      { name: '问答会话列表', method: HttpMethod.GET, path: '/integration-chat/session/list?page_no=1&page_size=5' },
+    ],
+  },
+  {
     group: '文档与服务',
     items: [
       { name: '健康检查', method: HttpMethod.GET, path: '/healthz', absolute: true },

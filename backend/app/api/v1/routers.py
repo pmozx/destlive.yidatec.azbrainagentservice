@@ -9,6 +9,14 @@
 
 from fastapi import APIRouter
 
+from app.modules.integration_chat.controller import IntegrationChatRouter
+from app.modules.integration_chat.session.controller import IntegrationChatSessionRouter
+from app.modules.integration_kb.category.controller import IntegrationKbCategoryRouter
+from app.modules.integration_kb.chunk.controller import IntegrationKbChunkRouter
+from app.modules.integration_kb.document.controller import IntegrationKbDocumentRouter
+from app.modules.integration_kb.space.controller import IntegrationKbSpaceRouter
+from app.modules.integration_kb.stats.controller import IntegrationKbStatsRouter
+from app.modules.integration_kb.task.controller import IntegrationKbTaskRouter
 from app.modules.system.api_log.controller import SystemApiLogRouter
 
 API_PREFIX = "/api/v1"
@@ -17,11 +25,31 @@ DOMAIN_CONTROLLERS: dict[str, list[APIRouter]] = {
     "/system": [
         SystemApiLogRouter,
     ],
+    # 集成-知识库：空间 → 分类 → 文档 → 分片 / 任务 / 统计
+    "/integration-kb": [
+        IntegrationKbSpaceRouter,
+        IntegrationKbCategoryRouter,
+        IntegrationKbDocumentRouter,
+        IntegrationKbChunkRouter,
+        IntegrationKbTaskRouter,
+        IntegrationKbStatsRouter,
+    ],
+    # 集成-AI 问答：问答流 + 会话管理
+    "/integration-chat": [
+        IntegrationChatRouter,
+        IntegrationChatSessionRouter,
+    ],
 }
 
-api_v1 = APIRouter(prefix=API_PREFIX)
-for prefix, controllers in DOMAIN_CONTROLLERS.items():
+
+def _build_router(prefix: str, controllers: list[APIRouter]) -> APIRouter:
+    """把同一域下的多个 controller 挂到同一个域前缀下。"""
     router = APIRouter(prefix=prefix)
     for controller in controllers:
         router.include_router(controller)
-    api_v1.include_router(router)
+    return router
+
+
+api_v1 = APIRouter(prefix=API_PREFIX)
+for _prefix, _controllers in DOMAIN_CONTROLLERS.items():
+    api_v1.include_router(_build_router(_prefix, _controllers))

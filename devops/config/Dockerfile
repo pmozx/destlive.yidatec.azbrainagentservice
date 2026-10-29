@@ -77,8 +77,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     fi
 
 # 应用代码与后端静态资源（backend/env、backend/logs、backend/data、.venv、static/assets
-# 等由 .dockerignore 排除）
+# 等由 .dockerignore 排除）；sql/ 是启动期种子数据（一张表一个同名 JSON），必须进镜像，
+# 否则容器内 InitializeData 读不到文件、种子静默不导入
 COPY backend/app/ /home/app/
+COPY backend/sql/ /home/sql/
 COPY backend/main.py backend/banner.txt /home/
 COPY backend/static/ /home/static/
 

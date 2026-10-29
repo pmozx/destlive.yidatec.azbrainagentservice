@@ -18,8 +18,8 @@ ENV_DIR = BASE_DIR / "env"
 # 基础环境变量文件
 BASE_ENV_FILE = ENV_DIR / ".env"
 
-# 初始化脚本
-SCRIPT_DIR: Path = BASE_DIR / "sql" / "data"
+# 初始化脚本与种子数据目录（一张表一个同名 JSON，由 app/scripts/initialize.py 导入）
+SCRIPT_DIR: Path = BASE_DIR / "sql"
 
 # 模版文件配置（统一管理代码生成模板 + HTML 模板）
 TEMPLATE_DIR: Path = BASE_DIR / "templates"

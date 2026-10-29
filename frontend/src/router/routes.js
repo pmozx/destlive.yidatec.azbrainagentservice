@@ -53,6 +53,78 @@ export const constantRoutes = [
     ],
   },
   {
+    path: '/integration-kb',
+    name: 'IntegrationKb',
+    component: Layout,
+    redirect: '/integration-kb/center',
+    meta: { title: '集成-知识库', icon: 'Collection' },
+    children: [
+      {
+        path: 'center',
+        name: 'IntegrationKbCenter',
+        component: () => import('@/views/module_integration_kb/center/index.vue'),
+        meta: { title: '知识中心', icon: 'Management' },
+      },
+      {
+        path: 'space',
+        name: 'IntegrationKbSpace',
+        component: () => import('@/views/module_integration_kb/space/index.vue'),
+        meta: { title: '知识空间', icon: 'FolderOpened' },
+      },
+      {
+        path: 'category',
+        name: 'IntegrationKbCategory',
+        component: () => import('@/views/module_integration_kb/category/index.vue'),
+        meta: { title: '知识分类', icon: 'Files' },
+      },
+      {
+        path: 'document',
+        name: 'IntegrationKbDocument',
+        component: () => import('@/views/module_integration_kb/document/index.vue'),
+        meta: { title: '知识文档', icon: 'Document' },
+      },
+      {
+        path: 'chunk',
+        name: 'IntegrationKbChunk',
+        component: () => import('@/views/module_integration_kb/chunk/index.vue'),
+        meta: { title: '知识分片', icon: 'Grid' },
+      },
+      {
+        path: 'task',
+        name: 'IntegrationKbTask',
+        component: () => import('@/views/module_integration_kb/task/index.vue'),
+        meta: { title: '解析任务', icon: 'List' },
+      },
+      {
+        path: 'stats',
+        name: 'IntegrationKbStats',
+        component: () => import('@/views/module_integration_kb/stats/index.vue'),
+        meta: { title: '运营统计', icon: 'DataAnalysis' },
+      },
+    ],
+  },
+  {
+    path: '/integration-chat',
+    name: 'IntegrationChat',
+    component: Layout,
+    redirect: '/integration-chat/chat',
+    meta: { title: '集成-AI问答', icon: 'ChatDotRound' },
+    children: [
+      {
+        path: 'chat',
+        name: 'IntegrationChatChat',
+        component: () => import('@/views/module_integration_chat/chat/index.vue'),
+        meta: { title: 'AI 问答', icon: 'ChatLineRound' },
+      },
+      {
+        path: 'session',
+        name: 'IntegrationChatSession',
+        component: () => import('@/views/module_integration_chat/session/index.vue'),
+        meta: { title: '问答会话', icon: 'ChatSquare' },
+      },
+    ],
+  },
+  {
     path: '/:pathMatch(.*)*',
     name: 'NotFound',
     component: () => import('@/views/error/404.vue'),
