@@ -2,8 +2,11 @@
 
 > 执行时间：2026-10-29 15:27（单轮基线，`--reset` 后首轮）
 > 服务：本机 `uvicorn app:create_app --factory --host 127.0.0.1 --port 8003`
-> 调用方：`app.poc.mock_client`（client_id=`gsi-service`，自签测试密钥，`POC_V1_SHARED_SECRET`）
+> 调用方：`app.poc.mock_client`（client_id=`gsi-service`，自签测试密钥，读 `CONTRACT_V1_SHARED_SECRET` 这组共用配置）
 > 结果：**17 条用例，通过 17 条，失败 0 条**
+>
+> **历史证据说明**：本记录是 POC 期（真实业务实现）的基线，文中 `app.poc.mock_client`、`--reset`、`poc_v1_metric`
+> 已于 2026-10-30 随 POC 下线（`app/poc/` 已删除、临时表已清理）；当前复跑命令见 `README.md` §四（`app.contract.mock_gsi --allow-skeleton`）。本文不覆盖重写，保留原样对照。
 
 ---
 

@@ -82,5 +82,11 @@ def setup_logger() -> None:
     for name in ("apscheduler", "apscheduler.schedulers", "apscheduler.jobstores"):
         logging.getLogger(name).setLevel(logging.WARNING)
 
+    # watchfiles 每次文件变更打一条 DEBUG（“N change detected: {...}”）：热重载的监听目录里就有
+    # logs/fastapiadmin.log，不压住会形成「写日志 → 检测到变更 → 再写日志」的自激循环，
+    # 控制台与日志文件都被刷屏（把 LOGGER_LEVEL 调成 INFO 也压不住，因为记录本身就是这条截获链产生的）
+    for name in ("watchfiles", "watchfiles.main"):
+        logging.getLogger(name).setLevel(logging.WARNING)
+
 
 setup_logger()

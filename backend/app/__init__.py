@@ -12,15 +12,15 @@ from app.core.logger import logger
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """
     应用生命周期：启动时准备接口审计日志（建表 + 过期清理）、向量存储、知识空间表与种子数据、
-    文档解析器、POC `/v1` 临时表，关闭时先取消在跑的文档解析、再关停线程池并释放数据库连接。
+    文档解析器，关闭时先取消在跑的文档解析、再关停线程池并释放数据库连接。
 
     这些均为辅助/待集成能力，初始化失败只告警不阻断启动。
     """
-    from app.modules.system.api_log.service import cleanup_expired_api_logs, ensure_api_log_table
+    from app.modules.system.api_log.service import SystemApiLogService
 
     try:
-        await ensure_api_log_table()
-        purged = await cleanup_expired_api_logs()
+        await SystemApiLogService.ensure_table()
+        purged = await SystemApiLogService.purge_expired()
         logger.info("==== 接口审计日志就绪（启动清理过期记录 {} 条）====", purged)
     except Exception as e:
         logger.error(f"❌ 接口审计日志初始化失败（审计功能不可用，业务不受影响）: {e!s}")
@@ -59,15 +59,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await install_parser()
     except Exception as e:
         logger.error(f"❌ MinerU 解析器安装失败（二进制文档将不可解析）: {e!s}")
-
-    # POC `/v1` 临时表（T0.1–T0.4 验证骨架，前缀 poc_v1_）：与正式 sbp_ai_ 表无关，删表即回到干净状态；
-    # 失败只告警，POC 路由会以 503 internal_error 明确告知依赖不可用
-    from app.poc import ensure_poc_store
-
-    try:
-        await ensure_poc_store()
-    except Exception as e:
-        logger.error(f"❌ POC /v1 临时表初始化失败（POC 验证链路不可用）: {e!s}")
 
     # 契约 /v1 台账（T1.1 / T1.3）：清理过期 nonce 与过期幂等记录。台账不可用只告警，
     # 真正校验时会以 503 AUTHORIZATION_UNAVAILABLE 明确拒绝，不会放行
@@ -144,6 +135,20 @@ def register_routers(app: FastAPI) -> None:
     )
 
 
+def _access_base_url() -> str:
+    """
+    启动日志用的访问基址：监听地址与端口一律取配置（HOST / PORT），换端口启动时日志跟着走。
+    监听 0.0.0.0 / :: 时本机打不开该地址，回显 127.0.0.1 便于直接点击。
+    :return: 形如 http://127.0.0.1:8002
+    """
+    from app.config.setting import settings
+
+    host = settings.HOST.strip()
+    if host in {"", "0.0.0.0", "::", "[::]"}:
+        host = "127.0.0.1"
+    return f"http://{host}:{settings.PORT}"
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title="service_brain_agent",
@@ -155,18 +160,15 @@ def create_app() -> FastAPI:
     # 前端才能拿到可读的 msg（否则一律是 500 Internal Server Error）
     handle_exception(app)
     register_routers(app)
-    # 契约 `/v1`（P1 正式接入层）：四头签名 + 幂等 + 审计，与 POC 互斥
+    # 契约 `/v1`（P1 正式接入层）：四头签名 + 幂等 + 审计；POC 验证骨架已按阶段 0 下线
     from app.contract import register_contract
 
     register_contract(app)
-    # POC `/v1`（T0.1–T0.4 验证骨架）：契约层开启时自动跳过
-    from app.poc import register_poc
-
-    register_poc(app)
+    base_url = _access_base_url()
     logger.info('==== fastapi 项目启动中 ====')
-    logger.info('==== swagger 地址：http://127.0.0.1:8002/docs ====')
-    logger.info('==== redoc 地址：http://127.0.0.1:8002/redoc ====')
-    logger.info('==== openapi 地址：http://127.0.0.1:8002/openapi.json ====')
+    logger.info('==== swagger 地址：{}/docs ====', base_url)
+    logger.info('==== redoc 地址：{}/redoc ====', base_url)
+    logger.info('==== openapi 地址：{}/openapi.json ====', base_url)
 
     @app.get("/healthz", include_in_schema=False)
     async def healthz():
@@ -175,6 +177,6 @@ def create_app() -> FastAPI:
 
     # 挂载前端构建产物：frontend 执行 npm run build 后输出到 backend/static 目录
     app.frontend("/ui", directory=STATIC_DIR, fallback="index.html")
-    logger.info('==== 前端页面地址：http://127.0.0.1:8002/ui ====')
+    logger.info('==== 前端页面地址：{}/ui ====', base_url)
 
     return app

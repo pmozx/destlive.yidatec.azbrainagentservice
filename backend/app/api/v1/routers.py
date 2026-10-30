@@ -17,6 +17,7 @@ from app.modules.integration_kb.document.controller import IntegrationKbDocument
 from app.modules.integration_kb.space.controller import IntegrationKbSpaceRouter
 from app.modules.integration_kb.stats.controller import IntegrationKbStatsRouter
 from app.modules.integration_kb.task.controller import IntegrationKbTaskRouter
+from app.modules.system.access_trace.controller import AccessTraceRouter
 from app.modules.system.api_log.controller import SystemApiLogRouter
 
 API_PREFIX = "/api/v1"
@@ -24,6 +25,7 @@ API_PREFIX = "/api/v1"
 DOMAIN_CONTROLLERS: dict[str, list[APIRouter]] = {
     "/system": [
         SystemApiLogRouter,
+        AccessTraceRouter,
     ],
     # 集成-知识库：空间 → 分类 → 文档 → 分片 / 任务 / 统计
     "/integration-kb": [

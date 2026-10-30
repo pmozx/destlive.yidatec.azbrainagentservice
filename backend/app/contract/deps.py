@@ -24,6 +24,18 @@ from fastapi.responses import JSONResponse
 from app.config.setting import settings
 from app.core.logger import logger
 from app.core.router_class import set_audit_security, set_audit_username
+from app.core.security_signature import (
+    HEADER_CLIENT_ID,
+    HEADER_NONCE,
+    HEADER_SIGNATURE,
+    HEADER_TIMESTAMP,
+    HEADER_VERSION,
+    SIGNATURE_VERSION,
+    body_digest,
+    headers_present,
+    now_ms,
+    signature_rule_doc,
+)
 
 from .audit import (
     AUTH_MODE_HMAC,
@@ -49,34 +61,13 @@ from .idempotency import (
     reserve,
 )
 from .nonce import nonce_store
-from .signature import (
-    HEADER_CLIENT_ID,
-    HEADER_NONCE,
-    HEADER_SIGNATURE,
-    HEADER_TIMESTAMP,
-    HEADER_VERSION,
-    SIGNATURE_VERSION,
-    SignatureMaterial,
-    headers_present,
-    now_ms,
-    verify_signature,
-)
+from .signature import SignatureMaterial, verify_signature
+from ..core.rich_print import pretty_log
 
 # 签名原文口径写在 `X-AI-Signature` 的说明里：Swagger 上看不到模块 docstring，
-# 而签名最常被问的就是「这个 hex 怎么算」。
-_SIGNATURE_RULE = """HMAC-SHA256(共享密钥, 签名原文) 的 64 位**小写**十六进制；比较时大小写敏感。
-
-签名原文共 7 行，用 LF 连接、**末尾不留换行**：
-1. `v1`（即 `X-AI-Signature-Version` 的值）
-2. `X-AI-Client-Id` 的值
-3. `X-AI-Timestamp` 的值
-4. `X-AI-Nonce` 的值
-5. 大写 HTTP 方法，如 `POST`
-6. 原始路径及可选查询字符串，如 `/v1/knowledge/search`（不含协议与域名）
-7. 请求正文原始字节的 SHA-256 小写 hex；GET 无正文时按空字节序列计算
-
-任意一项不符、头缺失、时间戳超出 ±5 分钟窗口、nonce 重放，均返回 401 `UNAUTHORIZED`，
-不回显期望值。"""
+# 而签名最常被问的就是「这个 hex 怎么算」。文字本身与 POC 共用一份（`security_signature`），
+# 只有失败码的大小写口径不同。
+_SIGNATURE_RULE = signature_rule_doc(unauthorized_code="UNAUTHORIZED")
 
 
 def load_json_body(body: bytes) -> Any:
@@ -167,7 +158,7 @@ async def verified_signature(
 
     flush()
 
-    if not settings.CONTRACT_V1_SHARED_SECRET:
+    if not settings.CONTRACT_V1_SHARED_SECRET.strip():
         # 缺密钥时绝不能放行：放行等于把 HMAC 鉴权关掉，且不会有任何异常提示
         record.failure_code = AUTHORIZATION_UNAVAILABLE
         flush()
@@ -186,6 +177,21 @@ async def verified_signature(
         record.signature_result = SIGNATURE_FAILED
         record.failure_code = exc.code
         flush()
+        if settings.DEBUG:
+            # 联调取证：签名对不上只能靠「原始字节」定位——客户端拿同一摘要自查发的是不是同一份数据
+            # （多行 JSON 被工具重排、末尾换行、BOM 都会变摘要）。只打摘要与长度，不落密钥与正文。
+            logger.warning(
+                "验签失败 {}：path={} query='{}' body_len={} body_sha256={} timestamp={} nonce={} deviation_ms={}",
+                exc.code,
+                request.url.path,
+                request.url.query or "",
+                len(body),
+                body_digest(body),
+                request.headers.get(HEADER_TIMESTAMP),
+                request.headers.get(HEADER_NONCE),
+                record.timestamp_deviation_ms,
+            )
+            logger.warning(f"请求体原文: \n{pretty_log(body)}")
         raise
 
     record.signature_result = SIGNATURE_PASSED
@@ -239,6 +245,9 @@ def _idempotent_guard(scope: str):
         request.state.idempotency_reservation = reservation
         yield reservation
 
+        if reservation.is_replay or getattr(request.state, "idempotency_settled", False):
+            # 回放请求不能释放首次记录；已提前登记（见 record_receipt）的也不再重复写
+            return
         result = getattr(request.state, "idempotency_result", None)
         if getattr(request.state, "contract_failed", False) or result is None:
             # 失败或骨架期无结果：释放预约，否则该 ID 会被永久锁在 processing
@@ -253,6 +262,31 @@ def _idempotent_guard(scope: str):
         )
 
     return dependency
+
+
+async def record_receipt(
+    request: Request,
+    reservation: Reservation,
+    *,
+    status_code: int,
+    body: dict[str, Any],
+) -> None:
+    """登记幂等回执并**立即提交**：路由成功时必须调用。
+
+    依赖的收尾代码在响应发出后才执行，调用方收到 202 立刻重试时预约还停在 processing，
+    会被误判成「原请求仍在处理中」而回 409。提前提交后，依赖退出只做兜底，不再重复登记。
+    """
+    if reservation.is_replay:
+        return
+    result = {"status_code": int(status_code), "body": body}
+    await complete(
+        scope=reservation.scope,
+        biz_id=reservation.biz_id,
+        body_hash=reservation.body_hash,
+        result=result,
+    )
+    request.state.idempotency_result = result
+    request.state.idempotency_settled = True
 
 
 def replay_response(reservation: Reservation) -> JSONResponse | None:

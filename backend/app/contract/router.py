@@ -19,18 +19,29 @@
 
 from typing import Annotated, Any, NoReturn
 
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Request, status
 
 from .deps import (
     idempotent_event,
     idempotent_job,
     idempotent_request,
     load_json_body,
+    record_receipt,
     replay_response,
     verified_signature,
 )
-from .errors import INTERNAL_ERROR, ContractApiError, ContractApiRoute, ContractErrorResponse
+from .errors import INTERNAL_ERROR, NOT_FOUND, ContractApiError, ContractApiRoute, ContractErrorResponse
 from .idempotency import Reservation
+from .parse import (
+    ParseJobRequest,
+    accepted_response,
+    create_parse_job_record,
+    fetch_file,
+    get_parse_job_snapshot,
+    run_parse_job,
+    status_response,
+    validate_file_request,
+)
 from .signature import verify_authorization
 
 # 每个 /v1 操作都会出现的响应。写进 responses 才能在 Swagger 上看到错误体：
@@ -108,20 +119,41 @@ contract_router = APIRouter(
 
 @contract_router.post("/parse/jobs", status_code=status.HTTP_202_ACCEPTED, summary="#01 提交文档 / FAQ 解析任务")
 async def create_parse_job(
+    request: Request,
+    background: BackgroundTasks,
     reservation: Annotated[Reservation, Depends(idempotent_job)],
-    body: dict[str, Any] | None = None,
+    payload: ParseJobRequest,
 ):
     """T2.1：202 受理 + `job_id` 幂等 + `file_url` 拉取与 10MB/类型校验。"""
     replayed = replay_response(reservation)
     if replayed is not None:
         return replayed
-    _skeleton("#01 提交文档 / FAQ 解析任务", _request_id_of(body))
+
+    validate_file_request(payload)
+    # 先同步拉完文件：超限 / 类型不支持 / 地址不可读都要在 202 之前变成请求级错误
+    content = await fetch_file(payload.file_url)
+    snapshot, created = await create_parse_job_record(payload)
+    if created or snapshot.status == "queued":
+        # 任务行已提交后再挂后置任务：否则后台读不到未提交的行（POC 期坑）
+        background.add_task(
+            run_parse_job,
+            job_id=payload.job_id,
+            file_name=payload.file_name,
+            data=content,
+            chunk_enabled=payload.options.chunk,
+        )
+    receipt = accepted_response(payload, snapshot)
+    await record_receipt(request, reservation, status_code=status.HTTP_202_ACCEPTED, body=receipt)
+    return receipt
 
 
 @contract_router.get("/parse/jobs/{job_id}", summary="#02 查询解析进度与完整结果")
 async def get_parse_job(job_id: str):
     """T2.2：四态状态机 + progress；`failed` 走 200 + `error_code`（任务失败 ≠ 请求失败）。"""
-    _skeleton(f"#02 查询解析任务 {job_id}")
+    snapshot = await get_parse_job_snapshot(job_id)
+    if snapshot is None:
+        raise ContractApiError(NOT_FOUND, f"解析任务 {job_id} 不存在。")
+    return status_response(snapshot)
 
 
 # ── 知识写入与读取：#03 / #04 / #05 / #06 ──────────────────────────────

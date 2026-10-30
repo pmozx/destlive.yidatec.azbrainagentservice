@@ -183,7 +183,12 @@ class CRUDBase[ModelType: ModelMixin, CreateSchemaType, UpdateSchemaType]:
         """
         return await self.count(include_deleted=include_deleted, **kwargs) > 0
 
-    async def count(self, include_deleted: bool = False, **kwargs) -> int:
+    async def count(
+        self,
+        include_deleted: bool = False,
+        extra_conditions: Sequence[ColumnElement] | None = None,
+        **kwargs,
+    ) -> int:
         """统计满足条件的记录行数（SELECT COUNT）。
 
         参数:
@@ -203,6 +208,7 @@ class CRUDBase[ModelType: ModelMixin, CreateSchemaType, UpdateSchemaType]:
         """
         try:
             conditions = await self._build_conditions(include_deleted=include_deleted, **kwargs)
+            conditions.extend(extra_conditions or [])
             count_sql = select(func.count()).select_from(self.model).where(*conditions)
             result: Result = await self.db.execute(count_sql)
             return result.scalar() or 0
@@ -216,6 +222,8 @@ class CRUDBase[ModelType: ModelMixin, CreateSchemaType, UpdateSchemaType]:
         preload: list[str | Any] | None = None,
         load_columns: list | None = None,
         include_deleted: bool = False,
+        limit: int | None = None,
+        extra_conditions: Sequence[ColumnElement] | None = None,
     ) -> Sequence[ModelType]:
         """不分页的列表查询，返回全部匹配记录。
 
@@ -251,8 +259,11 @@ class CRUDBase[ModelType: ModelMixin, CreateSchemaType, UpdateSchemaType]:
         """
         try:
             conditions = await self._build_conditions(include_deleted=include_deleted, **(search or {}))
+            conditions.extend(extra_conditions or [])
             order = order_by or [{"id": "asc"}]
             sql = select(self.model).where(*conditions).order_by(*self._parse_order(order))
+            if limit is not None:
+                sql = sql.limit(limit)
             if load_columns:
                 sql = sql.options(load_only(*load_columns))
             for opt in self._loader_options(preload):
@@ -272,6 +283,7 @@ class CRUDBase[ModelType: ModelMixin, CreateSchemaType, UpdateSchemaType]:
         preload: list[str | Any] | None = None,
         load_columns: list | None = None,
         include_deleted: bool = False,
+        extra_conditions: Sequence[ColumnElement] | None = None,
     ) -> PageResultSchema[OutSchemaType] | PageResultSchema:
         """分页查询：先 COUNT 统计总数，再取当页数据，返回统一分页结构。
 
@@ -310,6 +322,7 @@ class CRUDBase[ModelType: ModelMixin, CreateSchemaType, UpdateSchemaType]:
         """
         try:
             conditions = await self._build_conditions(include_deleted=include_deleted, **(search or {}))
+            conditions.extend(extra_conditions or [])
             order = order_by or [{"id": "asc"}]
 
             pk = self._get_pk_col()  # COUNT 用主键列更精确
@@ -469,6 +482,25 @@ class CRUDBase[ModelType: ModelMixin, CreateSchemaType, UpdateSchemaType]:
         except Exception as e:
             raise CustomException(msg=f"删除失败: {e!s}") from e
 
+    async def delete_by_conditions(self, *conditions: ColumnElement) -> int:
+        """按条件批量物理删除，返回删除行数（日志/台账过期清理用）。
+
+        注意：即使模型支持软删除，本方法也执行物理删除；调用方需明确这是清理语义。
+
+        示例::
+
+            # 物理清理 90 天前的审计日志
+            deleted = await log_crud.delete_by_conditions(ApiLogModel.created_time < cutoff)
+        """
+        if not conditions:
+            raise CustomException(msg="条件删除失败，删除条件不能为空")
+        try:
+            result = await self.db.execute(delete(self.model).where(*conditions))
+            await self.db.flush()
+            return int(getattr(result, "rowcount", 0) or 0)
+        except Exception as e:
+            raise CustomException(msg=f"条件删除失败: {e!s}") from e
+
     async def clear(self) -> None:
         """清空整表数据。软删除模式下仅清理已标记删除的记录（回收站清空）。
 
@@ -619,13 +651,19 @@ class CRUDBase[ModelType: ModelMixin, CreateSchemaType, UpdateSchemaType]:
         return []
 
     def _parse_order(self, order: list[dict[str, str]]) -> list[ColumnElement]:
-        """`[{"field": "asc|desc"}, ...]` → SQLAlchemy order_by 子句。"""
+        """`[{"field": "asc|desc"}, ...]` → SQLAlchemy order_by 子句。
+
+        非法字段直接跳过（前端传错排序字段不应 500）；全部无效时退回主键倒序，
+        确保分页结果始终有序。``direction`` 大小写与空值均做了兜底。
+        """
         columns: list[ColumnElement] = []
         for item in order:
             for field, direction in item.items():
+                if field not in self.model.__table__.columns:
+                    continue
                 column = getattr(self.model, field)  # type: ignore[arg-type]
-                columns.append(desc(column) if direction.lower() == "desc" else asc(column))
-        return columns
+                columns.append(desc(column) if str(direction).lower() == "desc" else asc(column))
+        return columns or [desc(self._get_pk_col())]
 
     def _loader_options(self, preload: list[str | Any] | None = None) -> list[Any]:
         """将字符串预加载描述转为 SQLAlchemy loading options。

@@ -1,20 +1,21 @@
-"""正式 `/v1` 契约接入层（P1：T1.1–T1.5），与 `/api/v1`（管理台 JWT）、`app/poc`（验证骨架）三分。
+"""正式 `/v1` 契约接入层（P1：T1.1–T1.5），与 `/api/v1`（管理台 JWT）分离。
 
 模块分工：
 
 | 模块 | 职责 | 任务 |
 | --- | --- | --- |
 | `errors.py` | 契约错误码全量表 + 错误体路由类（继承审计路由类） | T1.2 |
-| `signature.py` | 四头 HMAC 验签、`authorization` ≤120s 时效校验（纯计算） | T1.1 |
+| `signature.py` | 验签口径翻译：算法在 `app/core/security_signature.py`，本模块只把失败翻成大写的契约码 | T1.1 |
 | `nonce.py` | nonce 原子登记（`sbp_ai_system_nonce`，跨实例共享 + TTL） | T1.1 |
 | `idempotency.py` | 三类幂等台账（job / request / event）、异正文 409、墓碑 | T1.3 |
 | `audit.py` | `security_check` JSONB 结构装载（签名只存摘要） | T1.4 |
 | `deps.py` | 验签依赖、幂等预约依赖、启动自检 | T1.1 / T1.3 |
 | `router.py` | 20 条路由骨架（签名可打通，业务随 Tx 落地） | T1.5 |
+| `mock_gsi.py` | GSI 侧冒烟驱动器（样例文件 + 负向用例 + `--allow-skeleton`） | 联调 |
 
-与 POC 的关系：`CONTRACT_V1_ENABLE=true`（默认）时 POC 的 `/v1` 整体下线，两者**互斥**
-（同一路径不能挂两份实现，且 POC 的错误码是小写、nonce 在内存里，都不是正式口径）。
-`CONTRACT_V1_ENABLE=false` 可把 POC 冒烟环境原样恢复，用于对照排查。
+POC 验证骨架（`app/poc`）已按 `03-POC下线与契约迁移方案.md` 阶段 0 下线，
+`/v1` 只有本模块一份实现；`CONTRACT_V1_ENABLE=false` 表示 `/v1` 完全不挂载（404），不再提供回退。
+验签/防重放/授权时效算法在 `app/core/security_signature.py`，参数在 `setting.py` 的 `CONTRACT_*` 组。
 
 `register_contract(app)` 是唯一对外入口：挂路由 + 打印生效口径；台账自检见 `ensure_contract_store`。
 """
@@ -40,10 +41,17 @@ def register_contract(app: FastAPI) -> None:
         settings.CONTRACT_CLOCK_SKEW_MS,
         settings.CONTRACT_NONCE_TTL_SECONDS,
     )
-    if not settings.CONTRACT_V1_SHARED_SECRET:
+    if not settings.CONTRACT_V1_SHARED_SECRET.strip():
         # 不阻断启动（其余 /api/v1 业务照常可用），但把后果写清楚：/v1 会一律 503
         logger.warning(
             "==== CONTRACT_V1_SHARED_SECRET 未配置：/v1 全部接口将返回 503 AUTHORIZATION_UNAVAILABLE ===="
+        )
+    if settings.CONTRACT_NONCE_TTL_SECONDS * 1000 < 2 * settings.CONTRACT_CLOCK_SKEW_MS:
+        # 覆盖不足时窗口内的重放可能漏判：只告警，不改默认值（调大 TTL 属运维决策）
+        logger.warning(
+            "==== CONTRACT_NONCE_TTL_SECONDS={}s 小于 2×时钟窗口（{}s）：窗口内重放可能漏判 ====",
+            settings.CONTRACT_NONCE_TTL_SECONDS,
+            settings.CONTRACT_CLOCK_SKEW_MS * 2 // 1000,
         )
 
 

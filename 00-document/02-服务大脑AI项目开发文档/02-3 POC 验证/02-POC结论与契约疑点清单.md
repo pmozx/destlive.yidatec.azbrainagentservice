@@ -28,6 +28,7 @@
 | 已验证 | 缺头、签名不符、时间戳越窗（±5 分钟外）、nonce 重放 四类均返回 401 `unauthorized`；GET 无正文按空字节序列计算摘要，与契约「对空字节序列计算签名摘要」一致 |
 | 已验证 | `authorization.issued_at/expires_at` 跨度 > 120s 被拒（冒烟用例 #14，POC 用 400，错误码见 Q1）；已过期被拒（单测覆盖，错误码见 Q2） |
 | 待正式化 | nonce 只存进程内存：多副本部署必然漏判重放，且重启后清零 → **T1.1 必须落 Redis/DB 并带 TTL**（TTL ≥ 2×时钟窗口，即 ≥10 分钟） |
+| 已正式化 | 2026-10-30 重构：验签算法（原文拼装、时间窗、nonce 格式、`authorization` 跨度）已从 POC 抽到 `app/core/security_signature.py`，与 contract **同源共用**；POC 只保留适配层，nonce 存储仍是内存（仅 POC 侧，contract 已落 `sbp_ai_system_nonce`）。回归：`tests/test_security_signature.py` 11 条 |
 
 ### 2.2 解析链路 `#01 → #02`（T0.2）
 
@@ -92,6 +93,7 @@
 | POC 现状 | 正式实现要求 | 任务 |
 | --- | --- | --- |
 | nonce 存进程内存 | 分布式存储 + TTL（覆盖时钟窗口） | T1.1 |
+| 验签/防重放/授权时效各持一份实现（POC 与 contract 两套拷贝） | **已收口（2026-10-30）**：算法只有 `app/core/security_signature.py` 一份，签名参数也只有 `setting.py` 的 `CONTRACT_*` 一组（POC 不再各有自签密钥与窗口），两侧只留错误码适配层；差异仅剩“小写码+401” vs “大写码+503 失败关闭”与 nonce 存储介质 | 已完成 |
 | `poc_v1_*` 临时表、启动时 `CREATE TABLE IF NOT EXISTS` | `sbp_ai_*` 正式表 + Alembic 迁移 | T1.2 |
 | 幂等只覆盖 3 类请求、永久有效、单表 | 三类幂等台账（解析/写入/问答）+ TTL + 冲突语义 | T1.3 |
 | 无审计、无 API 日志 | 审计中间件 + `api_log` 覆盖每个 `/v1` 调用 | T1.4 |
@@ -131,10 +133,10 @@
 
 ## 六、移交 T1.x 的动作项
 
-1. **T1.1**：nonce 落分布式存储（TTL ≥ 10 分钟）；签名校验抽成可复用组件，POC 的 `signature.py` 可直接作为行为基线（单测已覆盖）。
+1. **T1.1**：nonce 落分布式存储（TTL ≥ 10 分钟）。签名校验的“可复用组件”已于 2026-10-30 落地（`app/core/security_signature.py`，行为基线取自 POC 的 17 条单测），contract 侧只保留错误码适配。
 2. **T1.2**：按 Q1/Q2/Q13 起草错误码补充清单，一并与 GSI 对齐；错误体统一为 `{"error":{"code","message","retryable"}}`。
 3. **T1.3**：幂等台账加 TTL（Q11），并区分「同 ID 异正文」与「publication 已存在」（Q7）。
 4. **T3.x**：`content_hash` 校验（Q9）、`revision` 单调性（Q14）、大切片集合向量化压测（500~2000 条）。
 5. **T4.3（最高风险）**：实时权限计算与检索期过滤 —— POC 完全未覆盖，需最早排期并预留联调用例。
 6. **T5.x**：`citation_id`（Q3）、首轮 `session_id`（Q4）、引用编号兜底重试、`#14` 超时与重试预算（§三）。
-7. **保留**：`app/poc/mock_client.py` 转为 T1.x 的回归脚本（`--no-chat` 可在无模型环境跑），`--reset` 与 `--record` 继续用于联调留痕。
+7. **保留**：Mock GSI 冒烟驱动器已迁为 `app/contract/mock_gsi.py`（阶段 0，POC 下线），`--no-chat` 可在无模型环境跑、`--record` 继续用于联调留痕；POC 期的 `--reset`（清 `poc_v1_*`）随临时表删除而移除，骨架期用 `--allow-skeleton`。

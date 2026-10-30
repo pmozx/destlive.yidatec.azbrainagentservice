@@ -107,7 +107,8 @@ def search_to_dict(search: Any, default: Any = None) -> dict | None:
         if isinstance(d[key], list) and len(d[key]) == 2 and key.endswith("_time"):
             d[key] = ("between", d[key])
 
-    for field_name, field_info in search.model_fields.items():
+    # model_fields 从类上取：Pydantic 2.11 起在实例上访问已弃用
+    for field_name, field_info in type(search).model_fields.items():
         if field_name not in d:
             continue
         q_op = (field_info.json_schema_extra or {}).get("q")

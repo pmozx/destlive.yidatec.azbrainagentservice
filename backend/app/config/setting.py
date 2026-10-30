@@ -216,37 +216,27 @@ class Settings(BaseSettings):
     API_LOG_RETENTION_DAYS: int = Field(default=90, description="审计日志保留天数，<=0 表示启动时不做过期清理")
     TRUSTED_PROXY_HOPS: int = Field(default=0, description="前置可信反向代理跳数，0 表示忽略代理头、仅取 TCP 对端地址")
 
-    # ==================== 正式接入层（/v1，T1.1–T1.5，app/contract） ====================
-    # 与 POC 互斥：本组开启时 POC 的 /v1 路由不再挂载（同一路径不能挂两份实现）。
-    # 密钥只写在 env：CONTRACT_V1_SHARED_SECRET 为空视为「未配置」，验签直接 503
-    # AUTHORIZATION_UNAVAILABLE —— 宁可服务不可用，也不能因为缺密钥就把签名校验放过。
-    CONTRACT_V1_ENABLE: bool = Field(default=True, description="是否挂载正式 /v1 契约路由（开启后 POC 路由自动下线）")
-    CONTRACT_V1_CLIENT_ID: str = Field(default="gsi-service", description="契约认可的调用方标识（X-AI-Client-Id）")
-    CONTRACT_V1_SHARED_SECRET: str = Field(default="", description="HMAC 共享密钥；留空＝未配置，验签回 503 而非放行")
+    # ==================== /v1 接口安全请求头（契约接入层） ====================
+    # 验签参数只有这一组：调用方标识、HMAC 共享密钥、时间戳窗口、nonce 保留时长、authorization 跨度。
+    # 算法在 app/core/security_signature.py，错误码口径在 app/contract/errors.py。
+    # 密钥只写在 env：留空＝未配置，验签失败关闭（契约 503 AUTHORIZATION_UNAVAILABLE）——
+    # 宁可服务不可用，也不能因为缺密钥就把签名校验放过。
+    CONTRACT_V1_CLIENT_ID: str = Field(default="gsi-service", description="认可的调用方标识（X-AI-Client-Id）")
+    CONTRACT_V1_SHARED_SECRET: str = Field(default="", description="HMAC 共享密钥；留空＝未配置，验签失败关闭")
     CONTRACT_CLOCK_SKEW_MS: int = Field(default=300_000, description="时间戳容许窗口（毫秒），契约口径前后 5 分钟")
     CONTRACT_NONCE_TTL_SECONDS: int = Field(
         default=600, description="nonce 台账保留时长（秒）；须 ≥ 2×时钟窗口，否则窗口内重放可能漏判"
     )
-    CONTRACT_AUTHORIZATION_MAX_TTL_MS: int = Field(default=120_000, description="authorization 签发-过期最大跨度（毫秒）")
+    CONTRACT_AUTHORIZATION_MAX_TTL_MS: int = Field(
+        default=120_000, description="authorization 签发-过期最大跨度（毫秒）"
+    )
+
+    # ==================== 正式接入层（/v1，T1.1–T1.5，app/contract） ====================
+    CONTRACT_V1_ENABLE: bool = Field(
+        default=True, description="是否挂载正式 /v1 契约路由；关闭后 /v1 完全不挂载（404）"
+    )
     CONTRACT_IDEMPOTENCY_TTL_DAYS: int = Field(default=90, description="幂等台账保留天数（墓碑不清理）；契约同步查询窗口 30 分钟")
     CONTRACT_TENANT_ID: str = Field(default="gsi-default", description="契约固定租户（v2.1 口径）")
-
-    # ==================== POC 接入验证（/v1，T0.1–T0.4 用，正式实现自 T1.x 起重做） ====================
-    # 只服务 POC：自签测试密钥、临时表（poc_v1_*）、内存 nonce；与 GSI 真实密钥/
-    # 审计扩展/幂等台账均无关，T1.1 起按生产口径替换，本组配置届时整体下线。
-    POC_V1_ENABLE: bool = Field(
-        default=True, description="是否挂载 POC 的 /v1 路由与临时表（CONTRACT_V1_ENABLE=true 时强制下线）"
-    )
-    POC_V1_CLIENT_ID: str = Field(default="gsi-service", description="POC 认可的调用方标识（正式以双方约定为准）")
-    POC_V1_SHARED_SECRET: str = Field(
-        default="poc-self-signed-secret",
-        description="POC 自签测试密钥（HMAC 共享密钥）；生产密钥只在 env 配置，不入代码",
-    )
-    POC_V1_CLOCK_SKEW_MS: int = Field(default=300_000, description="时间戳容许窗口（毫秒），契约口径前后 5 分钟")
-    POC_V1_MAX_FILE_MB: int = Field(default=10, description="#01 拉取文件的大小上限（MB），超限 413")
-    POC_RETRIEVE_TOP_K: int = Field(default=20, description="POC 单路召回候选条数（RRF 融合前）")
-    POC_RETRIEVE_TOP_N: int = Field(default=8, description="POC 融合后进入生成上下文的条数")
-    POC_RRF_K: int = Field(default=60, description="RRF 融合常数 k（越大越平缓）")
 
     # 数据库驱动映射（数据库类型 -> 异步驱动）
     _DB_DRIVERS: dict = {

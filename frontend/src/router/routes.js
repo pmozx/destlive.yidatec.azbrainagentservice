@@ -35,6 +35,12 @@ export const constantRoutes = [
         component: () => import('@/views/module_system/log/index.vue'),
         meta: { title: '日志审计', icon: 'Tickets' },
       },
+      {
+        path: 'trace',
+        name: 'SystemAccessTrace',
+        component: () => import('@/views/module_system/trace/index.vue'),
+        meta: { title: '接入调用追踪', icon: 'Link' },
+      },
     ],
   },
   {

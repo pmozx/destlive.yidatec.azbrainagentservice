@@ -18,10 +18,26 @@
 落原文等于给离线爆破送样本；前 8 + 后 4 足够在取证时和调用方对账，又不足以复用。
 """
 
-from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 from starlette.requests import Request
+
+# 时间戳解析与时钟偏差计算与 POC 共用一份（`app/core/security_signature.py`），
+# 这里 re-export 供 `deps.py` 与单测直接从 audit 取用。
+from app.core.security_signature import timestamp_deviation_ms
+
+__all__ = [
+    "AUTH_MODE_HMAC",
+    "NONCE_FIRST_USE",
+    "NONCE_NOT_CHECKED",
+    "NONCE_REUSED",
+    "SIGNATURE_FAILED",
+    "SIGNATURE_PASSED",
+    "SIGNATURE_SKIPPED",
+    "SecurityRecord",
+    "mark_failure",
+    "timestamp_deviation_ms",
+]
 
 # 审计口径的固定取值（与设计文档 §5.2 一一对应，指标看板按这些值分组）
 AUTH_MODE_HMAC = "hmac"
@@ -54,14 +70,6 @@ class SecurityRecord:
             "signature_digest": self.signature_digest,
             "failure_code": self.failure_code,
         }
-
-
-def timestamp_deviation_ms(headers: Mapping[str, str], *, header_name: str, current_ms: int) -> int | None:
-    """尽力算出时钟偏差（毫秒）：时间戳不合规时返回 None，不影响主流程。"""
-    stamp = (headers.get(header_name) or "").strip()
-    if not stamp.isdigit() or len(stamp) != 13:
-        return None
-    return current_ms - int(stamp)
 
 
 def mark_failure(request: Request, code: str) -> None:
