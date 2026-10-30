@@ -1,7 +1,7 @@
-"""接口审计日志服务：查询 / 详情 / 删除 / 过期清理，以及启动期建表入口。
+"""接口审计日志服务：查询 / 详情 / 删除 / 过期清理。
 
-数据访问统一走 ``SystemApiLogCRUD``，本层不手写分页或删除 SQL；
-启动期的建表与过期清理也收敛为 Service 的类方法，调用方（应用生命周期）只与 Service 交互。
+访问统一走 ``SystemApiLogCRUD``，本层不手写分页或删除 SQL；
+建表不在此处（DDL 统一收口在 ``app/modules/system/bootstrap.py``），本层只负责启动期过期清理。
 """
 
 from datetime import UTC, datetime, timedelta
@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.setting import settings
 from app.core.base_schema import PageResultSchema
-from app.core.database import async_engine, async_session_factory
+from app.core.database import async_session_factory
 from app.core.exceptions import CustomException
 from app.core.logger import logger
 from app.utils.common_util import search_to_dict
@@ -65,14 +65,6 @@ class SystemApiLogService:
         return await self.crud.delete_by_conditions(SystemApiLogModel.created_time < cutoff)
 
     # ── 启动期生命周期（无请求上下文，类方法）──────────────────────────
-
-    @classmethod
-    async def ensure_table(cls) -> None:
-        """启动时确保审计表存在：只建本表，不触碰其它业务表结构。"""
-        if not (settings.API_LOG_ENABLE and settings.API_LOG_AUTO_CREATE):
-            return
-        async with async_engine.begin() as conn:
-            await conn.run_sync(SystemApiLogModel.__table__.create, checkfirst=True)
 
     @classmethod
     async def purge_expired(cls, days: int | None = None) -> int:

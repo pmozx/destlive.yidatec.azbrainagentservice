@@ -7,7 +7,7 @@
 与基座的两点差异：
 1. 建表不走 alembic：本项目表结构随集成迭代频繁调整，由各域 bootstrap 在启动期
    ``checkfirst`` 幂等建表（见 ``app/modules/integration_kb/bootstrap.py``）；
-   ``init_db`` 里仍补一次 ``ensure_kb_tables``，让本脚本可脱离 lifespan 单独执行。
+   ``init_db`` 里仍补一次 ``ensure_tables``，让本脚本可脱离 lifespan 单独执行。
 2. 种子表之间存在外键依赖关系（分类的 ``space_code`` 需解析为 ``space_id``），
    在 ``__init_data`` 里登记专用处理函数。
 
@@ -32,7 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config.path_conf import SCRIPT_DIR
 from app.core.database import async_session_factory
 from app.core.logger import logger
-from app.modules.integration_kb.bootstrap import ensure_kb_tables
+from app.modules.integration_kb.bootstrap import ensure_tables
 from app.modules.integration_kb.category.model import IntegrationKbCategoryModel
 from app.modules.integration_kb.space.model import IntegrationKbSpaceModel
 
@@ -48,7 +48,7 @@ class InitializeData:
 
     async def init_db(self) -> None:
         """建表并导入种子数据（异常上抛，由调用方决定是否阻断启动）"""
-        await ensure_kb_tables()
+        await ensure_tables()
         async with async_session_factory() as db, db.begin():
             await self.__init_data(db)
 

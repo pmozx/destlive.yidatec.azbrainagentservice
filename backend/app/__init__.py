@@ -11,22 +11,13 @@ from app.core.logger import logger
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """
-    应用生命周期：启动时准备接口审计日志（建表 + 过期清理）、向量存储、知识空间表与种子数据、
-    文档解析器，关闭时先取消在跑的文档解析、再关停线程池并释放数据库连接。
+    应用生命周期：启动时准备向量存储、按模块初始化表结构与元数据、接口审计过期清理、
+    种子数据、文档解析器，关闭时先取消在跑的文档解析、再关停线程池并释放数据库连接。
 
     这些均为辅助/待集成能力，初始化失败只告警不阻断启动。
     """
-    from app.modules.system.api_log.service import SystemApiLogService
-
-    try:
-        await SystemApiLogService.ensure_table()
-        purged = await SystemApiLogService.purge_expired()
-        logger.info("==== 接口审计日志就绪（启动清理过期记录 {} 条）====", purged)
-    except Exception as e:
-        logger.error(f"❌ 接口审计日志初始化失败（审计功能不可用，业务不受影响）: {e!s}")
-
     # 向量存储（pgvector）：建扩展、分片表与 HNSW 索引，幂等；失败只告警，
-    # 避免数据库暂不可用时拖住整个应用启动
+    # 避免数据库暂不可用时拖住整个应用启动。必须先于各域建表（kb 分片表依赖该扩展）
     from app.modules.integration_kb.chunk.vector_store import ensure_vector_store
 
     try:
@@ -34,22 +25,30 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as e:
         logger.error(f"❌ 向量存储初始化失败（pgvector 不可用，后续向量能力将不可用）: {e!s}")
 
-    # 知识库业务表（空间/分类/文档/任务）与 AI 问答表（会话/消息）：
-    # 启动期幂等建表，并把上次进程中断留下的「解析中」改回待解析；失败只告警
-    from app.modules.integration_chat.bootstrap import ensure_chat_tables
-    from app.modules.integration_kb.bootstrap import ensure_kb_tables
+    # 表结构与元数据：按模块统一初始化（integration_kb / integration_chat / system / kb / voice），
+    # 各域在自己的 bootstrap.py 里声明表并按依赖顺序建出，缺表才建；单域失败只告警
+    from app.bootstrap import ensure_all_tables
+
+    created = await ensure_all_tables()
+    if created:
+        logger.info("==== 表结构初始化完成（本次新建 {} 张）====", len(created))
+
+    # 接口审计日志（表已由 system 域 bootstrap 建好）：启动期只做过期清理
+    from app.modules.system.api_log.service import SystemApiLogService
+
+    try:
+        purged = await SystemApiLogService.purge_expired()
+        logger.info("==== 接口审计日志就绪（启动清理过期记录 {} 条）====", purged)
+    except Exception as e:
+        logger.error(f"❌ 接口审计日志过期清理失败（不影响业务）: {e!s}")
+
+    # 上次进程中断留下的「解析中」文档改回待解析；失败只告警
     from app.modules.integration_kb.task.worker import reset_interrupted_documents
 
     try:
-        await ensure_kb_tables()
         await reset_interrupted_documents()
     except Exception as e:
-        logger.error(f"❌ 知识库表初始化失败（上传与解析将不可用）: {e!s}")
-
-    try:
-        await ensure_chat_tables()
-    except Exception as e:
-        logger.error(f"❌ AI 问答表初始化失败（问答历史无法保存）: {e!s}")
+        logger.error(f"❌ 中断文档状态重置失败（需人工重新提交解析）: {e!s}")
 
     # 文档解析器：MinerU 接管 PDF/Office/图片（当前暂定的内容提取主路径）；
     # MINERU_ENABLE=false 时只用内置纯文本/HTML 解析器，二进制文档会明确报不支持

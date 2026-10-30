@@ -546,6 +546,54 @@ curl -fsS http://127.0.0.1:8002/healthz
 curl -sI http://127.0.0.1:8002/ui | head -1     # 应返回 200
 ```
 
+#### 停止与重启
+
+停止前先明确「停到哪一层」：只停应用、还是应用 + 同机中间件。两者都不动数据。
+
+```bash
+cd ~/service_brain_agent
+
+# 1) 只停应用（保留容器，后续可直接 start）
+docker stop service-brain-agent
+
+# 等价 compose 写法；compose 解析清单时要求 APP_IMAGE/ENVIRONMENT 有值，
+# 停止不拉镜像，APP_IMAGE 随便填一个占位即可
+APP_IMAGE=unused ENVIRONMENT=prod \
+    docker compose -p service-brain-agent -f devops/brain-agent-server/docker-compose.yml stop
+
+# 2) 停应用并删除容器（外部网络 service-brain-agent 不会被删除；日志目录保留）
+APP_IMAGE=unused ENVIRONMENT=prod \
+    docker compose -p service-brain-agent -f devops/brain-agent-server/docker-compose.yml down
+
+# 3) 连中间件一起停（先停应用，再倒序停中间件）
+docker stop service-brain-agent
+for f in agent minio postgres; do
+    docker compose -f devops/common-server/docker-compose-$f.yml down
+done
+```
+
+重启：
+
+```bash
+# 仅重启被 stop 的应用容器（镜像与配置不变）
+docker start service-brain-agent
+
+# 或按原有镜像与配置重新拉起（不重新 pull）
+APP_IMAGE=<原有镜像全名:tag> ENVIRONMENT=prod \
+    docker compose -p service-brain-agent -f devops/brain-agent-server/docker-compose.yml up -d
+
+# 中间件按「postgres → minio → agent」顺序先起，再执行上面的应用启动
+for f in postgres minio agent; do
+    docker compose -f devops/common-server/docker-compose-$f.yml up -d
+done
+
+# 需要换版本时不要手工 up，直接走部署脚本
+bash devops/scripts/manual/deploy.sh prod <image_tag>
+```
+
+注意：不要使用 `down -v`。应用本身无命名卷，但中间件 compose 的命名卷/数据目录会被一并清理；
+回滚只重建容器，数据必须保留。
+
 #### 常见坑
 
 | 现象 | 原因 | 处理 |
@@ -558,6 +606,7 @@ curl -sI http://127.0.0.1:8002/ui | head -1     # 应返回 200
 | 四头签名报时间戳越界 | 宿主机时钟漂移超出 ±5 分钟窗口 | 开启 chrony / ntpd 时间同步 |
 | 模型容器反复重启 | 无外网，`ollama-init` / `rerank-init` 拉不到模型 | 预置 `common-server/volumes/{ollama,rerank/models}` 后再启动 |
 | `no such host service-brain-postgres` | 中间件未起，或与应用不在同一网络 | 先起中间件，确认 `docker network inspect service-brain-agent` 内两个容器都在 |
+| `stop/down` 时报 `APP_IMAGE 未设置` | compose 解析清单也需要插值变量，即使不拉镜像 | 按「停止与重启」补 `APP_IMAGE=unused ENVIRONMENT=prod`，或直接 `docker stop service-brain-agent` |
 
 ---
 
