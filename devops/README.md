@@ -331,7 +331,7 @@ docker compose -f devops/common-server/docker-compose-agent.yml up rerank-init
 curl -fsS http://service-brain-ollama:11434/api/embed \
   -d '{"model":"bge-m3","input":"测试文本"}'          # 返回 1024 维向量
 
-curl -fsS http://service-brain-rerank:8080/v1/rerank \
+curl -fsS http://service-brain-rerank:8001/v1/rerank \
   -d '{"query":"问题","documents":["候选一","候选二"],"top_n":2}'
 ```
 
@@ -508,12 +508,18 @@ vi ~/service_brain_agent/backend/env/.env.prod
 
 # 4) 镜像仓库登录（ACR 个人版需先 docker login）
 docker login <DOCKER_REPO_URL>
+docker login crpi-7nbh1cvsjd338a37.cn-qingdao.personal.cr.aliyuncs.com
+# qwerasd5
+# 15513974562_Meng
 
 # 5) （可选）同机自建中间件：先起中间件，再起应用
 cd ~/service_brain_agent
 for f in postgres minio agent; do
     docker compose -f devops/common-server/docker-compose-$f.yml up -d
 done
+
+# test 服务器仅部署 Agent 私有化相关服务
+docker compose -f devops/common-server/docker-compose-agent.yml up -d
 ```
 
 #### 部署与回滚
@@ -522,17 +528,17 @@ done
 cd ~/service_brain_agent
 
 # 部署：<env> <image_tag>（tag 取自 Jenkins 构建输出）
-bash devops/scripts/manual/deploy.sh prod 20261030153000
+bash devops/scripts/manual/deploy.sh prod 20261030130003
 
 # 回滚：拿历史 tag 重放（容器会被重建，数据卷不动）
 bash devops/scripts/manual/rollback.sh prod 20261029110000
 
 # 镜像仓库不是默认地址、或要换端口时，用环境变量覆盖（见第 7 节变量表）
 DOCKER_REPO_URL=registry.example.com DOCKER_REPO_NAMESPACE=team APP_PORT=8080 \
-    bash devops/scripts/manual/deploy.sh prod 20261030153000
+    bash devops/scripts/manual/deploy.sh prod 20261030130003
 
 # 无人值守（远程 ssh 一把梭）时跳过 y/N 确认
-yes | bash devops/scripts/manual/deploy.sh prod 20261030153000
+yes | bash devops/scripts/manual/deploy.sh prod 20261030130003
 ```
 
 脚本依次执行：创建共享网络 `service-brain-agent`（缺失时）→ 创建 `devops/data/logs` → `compose pull` → `up -d --remove-orphans`

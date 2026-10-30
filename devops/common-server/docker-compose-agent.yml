@@ -8,7 +8,7 @@
 #
 #   两个模型服务常驻运行，接入外部共享网络 service-brain-agent，应用按容器名直连：
 #     service-brain-ollama    11434  向量化：/api/embed，模型 bge-m3（1024 维）
-#     service-brain-rerank    8080   重排序：/v1/rerank，模型 bge-reranker-v2-m3
+#     service-brain-rerank    8001   重排序：/v1/rerank，模型 bge-reranker-v2-m3
 #
 #   为什么 rerank 不用 Ollama：Ollama 只提供 embed 端点，没有 rerank（交叉编码器
 #   打分）接口，社区 reranker 模型也注明需 llama.cpp 类运行时；因此重排序交给
@@ -134,7 +134,7 @@ services:
       - "--host"
       - "0.0.0.0"
       - "--port"
-      - "8080"
+      - "8001"
       # 开启 rerank 端点（bge-reranker 系列 GGUF 才可用）
       - "--rerank"
       - "--ctx-size"
@@ -151,14 +151,14 @@ services:
       - "--threads"
       - "4"
     ports:
-      # 仅绑回环：调试用，应用走内部网络按容器名访问
-      # - "127.0.0.1:8080:8080"
-      - "8080:8080"
+      # 仅作调试用，应用走内部网络按容器名访问（容器内监听 8001，宿主机映射 8001）
+      # - "127.0.0.1:8001:8001"
+      - "8001:8001"
     volumes:
       - ./volumes/rerank/models:/models:ro
     healthcheck:
       # 镜像内无 curl，用 bash 的 /dev/tcp 探活端口
-      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080' || exit 1"]
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8001' || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 10

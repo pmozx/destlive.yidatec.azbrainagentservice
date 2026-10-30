@@ -111,7 +111,7 @@ class Settings(BaseSettings):
     EMBEDDING_BATCH_SIZE: int = Field(default=16, description="单次向量化条数（过大易触发服务端 413/超时）")
     EMBEDDING_TIMEOUT: float = Field(default=60.0, description="向量化请求超时（秒）")
 
-    RERANK_BASE_URL: str = Field(default="", description="重排序服务地址（llama.cpp --rerank，如 http://service-brain-rerank:8080）")
+    RERANK_BASE_URL: str = Field(default="", description="重排序服务地址（llama.cpp --rerank，如 http://service-brain-rerank:8001）")
     RERANK_PATH: str = Field(default="/v1/rerank", description="重排序接口路径")
     RERANK_API_KEY: str = Field(default="", description="重排序服务密钥（私有化可留空）")
     RERANK_MODEL: str = Field(default="bge-reranker-v2-m3", description="重排序模型名称（服务端单模型时可留空）")
