@@ -89,14 +89,14 @@ service_brain_agent/
 ├── frontend/                               # Vue 3 前端工程（构建产物输出到 backend/static）
 └── devops/
     ├── README.md                           # 本文件
-    ├── compose/
-    │   ├── app.yml                         # 应用服务编排（配置 bind 挂载 + 健康检查 + 外部共享网络）
-    │   └── .env.example                    # compose 手工执行变量样例（真实 .env 不入库）
+    ├── brain-agent-server/                  # 应用服务编排（自包含，不读 .env）
+    │   └── docker-compose.yml              # 应用编排：配置 bind 挂载 + 健康检查 + 外部共享网络
     ├── common-server/                       # 可选：自建数据库与本地模型服务（常驻、与应用同外部网络）
-    │   ├── docker-compose.yml              # PostgreSQL 17 + pgvector、MinIO（S3）、Ollama（bge-m3）、llama.cpp rerank
+    │   ├── docker-compose-postgres.yml     # PostgreSQL 17 + pgvector（独立编排）
+    │   ├── docker-compose-minio.yml        # MinIO（S3 兼容对象存储，独立编排）
+    │   ├── docker-compose-agent.yml        # Ollama（bge-m3 向量化）+ llama.cpp rerank（独立编排）
     │   ├── initdb/00-init.sql              # 数据目录首次初始化：CREATE EXTENSION vector
-    │   ├── volumes/                        # 数据库、Ollama 模型、rerank GGUF 持久化（gitignore，自动创建）
-    │   └── .env.example                    # 取值清单（编排已内联这些值，默认不读取）
+    │   └── volumes/                        # 数据库、MinIO、Ollama 模型、rerank GGUF 持久化（gitignore，自动创建）
     ├── config/
     │   ├── Dockerfile                      # 两阶段镜像：node 构建前端 → uv 运行时
     │   ├── Dockerfile.dockerignore         # 该镜像的构建上下文排除清单（BuildKit 特性）
@@ -122,13 +122,13 @@ service_brain_agent/
 | ------------------ | ------------------------------- | -------- | ----------------------------------------------------------------------- |
 | 应用运行配置       | `backend/env/.env.<env>`                | 是（模板） | 部署时 bind 挂载进容器 `/home/env/.env.<env>`，**部署脚本不解析、不渲染**；非开发环境的口令按部署机维护，不要提交实值 |
 | 部署侧非口令默认值 | `devops/scripts/deploy-defaults.sh` | 是   | 镜像仓库地址、镜像名、端口、网络名、基础镜像等；执行机可用同名环境变量覆盖 |
-| compose 插值变量   | `devops/compose/.env` | 否（gitignore） | 仅手工执行应用编排时需要；CI 由脚本导出变量。`devops/common-server` 的取值已内联在编排里，不需要 `.env` |
+| compose 插值变量   | 无（不读 `.env`）                    | —     | 应用编排与 `common-server` 编排都自包含：变量由部署脚本导出或取编排内默认值，仓库不提供 `.env.example` |
 | 镜像仓库口令       | 执行机 `~/.docker/config.json` 或 CI 变量 `DOCKER_REPO_USERNAME` / `DOCKER_REPO_PASSWORD` | **否** | 严禁写入仓库任何文件；仅 `package.sh` 推送镜像时使用 |
 | 运行数据           | `devops/data/logs`、`devops/common-server/volumes/{postgres,minio,ollama,rerank}` | 否（gitignore） | 容器、对象存储与模型持久化目录，由脚本或 compose 自动创建 |
 
 容器内只有 **一个**环境变量覆盖项：`ENVIRONMENT`（取值 `dev|test|uat|prod`）。应用 `app/config/setting.py` 读取该变量后加载 `/home/env/.env.<ENVIRONMENT>`，因此 `backend/env/.env` 里的 `ENVIRONMENT=dev` 不会影响容器行为。
 
-> `backend/env/.env.<env>` 中的 `HOST` / `PORT` / `RELOAD` 只对**宿主机直跑**（`cd backend && python main.py`）生效：容器内由入口脚本固定监听 `0.0.0.0:8002` 并关闭热重载（`main.py` 面向本地开发，`reload=True` 不适合容器）。**改容器内端口需同步改** `devops/config/entrypoint/00-select-env.sh`、`devops/compose/app.yml` 的 healthcheck 与 Dockerfile 的 `EXPOSE`。
+> `backend/env/.env.<env>` 中的 `HOST` / `PORT` / `RELOAD` 只对**宿主机直跑**（`cd backend && python main.py`）生效：容器内由入口脚本固定监听 `0.0.0.0:8002` 并关闭热重载（`main.py` 面向本地开发，`reload=True` 不适合容器）。**改容器内端口需同步改** `devops/config/entrypoint/00-select-env.sh`、`devops/brain-agent-server/docker-compose.yml` 的 healthcheck 与 Dockerfile 的 `EXPOSE`。
 
 ---
 
@@ -232,19 +232,33 @@ devops/scripts/manual/rollback.sh prod 20261025213000
 
 ### 6.3 中间件与模型服务：自建数据库 / MinIO / Ollama / llama.cpp（可选）
 
-```bash
-# 一次性拉起（长期运行，不随应用发布重启；取值已内联在编排里，无需 .env）
-docker compose -f devops/common-server/docker-compose.yml up -d
+公共中间件按职责拆成三个独立编排，可分别启停、升级、备份，互不影响：
+`docker-compose-postgres.yml`（数据库）、`docker-compose-minio.yml`（对象存储）、
+`docker-compose-agent.yml`（向量化 + 重排序）。三者都接入同一个外部共享网络 `service-brain-agent`。
 
-# 若要求口令不入库：把编排里的 POSTGRES_PASSWORD 改回 ${POSTGRES_PASSWORD:?}，
-# 再 cp .env.example .env 填实值（.env 已 gitignore）
+```bash
+# 按需分别拉起（长期运行，不随应用发布重启；取值已内联在编排里，无需 .env）
+docker compose -f devops/common-server/docker-compose-postgres.yml up -d   # 数据库
+docker compose -f devops/common-server/docker-compose-minio.yml up -d      # 对象存储 S3
+docker compose -f devops/common-server/docker-compose-agent.yml up -d      # 向量化 + 重排序
+
+# 若要求口令不入库：把 postgres 编排里的 POSTGRES_PASSWORD 改回 ${POSTGRES_PASSWORD:?}，
+# 再在同目录新建 .env 填实值（.env 已 gitignore）
 ```
+
+> **从旧单文件编排迁移**：若部署机此前用 `devops/common-server/docker-compose.yml`（已拆为上面三个文件）起过服务，容器名已被占用，
+> 直接按新文件 `up -d` 会报名称冲突。先按容器名删除旧容器（数据在 `volumes/` 绑定目录里，不受影响），再按上面三条命令拉起：
+>
+> ```bash
+> docker rm -f service-brain-postgres service-brain-minio service-brain-ollama \
+>   service-brain-ollama-init service-brain-rerank-init service-brain-rerank
+> ```
 
 镜像 `pgvector/pgvector:pg17` 自带 pgvector 扩展（实测 0.8.7）。`initdb/00-init.sql` 在数据目录**首次**初始化时执行
 `CREATE EXTENSION IF NOT EXISTS vector`；数据卷已存在时会跳过 initdb，此时由应用启动阶段按 `VECTOR_AUTO_CREATE`
 幂等补建（实现在 `app/modules/integration/chunk/vector_store.py`）。两条路径均幂等，重复执行无副作用。
 
-自建后把 `backend/env/.env.<env>` 指向容器名即可（同一 `APP_NETWORK`）：
+自建后把 `backend/env/.env.<env>` 指向容器名即可（与中间件同在 `service-brain-agent` 网络）：
 
 ```ini
 DATABASE_TYPE=postgres
@@ -294,7 +308,7 @@ VECTOR_AUTO_CREATE=true
 
 ### 6.5 模型服务：Ollama 向量化 + llama.cpp 重排序（可选）
 
-同一个 `devops/common-server/docker-compose.yml` 还编排两个模型服务，常驻运行、与应用发布解耦：
+`devops/common-server/docker-compose-agent.yml` 编排两个模型服务，常驻运行、与应用发布解耦：
 
 | 服务 | 容器名 | 端点 | 模型 | 镜像（锁版本） |
 | ---- | ------ | ---- | ---- | -------------- |
@@ -303,15 +317,15 @@ VECTOR_AUTO_CREATE=true
 
 ```bash
 # 首次拉起：ollama-init 拉取 bge-m3，rerank-init 下载 GGUF（均为一次性容器）
-docker compose -f devops/common-server/docker-compose.yml up -d
-docker compose -f devops/common-server/docker-compose.yml logs -f ollama-init rerank-init
+docker compose -f devops/common-server/docker-compose-agent.yml up -d
+docker compose -f devops/common-server/docker-compose-agent.yml logs -f ollama-init rerank-init
 
 # 模型制备失败时单独重跑（卷里已有会直接跳过）
-docker compose -f devops/common-server/docker-compose.yml up ollama-init
-docker compose -f devops/common-server/docker-compose.yml up rerank-init
+docker compose -f devops/common-server/docker-compose-agent.yml up ollama-init
+docker compose -f devops/common-server/docker-compose-agent.yml up rerank-init
 ```
 
-应用侧走同一 `APP_NETWORK` 按容器名访问，无需发布端口（下列 curl 在应用容器内或已接入该网络的调试容器内执行）：
+应用侧走同一网络 `service-brain-agent` 按容器名访问，无需发布端口（下列 curl 在应用容器内或已接入该网络的调试容器内执行）：
 
 ```bash
 curl -fsS http://service-brain-ollama:11434/api/embed \
@@ -323,7 +337,7 @@ curl -fsS http://service-brain-rerank:8080/v1/rerank \
 
 > - **镜像锁版本**：两个推理镜像都用具体版本 tag，不用 `latest`。Ollama 每个发布版本都有同名 tag（当前 0.40.x 稳定线最新为 `0.40.11`）；
 >   llama.cpp **没有发布稳定版的机制**，官方只给浮动的 `server` / `server-cuda` 等 tag，逐次构建另打 `server-b<编号>`，
->   因此按构建号固定（当前最新镜像为 `server-b11889`）。升级方式：改 `devops/common-server/docker-compose.yml` 里对应服务的
+>   因此按构建号固定（当前最新镜像为 `server-b11889`）。升级方式：改 `devops/common-server/docker-compose-agent.yml` 里对应服务的
 >   `image` 后 `up -d`，再用上面的 curl 自检一次 embed 与 rerank；
 > - **rerank 为什么不用 Ollama**：Ollama 只提供 embed 端点，没有 rerank（交叉编码器打分）接口，社区 reranker 模型也注明
 >   需 llama.cpp 类运行时；重排序由 llama.cpp 的 `llama-server --rerank` 承担，两者都跑本地 GGUF、无需出网推理。
@@ -338,7 +352,7 @@ curl -fsS http://service-brain-rerank:8080/v1/rerank \
 
 ### 6.6 对象存储：MinIO（S3 兼容，可选）
 
-`devops/common-server/docker-compose.yml` 的 `minio` 服务提供 S3 兼容对象存储，用于存放文档原件与解析产物：
+`devops/common-server/docker-compose-minio.yml` 提供 S3 兼容对象存储，用于存放文档原件与解析产物：
 
 | 项 | 值 |
 | --- | --- |
@@ -351,7 +365,7 @@ curl -fsS http://service-brain-rerank:8080/v1/rerank \
 
 ```bash
 # 单独拉起对象存储
-docker compose -f devops/common-server/docker-compose.yml up -d minio
+docker compose -f devops/common-server/docker-compose-minio.yml up -d
 # 控制台：http://<部署机IP>:39901（账号见编排）
 ```
 
@@ -410,8 +424,8 @@ S3_AUTO_CREATE=true                            # 启动时幂等建桶
 
 ```bash
 # 容器状态 / 日志
-docker compose -p service-brain-agent -f devops/compose/app.yml ps
-docker compose -p service-brain-agent -f devops/compose/app.yml logs -f --tail=100
+docker compose -p service-brain-agent -f devops/brain-agent-server/docker-compose.yml ps
+docker compose -p service-brain-agent -f devops/brain-agent-server/docker-compose.yml logs -f --tail=100
 
 # 健康检查与页面
 curl -fsS http://127.0.0.1:8002/healthz
@@ -421,12 +435,126 @@ curl -fsS http://127.0.0.1:8002/healthz
 ls -lh devops/data/logs/fastapiadmin.log
 
 # 停止（不删数据卷/网络）
-docker compose -p service-brain-agent -f devops/compose/app.yml down
+docker compose -p service-brain-agent -f devops/brain-agent-server/docker-compose.yml down
 
-# 公共中间件与模型服务（独立编排，与应用互不影响）
-docker compose -f devops/common-server/docker-compose.yml ps
-docker compose -f devops/common-server/docker-compose.yml down
+# 公共中间件与模型服务（三个独立编排，与应用互不影响）
+docker compose -f devops/common-server/docker-compose-postgres.yml ps
+docker compose -f devops/common-server/docker-compose-minio.yml ps
+docker compose -f devops/common-server/docker-compose-agent.yml ps
+
+# 逐个停止（不删 volumes 数据目录；按需只停其中一个）
+docker compose -f devops/common-server/docker-compose-agent.yml down
+docker compose -f devops/common-server/docker-compose-minio.yml down
+docker compose -f devops/common-server/docker-compose-postgres.yml down
 ```
+
+### 6.7 独立服务器部署（只上传 devops）
+
+适用场景：目标机只装了 docker 与 docker compose（无 git、无 Python、无源码构建链），镜像已由 Jenkins 构建并推送，
+手上只有构建输出的 `image_tag`。
+
+前置：`docker compose version` 能输出版本（需 compose v2 插件，v1 的 `docker-compose` 不适用）、宿主有 `curl`、
+当前用户能执行 docker 命令、可访问镜像仓库。
+
+#### 目录约定（脚本按此推导，不能随意改层级）
+
+| 内容 | 位置 | 原因 |
+| --- | --- | --- |
+| 编排与脚本 | `~/service_brain_agent/devops/` | 脚本用自身位置推导项目根：`devops/scripts/../..` = `~/service_brain_agent` |
+| 应用配置 | `~/service_brain_agent/backend/env/.env.<env>` | `deploy-defaults.sh` 校验其存在；compose 从 `devops/brain-agent-server/` 上两级挂载同一路径 |
+| 日志 | `~/service_brain_agent/devops/data/logs` | 首次部署自动创建 |
+| 中间件数据（可选） | `~/service_brain_agent/devops/common-server/volumes/` | 首次启动自动创建 |
+
+可见 `backend/` 下**只需要一个 env 文件**，不需要源码：
+
+```text
+~/service_brain_agent/
+├── backend/env/.env.prod          # 唯一需要从仓库外带进来的文件
+└── devops/
+    ├── brain-agent-server/docker-compose.yml
+    ├── common-server/              # 同机自建数据库/对象存储/模型时才需要
+    │   ├── docker-compose-postgres.yml
+    │   ├── docker-compose-minio.yml
+    │   ├── docker-compose-agent.yml
+    │   └── initdb/00-init.sql
+    └── scripts/
+        ├── deploy-defaults.sh
+        ├── deploy.sh
+        ├── deploy-compose.sh
+        └── manual/{deploy.sh,rollback.sh}
+```
+
+`devops/` 其余内容（`config/` 镜像构建文件、`build.sh` / `package.sh`、`check_app.py`）是构建侧文件，运行机不需要。
+
+#### 一次性准备
+
+```bash
+# 1) 上传：先建父目录，否则 scp 会把 devops 直接改名成 service_brain_agent
+ssh user@server 'mkdir -p ~/service_brain_agent'
+scp -r devops user@server:~/service_brain_agent/
+
+# 2) 从 Windows 上传的先去掉 CRLF，否则报 $'\r': command not found，再补执行权限
+find ~/service_brain_agent/devops -name '*.sh' -exec sed -i 's/\r$//' {} +
+chmod +x ~/service_brain_agent/devops/scripts/*.sh ~/service_brain_agent/devops/scripts/manual/*.sh
+
+# 3) 放置应用配置（从仓库 backend/env/.env.prod 拷一份，按本机情况填）
+mkdir -p ~/service_brain_agent/backend/env
+vi ~/service_brain_agent/backend/env/.env.prod
+#   同机自建中间件时写容器名：DATABASE_HOST=service-brain-postgres、
+#   S3_ENDPOINT=http://service-brain-minio:9000、OLLAMA_BASE_URL=http://service-brain-ollama:11434
+
+# 4) 镜像仓库登录（ACR 个人版需先 docker login）
+docker login <DOCKER_REPO_URL>
+
+# 5) （可选）同机自建中间件：先起中间件，再起应用
+cd ~/service_brain_agent
+for f in postgres minio agent; do
+    docker compose -f devops/common-server/docker-compose-$f.yml up -d
+done
+```
+
+#### 部署与回滚
+
+```bash
+cd ~/service_brain_agent
+
+# 部署：<env> <image_tag>（tag 取自 Jenkins 构建输出）
+bash devops/scripts/manual/deploy.sh prod 20261030153000
+
+# 回滚：拿历史 tag 重放（容器会被重建，数据卷不动）
+bash devops/scripts/manual/rollback.sh prod 20261029110000
+
+# 镜像仓库不是默认地址、或要换端口时，用环境变量覆盖（见第 7 节变量表）
+DOCKER_REPO_URL=registry.example.com DOCKER_REPO_NAMESPACE=team APP_PORT=8080 \
+    bash devops/scripts/manual/deploy.sh prod 20261030153000
+
+# 无人值守（远程 ssh 一把梭）时跳过 y/N 确认
+yes | bash devops/scripts/manual/deploy.sh prod 20261030153000
+```
+
+脚本依次执行：创建共享网络 `service-brain-agent`（缺失时）→ 创建 `devops/data/logs` → `compose pull` → `up -d --remove-orphans`
+→ 轮询 `http://127.0.0.1:<APP_PORT>/healthz`（最多 60s，失败打印最近 50 行日志）。
+
+验收：
+
+```bash
+docker ps --filter name=service-brain-agent
+curl -fsS http://127.0.0.1:8002/healthz
+curl -sI http://127.0.0.1:8002/ui | head -1     # 应返回 200
+```
+
+#### 常见坑
+
+| 现象 | 原因 | 处理 |
+| --- | --- | --- |
+| 容器已起但报「健康检查未通过」 | 宿主机没装 `curl`（就绪探测用它） | `apt install -y curl` 后重跑 |
+| `docker: 'compose' is not a docker command` | 只装了 compose v1 | 安装 docker compose v2 插件 |
+| `缺少应用配置文件` | 没放 `backend/env/.env.<env>`，或文件名与 `ENV` 不一致 | 按上面目录约定放置 |
+| `$'\r': command not found` | 从 Windows 上传带了 CRLF | 执行第 2 步的 `sed` |
+| `permission denied … docker.sock` | 当前用户不在 docker 组 | `sudo usermod -aG docker $USER` 后重新登录 |
+| 四头签名报时间戳越界 | 宿主机时钟漂移超出 ±5 分钟窗口 | 开启 chrony / ntpd 时间同步 |
+| 模型容器反复重启 | 无外网，`ollama-init` / `rerank-init` 拉不到模型 | 预置 `common-server/volumes/{ollama,rerank/models}` 后再启动 |
+| `no such host service-brain-postgres` | 中间件未起，或与应用不在同一网络 | 先起中间件，确认 `docker network inspect service-brain-agent` 内两个容器都在 |
 
 ---
 
@@ -440,14 +568,16 @@ docker compose -f devops/common-server/docker-compose.yml down
 | `DOCKER_REPO_URL`       | `deploy-defaults.sh`            | 阿里云 ACR 个人版实例地址                                   | 镜像仓库地址（按实际环境覆盖）          |
 | `DOCKER_REPO_NAMESPACE` | `deploy-defaults.sh`            | `yidatec-mxx`                                              | 镜像仓库命名空间                        |
 | `IMAGE_NAME_APP`        | `deploy-defaults.sh`            | `${DOCKER_REPO_URL}/${DOCKER_REPO_NAMESPACE}/service-brain-agent` | 镜像全名（不含 tag）            |
-| `APP_NAME_APP`          | `deploy-defaults.sh`            | `service-brain-agent`                                      | 容器名 / compose 项目名                 |
 | `APP_PORT`              | `deploy-defaults.sh`            | `8002`                                                     | 宿主机暴露端口（容器内固定 8002）       |
-| `APP_NETWORK`           | `deploy-defaults.sh`            | `service-brain-agent`                                      | 与中间件共用的外部 docker 网络名        |
 | `PYTHON_IMAGE`          | `deploy-defaults.sh`            | `astral/uv:python3.12-bookworm-slim`                       | 运行时基础镜像 / 门禁回退容器           |
 | `NODE_IMAGE`            | `deploy-defaults.sh`            | `node:22-alpine`                                           | 前端构建基础镜像                        |
 | `NPM_REGISTRY`          | `deploy-defaults.sh`            | `https://registry.npmmirror.com`                           | 前端依赖源                              |
 | `PYPI_INDEX_URL`        | `deploy-defaults.sh`            | 空（用 `uv.lock` 固化源）                                   | 可选：覆盖 Python 依赖源                |
 | `DOCKER_REPO_USERNAME` / `DOCKER_REPO_PASSWORD` | 执行机环境变量 | 无                                                         | 可选；两者须同时提供，仅本次登录用       |
+
+> 容器名、compose 项目名、共享网络名不设变量：三者都固定为 `service-brain-agent`，写在
+> `devops/brain-agent-server/docker-compose.yml` 里。一台部署机只跑一个应用容器，改容器名/网络名
+> 需直接改编排文件，也不影响 `deploy.sh` 的调用方式（`deploy.sh <IMAGE>`）。
 
 ---
 

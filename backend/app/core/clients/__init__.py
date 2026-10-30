@@ -9,6 +9,7 @@ HTTP 类客户端统一的超时/重试/错误归一链见 ``base.BaseHttpClient
 from .base import BaseHttpClient
 from .embedding import EmbeddingClient
 from .llm import ChatMessage, ChatStreamChunk, LlmClient
+from .mineru import MineruClient, MineruDocument, MineruImage
 from .rerank import RerankClient, RerankHit
 
 __all__ = [
@@ -17,6 +18,9 @@ __all__ = [
     "ChatStreamChunk",
     "EmbeddingClient",
     "LlmClient",
+    "MineruClient",
+    "MineruDocument",
+    "MineruImage",
     "RerankClient",
     "RerankHit",
 ]

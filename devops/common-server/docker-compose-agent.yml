@@ -1,11 +1,12 @@
 # ==============================================================================
-# 第三方公共服务编排（PostgreSQL + pgvector、MinIO、Ollama、llama.cpp rerank）
+# 模型推理服务（Ollama 向量化 + llama.cpp 重排序，独立编排）
 #
-#   与 devops/compose/app.yml 互补：app.yml 只起应用、不编排中间件；本文件把
-#   数据库与模型推理服务纳入同一外部共享网络 service-brain-agent，应用按容器名
-#   直连，无需依赖对外发布端口：
-#     service-brain-postgres  5432   PostgreSQL 17 + pgvector（宿主发布 39990）
-#     service-brain-minio     9000   S3 兼容对象存储（宿主发布 39900，控制台 39901）
+#   公共中间件与模型服务按职责拆成三个独立编排，可分别启停、升级、备份：
+#     docker-compose-postgres.yml   数据库
+#     docker-compose-minio.yml      对象存储 S3
+#     docker-compose-agent.yml      向量化与重排序（本文件）
+#
+#   两个模型服务常驻运行，接入外部共享网络 service-brain-agent，应用按容器名直连：
 #     service-brain-ollama    11434  向量化：/api/embed，模型 bge-m3（1024 维）
 #     service-brain-rerank    8080   重排序：/v1/rerank，模型 bge-reranker-v2-m3
 #
@@ -13,125 +14,25 @@
 #   打分）接口，社区 reranker 模型也注明需 llama.cpp 类运行时；因此重排序交给
 #   llama.cpp 的 llama-server --rerank，两者跑的都是本地 GGUF，无需出网推理。
 #
-#   应用配置仍唯一来源 env/.env.<ENVIRONMENT>：指向自建中间件只需改
-#     DATABASE_TYPE=postgres
-#     DATABASE_HOST=service-brain-postgres
-#     DATABASE_PORT=5432            # 容器内按容器名直连，用服务端口 5432
-#     DATABASE_NAME=service_brain
-#     DATABASE_USER=postgres
-#     DATABASE_PASSWORD=Yidatec@2026!
-#   端口口径：39990 只是宿主机发布端口（同网段开发机/客户端直连用），容器内部
-#   服务端口恒为 5432；容器内应用误填 39990 会连接被拒。
-#   口令两边必须一致：本文件 POSTGRES_PASSWORD 与 env/.env.<env> 的
-#   DATABASE_PASSWORD 必须是同一个值。取值已直接内联到本文件，因此本编排
-#   无需 .env 即可 up -d；若希望口令不入库，把 POSTGRES_PASSWORD
-#   改回 "${POSTGRES_PASSWORD:?}" 并在同目录 .env 提供实值。
-#
-#   向量能力：所选镜像自带 pgvector，initdb/00-init.sql 在数据目录首次初始化时
-#   执行 CREATE EXTENSION IF NOT EXISTS vector；应用启动时还会幂等补建（配置项
-#   VECTOR_AUTO_CREATE），因此数据卷已存在、跳过 initdb 的场景同样可用。
-#   bge-m3 输出 1024 维，须与 env/.env.<env> 的 VECTOR_DIM 一致。
-#
 #   首次启动自动制备模型：ollama-init 拉取 bge-m3，rerank-init 下载 rerank GGUF
 #   到 volumes/rerank/models（已存在则跳过）。二者都是一次性容器，失败时单独
 #   重跑即可，不影响已就绪的模型服务：
-#     docker compose -f devops/common-server/docker-compose.yml up -d ollama-init
+#     docker compose -f devops/common-server/docker-compose-agent.yml up -d ollama-init
 #   镜像 + 模型合计约 5GB 磁盘；CPU 推理常驻内存约 3GB，离线小批量场景足够。
 #
 #   手工执行（本文件已内联全部取值，不需要 .env）：
 #     docker network create service-brain-agent   # 共享网络缺失时（部署脚本也会创建）
-#     docker compose -f devops/common-server/docker-compose.yml up -d
+#     docker compose -f devops/common-server/docker-compose-agent.yml up -d
 #
-#   数据持久化：宿主机 devops/common-server/volumes/{postgres/data,minio/data,ollama,rerank/models}
-#   （已 gitignore，首次启动自动创建）；postgres 端口发布到所有网卡便于同网段直连，
-#   minio 同样发布（S3 API 39900 / 控制台 39901），两个模型服务对外发布端口仅作调试。
+#   数据持久化：宿主机 devops/common-server/volumes/{ollama,rerank/models}
+#   （已 gitignore，首次启动自动创建）；两个服务的发布端口仅作调试用。
 #
-#   对象存储：MinIO 只负责提供 S3 服务，桶由应用启动时按 S3_AUTO_CREATE 幂等创建
-#   （S3_BUCKET 默认 service-brain），与建向量表/审计表的策略一致；应用侧配置口径：
-#     S3_ENDPOINT=http://service-brain-minio:9000   # 容器内按容器名直连
-#     S3_ENDPOINT=http://<宿主机IP>:39900           # 宿主机进程直连用发布端口
-#     S3_ACCESS_KEY / S3_SECRET_KEY / S3_BUCKET=service-brain
-#   MinIO 必须用 path-style 寻址（S3_ADDRESSING_STYLE=path），virtual 会把桶名
-#   解析成子域名，内网没有对应 DNS 记录。
-#
-#   本编排不入 CI：中间件与模型服务是长寿命有状态服务，由部署机一次性拉起后长期
-#   运行，与应用发布解耦（应用发布脚本不会触碰本编排）。
+#   本编排不入 CI：模型服务是长寿命服务，由部署机一次性拉起后长期运行，
+#   与应用发布解耦（应用发布脚本不会触碰本编排）。
 # ==============================================================================
-name: service-brain-common
+name: service-brain-common-agent
 
 services:
-  postgres:
-    image: pgvector/pgvector:0.8.7-pg17-bookworm
-    container_name: service-brain-postgres
-    restart: unless-stopped
-    environment:
-      TZ: "Asia/Shanghai"
-      # 账号/口令/库名仅在数据目录为空（首次初始化）时生效：已有数据卷不会
-      # 重新应用这三项，需用 SQL 手工改口令与建库，或清空 volumes/postgres/data 重建
-      POSTGRES_USER: "postgres"
-      POSTGRES_PASSWORD: "Yidatec@2026!"
-      POSTGRES_DB: "service_brain"
-    ports:
-      # 应用走内部网络无需发布；这里发布到所有网卡，便于同网段开发机直连
-      # （如 env/.env.dev 的 DATABASE_HOST 填本机局域网 IP、DATABASE_PORT 填 39990）；
-      # 宿主端口 39990，容器内仍是 5432；仅本机使用可改为 "127.0.0.1:39990:5432"
-      - "39990:5432"
-    volumes:
-      - ./volumes/postgres/data:/var/lib/postgresql/data
-      - ./initdb:/docker-entrypoint-initdb.d:ro
-    # 并行查询与向量索引构建会用到共享内存，默认 64MB 偏小
-    shm_size: "256mb"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d service_brain"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-    networks:
-      - app
-
-  # 对象存储：MinIO（S3 兼容），文档原件与解析产物落这里
-  # 镜像锁 RELEASE：MinIO 无“稳定版”语义，只有逐次构建的 RELEASE.<时间戳> tag；
-  # 本 tag 与 Milvus 官方编排所用的同一构建，升级需人工验证后改 tag。注意镜像是
-  # minio/minio（不是 milvusdb/minio），Milvus 官方 compose 引用的也是 minio/minio。
-  minio:
-    image: minio/minio:RELEASE.2024-12-18T13-15-44Z
-    container_name: service-brain-minio
-    restart: unless-stopped
-    environment:
-      TZ: "Asia/Shanghai"
-      # 根账号只用于创建桶与日常管理；应用侧应另建最小权限子账号，
-      # 把 S3_ACCESS_KEY / S3_SECRET_KEY 填成子账号而非 root（本文件为联调便利先内联 root）
-      MINIO_ROOT_USER: "service-brain"
-      MINIO_ROOT_PASSWORD: "Yidatec@2026!"
-    command: ["server", "/data", "--console-address", ":9001"]
-    ports:
-      # 宿主 39900 供本机/同网段进程直连 S3 API；容器内按容器名访问仍是 9000
-      # S3 签名不加密，跨网段使用时请走内网或前置 HTTPS 反代
-      - "39900:9000"
-      - "39901:9001"
-    volumes:
-      - ./volumes/minio/data:/data
-    healthcheck:
-      # 镜像自带 mc；local 别名指向容器内 127.0.0.1:9000，凭据取自上面的 root 变量
-      test: ["CMD", "mc", "ready", "local"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
-      start_period: 20s
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-    networks:
-      - app
-
   # 向量化：bge-m3（多语言，1024 维，8K 上下文），走 Ollama 原生 /api/embed
   # 镜像锁版本：ollama/ollama:0.40.6（已验证可用的稳定版，0.40.x 为当前稳定线）
   ollama:

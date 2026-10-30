@@ -39,7 +39,6 @@ init_deploy_env() {
     export DOCKER_REPO_URL="${DOCKER_REPO_URL:-crpi-7nbh1cvsjd338a37.cn-qingdao.personal.cr.aliyuncs.com}"
     export DOCKER_REPO_NAMESPACE="${DOCKER_REPO_NAMESPACE:-yidatec-mxx}"
     export IMAGE_NAME_APP="${IMAGE_NAME_APP:-${DOCKER_REPO_URL}/${DOCKER_REPO_NAMESPACE}/service-brain-agent}"
-    export APP_NAME_APP="${APP_NAME_APP:-service-brain-agent}"
 
     # 构建相关（前后端两条链：Python 依赖走 uv.lock，前端在镜像内 npm 构建）
     export PYTHON_IMAGE="${PYTHON_IMAGE:-astral/uv:python3.12-bookworm-slim}"
@@ -48,9 +47,8 @@ init_deploy_env() {
     # 留空表示按 uv.lock 内固化的源下载；内网构建时可导出私有源地址
     export PYPI_INDEX_URL="${PYPI_INDEX_URL:-}"
 
-    # compose 形态
+    # compose 形态（容器名 / 项目名 / 共享网络名固定为 service-brain-agent，不设变量）
     export APP_PORT="${APP_PORT:-8002}"
-    export APP_NETWORK="${APP_NETWORK:-service-brain-agent}"
 
     # 应用运行配置唯一来源：backend/env/.env.<env>（挂载进容器，应用自行加载）
     local project_root

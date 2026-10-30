@@ -3,26 +3,38 @@
 #
 #   本文件只编排应用容器：前端已随镜像构建进 static/，由同一个 FastAPI 进程
 #   在 /ui 下同源托管；数据库（PostgreSQL + pgvector）不随本文件编排（可由
-#   devops/common-server 自托管，与应用的容器同在 APP_NETWORK 内按容器名直连；
-#   或由环境提供独立数据库实例）。
+#   devops/common-server 自托管，与应用的容器同在 service-brain-agent 网络内
+#   按容器名直连；或由环境提供独立数据库实例）。
 #
-#   应用配置唯一来源 backend/env/.env.<ENVIRONMENT>：原样 bind 挂载到容器
-#   /home/env/.env.<ENVIRONMENT>（只读），由应用（pydantic-settings）自行加载；
-#   容器仅覆盖一个环境变量 ENVIRONMENT（供入口脚本选择环境与配置文件）。
+#   容器名、compose 项目名、共享网络名三处都是固定值 service-brain-agent：
+#   devops 侧不需要为它们配任何变量，部署脚本也不再传 APP_NAME / APP_NETWORK。
 #
-#   通常由 devops/scripts/deploy-compose.sh 调用；手工执行时：
+#   本编排不读取任何 .env 文件：同目录不放 .env 也没有 .env.example。需要外部
+#   注入的变量只剩三个，且都有默认值或必填校验：
+#     APP_IMAGE   必填，镜像全名:标签（由发布脚本传入）
+#     ENVIRONMENT 必填，dev|test|uat|prod（决定挂载哪个应用配置文件）
+#     APP_PORT    可选，宿主机端口，默认 8002
+#
+#   应用自身的配置与上面无关，唯一来源仍是 backend/env/.env.<ENVIRONMENT>：
+#   原样 bind 挂载到容器 /home/env/.env.<ENVIRONMENT>（只读），由应用
+#   （pydantic-settings）自行加载；容器仅覆盖 ENVIRONMENT 一个环境变量
+#   （供入口脚本选择环境与配置文件）。
+#
+#   通常由 devops/scripts/deploy-compose.sh 调用；手工执行时（除 APP_IMAGE 与
+#   ENVIRONMENT 外其余可省）：
 #     export APP_IMAGE=<registry>/<ns>/service-brain-agent:<tag>
-#     export ENVIRONMENT=dev APP_NAME=service-brain-agent
-#     export APP_PORT=8002 APP_NETWORK=service-brain-agent
-#     docker compose -p service-brain-agent -f devops/compose/app.yml up -d
+#     export ENVIRONMENT=dev
+#     docker compose -p service-brain-agent -f devops/brain-agent-server/docker-compose.yml up -d
 #
 #   容器内端口固定 8002（见 devops/config/entrypoint/00-select-env.sh），
 #   对外端口由 APP_PORT 控制；如需改容器内端口，须同步调整 healthcheck 与探活脚本。
 # ==============================================================================
+name: service-brain-agent
+
 services:
   app:
     image: "${APP_IMAGE:?APP_IMAGE 未设置（镜像全名:标签）}"
-    container_name: "${APP_NAME:-service-brain-agent}"
+    container_name: "service-brain-agent"
     restart: unless-stopped
     ports:
       - "${APP_PORT:-8002}:8002"
@@ -54,8 +66,8 @@ services:
       - app
 
 networks:
-  # 与中间件容器共用的外部网络：应用按容器名（如 service-brain-postgres:5432）直连。
-  # 声明为 external，compose 不创建、down 时也不删除，由 deploy-compose.sh 按需创建。
+  # 与中间件容器共用的外部网络（固定名）：应用按容器名（如 service-brain-postgres:5432）直连。
+  # 声明为 external，compose 不创建、down 时也不删除，由 deploy-compose.sh 在缺失时创建。
   app:
-    name: "${APP_NETWORK:?APP_NETWORK 未设置（与中间件共用的 docker 网络名）}"
+    name: "service-brain-agent"
     external: true

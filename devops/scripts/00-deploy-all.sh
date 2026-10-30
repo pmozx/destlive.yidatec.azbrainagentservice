@@ -73,7 +73,7 @@ chmod +x "${SCRIPT_DIR}/package.sh"
 echo -e "\n[3/3] 部署（docker compose）..."
 APP_IMAGE_TAG="$(cat "${PROJECT_ROOT}/image_tag.txt")"
 chmod +x "${SCRIPT_DIR}/deploy.sh" "${SCRIPT_DIR}/deploy-compose.sh"
-"${SCRIPT_DIR}/deploy.sh" "${IMAGE_NAME_APP}:${APP_IMAGE_TAG}" "${APP_NAME_APP}"
+"${SCRIPT_DIR}/deploy.sh" "${IMAGE_NAME_APP}:${APP_IMAGE_TAG}"
 
 echo -e "\n service_brain_agent 部署完成（env=${ENV_NAME}）"
 echo " 前端页面：http://<部署机IP>:${APP_PORT}/ui"

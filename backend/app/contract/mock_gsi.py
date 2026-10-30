@@ -45,6 +45,7 @@ import httpx
 
 from app.config.setting import settings
 
+from .entries import canonical_content_hash
 from .signature import build_signed_headers
 
 SAMPLE_DOC: Final[str] = """# VPN 申请操作手册
@@ -95,7 +96,7 @@ CHAT_PROMPT: Final[str] = "你是企业知识库问答助手，只能依据【�
 # 契约错误码（大写下划线，见 `app/contract/errors.py`）；POC 期的小写码已随阶段 0 下线
 CODE_UNAUTHORIZED: Final[str] = "UNAUTHORIZED"
 CODE_NOT_FOUND: Final[str] = "NOT_FOUND"
-CODE_IDEMPOTENCY_CONFLICT: Final[str] = "IDEMPOTENCY_CONFLICT"
+CODE_STALE_REVISION: Final[str] = "STALE_REVISION"
 CODE_INVALID_REQUEST: Final[str] = "INVALID_REQUEST"
 CODE_UNSUPPORTED_STREAM: Final[str] = "UNSUPPORTED_STREAM"
 SKELETON_STATUS: Final[int] = 501
@@ -347,7 +348,7 @@ class Smoke:
             "revision": 101,
             "knowledge_no": "kb-0000064",
             "metadata": {"title": "VPN 申请操作手册", "doc_type": "document", "language": "zh"},
-            "content_hash": "sha256:demo-content-digest",
+            "content_hash": canonical_content_hash(CHUNKS),
             "chunks": CHUNKS,
         }
 
@@ -383,8 +384,8 @@ class Smoke:
             "#03 同 publication_id 重复发布",
             response,
             status=409,
-            ok=_error_code(_json(response)) == CODE_IDEMPOTENCY_CONFLICT,
-            note="契约只写「已有 publication_id 返回 409」，具体错误码待 GSI 确认",
+            ok=_error_code(_json(response)) == CODE_STALE_REVISION,
+            note="契约只写「已有 publication_id 返回 409」；本侧按基线冲突归口 STALE_REVISION（Q7）",
         )
         return publication_id
 

@@ -13,9 +13,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.common.response import ResponseSchema, StreamResponse, SuccessResponse
 from app.core.dependencies import db_getter
 from app.core.router_class import ApiLogRoute
+from app.utils.sse import SSE_HEADERS, SSE_MEDIA_TYPE
 
 from .schema import ChatStreamInSchema, FeedbackInSchema
-from .service import SSE_HEADERS, SSE_MEDIA_TYPE, IntegrationChatService, stream_chat
+from .service import IntegrationChatService, stream_chat
 
 IntegrationChatRouter = APIRouter(route_class=ApiLogRoute, tags=["210-集成问答-问答会话"])
 

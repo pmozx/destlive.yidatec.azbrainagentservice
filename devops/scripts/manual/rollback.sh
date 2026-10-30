@@ -36,12 +36,13 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 source "${SCRIPT_DIR}/../deploy-defaults.sh"
 init_deploy_env "${ENV_NAME}"
 
-APP_NAME="${APP_NAME_APP}"
+# 容器名 / compose 项目名固定为 service-brain-agent（见 docker-compose.yml）
+COMPOSE_PROJECT="service-brain-agent"
 
 echo "=========================================="
 echo "手动回滚 service_brain_agent"
 echo "环境: ${ENV_NAME}"
-echo "应用名称: ${APP_NAME}"
+echo "容器名: ${COMPOSE_PROJECT}"
 echo "=========================================="
 
 if [ -z "${TARGET}" ]; then
@@ -51,7 +52,7 @@ fi
 
 echo ""
 echo "当前运行容器："
-docker compose -p "${APP_NAME}" -f "${PROJECT_ROOT}/devops/compose/app.yml" ps || true
+docker compose -p "${COMPOSE_PROJECT}" -f "${PROJECT_ROOT}/devops/brain-agent-server/docker-compose.yml" ps || true
 echo ""
 
 read -rp "确认用 ${IMAGE_NAME_APP}:${TARGET} 重新部署？(y/N) " confirm
@@ -65,8 +66,8 @@ esac
 
 cd "${PROJECT_ROOT}"
 chmod +x "${SCRIPT_DIR}/../deploy.sh" "${SCRIPT_DIR}/../deploy-compose.sh"
-"${SCRIPT_DIR}/../deploy.sh" "${IMAGE_NAME_APP}:${TARGET}" "${APP_NAME}"
+"${SCRIPT_DIR}/../deploy.sh" "${IMAGE_NAME_APP}:${TARGET}"
 
 echo ""
 echo "回滚完成，当前容器状态："
-docker compose -p "${APP_NAME}" -f "${PROJECT_ROOT}/devops/compose/app.yml" ps
+docker compose -p "${COMPOSE_PROJECT}" -f "${PROJECT_ROOT}/devops/brain-agent-server/docker-compose.yml" ps

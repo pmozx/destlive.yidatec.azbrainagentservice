@@ -330,8 +330,8 @@ devops/scripts/manual/rollback.sh prod 20261025213000
 ```
 
 - 应用运行配置唯一来源：`backend/env/.env.<env>`（部署时挂载进容器 `/home/env/`，由 `backend/app/config/setting.py` 加载）
-- 数据库：PostgreSQL 17 + pgvector；自建中间件用 `devops/common-server/docker-compose.yml`（`pgvector/pgvector:pg17`，首次初始化自动 `CREATE EXTENSION vector`）
-- 模型服务：同一个 compose 还编排 `ollama`（`bge-m3` 向量化，`/api/embed`）与 `rerank`（llama.cpp `--rerank`，`bge-reranker-v2-m3`，`/v1/rerank`），容器名 `service-brain-ollama` / `service-brain-rerank`，详见 [devops/README.md 6.5](./devops/README.md)
+- 数据库：PostgreSQL 17 + pgvector；自建中间件按职责拆为三个独立编排（`devops/common-server/docker-compose-postgres.yml` / `-minio.yml` / `-agent.yml`，可分别启停）：数据库编排用 `pgvector/pgvector:pg17`，首次初始化自动 `CREATE EXTENSION vector`
+- 模型服务：`docker-compose-agent.yml` 编排 `ollama`（`bge-m3` 向量化，`/api/embed`）与 `rerank`（llama.cpp `--rerank`，`bge-reranker-v2-m3`，`/v1/rerank`），容器名 `service-brain-ollama` / `service-brain-rerank`，详见 [devops/README.md 6.5](./devops/README.md)
 - 环境矩阵：`dev` / `test` / `uat` / `prod`；容器内固定监听 `8002`，宿主机端口由 `APP_PORT` 控制
 - 流水线双入口：`.gitlab-ci.yml`（单 Job，默认关闭待启用）与 `Jenkinsfile`（手动触发）
 - 详细说明（目录结构、配置与口令契约、变量清单、落地步骤）：[devops/README.md](./devops/README.md)

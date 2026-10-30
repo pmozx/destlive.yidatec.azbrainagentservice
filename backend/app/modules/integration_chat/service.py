@@ -4,7 +4,6 @@
 两处职责分开后，改帧格式不必改动检索/生成逻辑。
 """
 
-import json
 from collections.abc import AsyncGenerator
 
 from fastapi import Request
@@ -13,19 +12,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import async_session_factory
 from app.core.logger import logger
 from app.modules.integration_kb.retrieval import space_option_list
+from app.utils.sse import format_sse
 
 from . import prompt
 from .pipeline import run_chat_pipeline
 from .schema import ChatStreamInSchema
 from .session.service import IntegrationChatSessionService
-
-# SSE 响应头：禁用 Nginx 缓冲，否则全部帧会攒到流结束才一次性吐出
-SSE_HEADERS = {
-    "Cache-Control": "no-cache",
-    "Connection": "keep-alive",
-    "X-Accel-Buffering": "no",
-}
-SSE_MEDIA_TYPE = "text/event-stream"
 
 
 class IntegrationChatService:
@@ -58,9 +50,3 @@ async def stream_chat(data: ChatStreamInSchema, request: Request) -> AsyncGenera
         logger.error(f"问答流式链路异常终止：{exc}", exc_info=True)
         yield format_sse({"event": "error", "data": {"code": "internalError", "message": prompt.INTERNAL_ERROR_MESSAGE}})
         yield format_sse({"event": "done", "data": {"messageId": 0, "usage": {"tokens_in": 0, "tokens_out": 0}}})
-
-
-def format_sse(event: dict) -> str:
-    """事件字典 → SSE 帧（``event:`` + 单行 ``data:`` + 空行结尾）。"""
-    payload = json.dumps(event["data"], ensure_ascii=False, separators=(",", ":"))
-    return f"event: {event['event']}\ndata: {payload}\n\n"

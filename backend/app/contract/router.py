@@ -30,6 +30,7 @@ from .deps import (
     replay_response,
     verified_signature,
 )
+from .entries import EntryDeleteRequest, EntryWriteRequest, create_entry, delete_entry, revise_entry
 from .errors import INTERNAL_ERROR, NOT_FOUND, ContractApiError, ContractApiRoute, ContractErrorResponse
 from .idempotency import Reservation
 from .parse import (
@@ -161,14 +162,17 @@ async def get_parse_job(job_id: str):
 
 @contract_router.post("/knowledge/entries", status_code=status.HTTP_201_CREATED, summary="#03 首次发布写入正式切片")
 async def create_knowledge_entry(
+    request: Request,
     reservation: Annotated[Reservation, Depends(idempotent_request)],
-    body: dict[str, Any] | None = None,
+    payload: EntryWriteRequest,
 ):
     """T3.2：首发防覆盖（已存在 409）、切片校验、同步向量化。"""
     replayed = replay_response(reservation)
     if replayed is not None:
         return replayed
-    _skeleton("#03 首次发布写入正式切片", _request_id_of(body))
+    receipt = await create_entry(payload)
+    await record_receipt(request, reservation, status_code=status.HTTP_201_CREATED, body=receipt)
+    return receipt
 
 
 @contract_router.post("/knowledge/entries/{publication_id}/query", summary="#04 读取当前生效基线")
@@ -180,27 +184,33 @@ async def query_knowledge_entry(publication_id: str, body: dict[str, Any] | None
 @contract_router.put("/knowledge/entries/{publication_id}", summary="#05 修订（版本切换 / 单片删除）")
 async def revise_knowledge_entry(
     publication_id: str,
+    request: Request,
     reservation: Annotated[Reservation, Depends(idempotent_request)],
-    body: dict[str, Any] | None = None,
+    payload: EntryWriteRequest,
 ):
     """T3.2：`revision` 单调 + 基线冲突 409 `STALE_REVISION` + 原子版本切换。"""
     replayed = replay_response(reservation)
     if replayed is not None:
         return replayed
-    _skeleton(f"#05 修订发布单元 {publication_id}", _request_id_of(body))
+    receipt = await revise_entry(publication_id, payload)
+    await record_receipt(request, reservation, status_code=status.HTTP_200_OK, body=receipt)
+    return receipt
 
 
 @contract_router.delete("/knowledge/entries/{publication_id}", summary="#06 整单删除")
 async def delete_knowledge_entry(
     publication_id: str,
+    request: Request,
     reservation: Annotated[Reservation, Depends(idempotent_request)],
-    body: dict[str, Any] | None = None,
+    payload: EntryDeleteRequest,
 ):
     """T3.2：删除后不可召回，幂等台账留墓碑（`expires_at=NULL`）。"""
     replayed = replay_response(reservation)
     if replayed is not None:
         return replayed
-    _skeleton(f"#06 删除发布单元 {publication_id}", _request_id_of(body))
+    receipt = await delete_entry(publication_id, payload)
+    await record_receipt(request, reservation, status_code=status.HTTP_200_OK, body=receipt, tombstone=True)
+    return receipt
 
 
 # ── 检索：#07 ────────────────────────────────────────────────────────

@@ -34,8 +34,6 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 source "${SCRIPT_DIR}/../deploy-defaults.sh"
 init_deploy_env "${ENV_NAME}"
 
-APP_NAME="${APP_NAME_APP}"
-
 if [ -z "${IMAGE_TAG}" ]; then
     read -rp "请输入要部署的镜像 TAG（CI 产物格式 yyyyMMddHHmmss）: " IMAGE_TAG
 fi
@@ -46,7 +44,7 @@ echo "手动部署 service_brain_agent"
 echo "环境: ${ENV_NAME}"
 echo "配置文件: backend/env/.env.${ENV_NAME}（挂载进容器）"
 echo "镜像: ${IMAGE_NAME_APP}:${IMAGE_TAG}"
-echo "应用名称: ${APP_NAME}"
+echo "容器名: service-brain-agent"
 echo "宿主机端口: ${APP_PORT}"
 echo "=========================================="
 
@@ -61,4 +59,4 @@ esac
 
 cd "${PROJECT_ROOT}"
 chmod +x "${SCRIPT_DIR}/../deploy.sh" "${SCRIPT_DIR}/../deploy-compose.sh"
-"${SCRIPT_DIR}/../deploy.sh" "${IMAGE_NAME_APP}:${IMAGE_TAG}" "${APP_NAME}"
+"${SCRIPT_DIR}/../deploy.sh" "${IMAGE_NAME_APP}:${IMAGE_TAG}"

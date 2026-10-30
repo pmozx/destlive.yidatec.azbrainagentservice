@@ -24,6 +24,7 @@ from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.setting import settings
+from app.core.chat.streaming import StreamInterruptedError, StreamTimeoutError, close_stream, iter_stream
 from app.core.clients import ChatMessage, ChatStreamChunk, LlmClient
 from app.core.logger import logger
 from app.modules.integration_kb.retrieval import space_option_list
@@ -275,31 +276,20 @@ def _build_messages(
 async def _iterate_stream(stream: AsyncIterator[ChatStreamChunk], request: Request) -> AsyncIterator[ChatStreamChunk]:
     """消费 LLM 流，把超时与断连翻译成 ``PipelineError``（帧层只认 code）。
 
-    首片给 ``KB_LLM_FIRST_TOKEN_TIMEOUT``（等太久说明上游排队），之后按空闲超时
-    ``KB_LLM_TIMEOUT`` 判定——长答案不该被总时长误杀。
+    首片与空闲超时、断连探测策略来自 ``app.core.chat.streaming``，本层只做错误码映射。
     """
-    iterator = stream.__aiter__()
-    first = True
-    received = 0
     try:
-        while True:
-            timeout = settings.KB_LLM_FIRST_TOKEN_TIMEOUT if first else settings.KB_LLM_TIMEOUT
-            try:
-                chunk = await asyncio.wait_for(iterator.__anext__(), timeout)
-            except StopAsyncIteration:
-                return
-            except TimeoutError as exc:
-                raise PipelineError("generationTimeout", prompt.GENERATION_TIMEOUT_MESSAGE) from exc
-            first = False
-            received += 1
-            # 每 20 片探一次断连：客户端已经走了就没必要继续烧 token
-            if received % 20 == 0 and await request.is_disconnected():
-                raise PipelineError("generationInterrupted", prompt.GENERATION_INTERRUPTED_MESSAGE)
+        async for chunk in iter_stream(
+            stream,
+            first_token_timeout=settings.KB_LLM_FIRST_TOKEN_TIMEOUT,
+            idle_timeout=settings.KB_LLM_TIMEOUT,
+            is_disconnected=request.is_disconnected,
+        ):
             yield chunk
-    except PipelineError:
-        raise
-    except Exception as exc:  # noqa: BLE001 上游异常统一为「生成中断」，正文不落库
-        logger.error(f"模型流式生成失败（generationInterrupted）：{exc}")
+    except StreamTimeoutError as exc:
+        raise PipelineError("generationTimeout", prompt.GENERATION_TIMEOUT_MESSAGE) from exc
+    except StreamInterruptedError as exc:
+        logger.error(f"模型流式生成中断（generationInterrupted）：{exc}")
         raise PipelineError("generationInterrupted", prompt.GENERATION_INTERRUPTED_MESSAGE) from exc
 
 
@@ -365,12 +355,8 @@ async def _persist_assistant(
 
 
 async def _close_stream(iterator) -> None:
-    """尽力关闭 LLM 流（超时被取消时生成器可能已在运行中，异常忽略）。"""
-    aclose = getattr(iterator, "aclose", None)
-    if aclose is None:
-        return
-    with suppress(Exception):
-        await aclose()
+    """尽力关闭 LLM 流（实现来自 ``app.core.chat.streaming``，异常已内部忽略）。"""
+    await close_stream(iterator)
 
 
 def _event(event: str, data: dict) -> dict:

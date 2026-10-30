@@ -26,13 +26,14 @@ from app.core.clients import EmbeddingClient
 from app.core.database import async_session_factory
 from app.core.exceptions import CustomException
 from app.core.logger import logger
+from app.core.rag.pipeline import build_embedding_rows as core_build_embedding_rows
+from app.core.rag.parsers import ParsedDocument, parse_document
+from app.utils.text_splitter import TextChunk, split_text
 
 from ..chunk.vector_store import upsert_chunks
 from ..clients import S3StorageClient
 from ..runtime import run_in_parse_pool
 from ..task.model import StepStage
-from .chunker import TextChunk, split_text
-from .page_map import PageLocator
 from .parsed_assets import (
     image_content_type,
     normalize_content_list_image_refs,
@@ -43,7 +44,6 @@ from .parsed_assets import (
     parsed_result_key,
     safe_image_name,
 )
-from .parsers import ParsedDocument, parse_document
 
 # 解析正文预览长度：存文档行供人工核验解析质量，不参与分片与检索
 PREVIEW_CHARS: Final[int] = 1000
@@ -133,21 +133,13 @@ def build_embedding_rows(
             msg=f"分片与向量条数不一致：分片 {len(chunks)}，向量 {len(vectors)}",
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
-    locator = PageLocator(page_map)
-    return [
-        {
-            "space_id": space_id,
-            "doc_id": doc_id,
-            "chunk_index": chunk.index,
-            "content": chunk.content,
-            "page_no": locator.locate(chunk.content),
-            "section_title": chunk.meta.get("section_title") or None,
-            "token_count": len(chunk.content),
-            "meta": dict(chunk.meta),
-            "embedding": [float(value) for value in vector],
-        }
-        for chunk, vector in zip(chunks, vectors, strict=True)
-    ]
+    return core_build_embedding_rows(
+        chunks,
+        vectors,
+        identifiers={"space_id": space_id, "doc_id": doc_id},
+        index_field="chunk_index",
+        page_map=page_map,
+    )
 
 
 async def persist_artifacts(

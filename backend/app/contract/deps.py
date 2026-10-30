@@ -270,11 +270,15 @@ async def record_receipt(
     *,
     status_code: int,
     body: dict[str, Any],
+    tombstone: bool = False,
 ) -> None:
     """登记幂等回执并**立即提交**：路由成功时必须调用。
 
     依赖的收尾代码在响应发出后才执行，调用方收到 202 立刻重试时预约还停在 processing，
     会被误判成「原请求仍在处理中」而回 409。提前提交后，依赖退出只做兜底，不再重复登记。
+
+    ``tombstone=True`` 用于删除类（`expires_at=NULL` 永不清理），防止「删除后重发同一
+    request_id」把已删内容复活。
     """
     if reservation.is_replay:
         return
@@ -284,6 +288,7 @@ async def record_receipt(
         biz_id=reservation.biz_id,
         body_hash=reservation.body_hash,
         result=result,
+        tombstone=tombstone,
     )
     request.state.idempotency_result = result
     request.state.idempotency_settled = True
