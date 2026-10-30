@@ -16,7 +16,7 @@ class CiteItemSchema(BaseModel):
     model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
     doc_id: int = Field(..., alias="docId", ge=1, description="文档ID")
-    chunk_id: int = Field(..., alias="chunkId", ge=1, description="分片ID")
+    chunk_id: str = Field(..., alias="chunkId", min_length=1, description="分片ID（PGVector 主键）")
     doc: str = Field(..., description="文档标题")
     page: int | None = Field(default=None, ge=1, description="页码")
     snippet: str = Field(..., description="命中片段")

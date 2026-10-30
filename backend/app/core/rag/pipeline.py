@@ -3,8 +3,8 @@
 口径：
 1. 解析与分片都是同步阻塞调用，统一丢进线程池（``asyncio.to_thread``），事件循环只留编排与网络 IO；
 2. 分片文本与向量按同一顺序对齐后再落库，条数不一致立即失败——错位比失败更难排查；
-3. 向量写入通过 ``writer`` 回调注入，core 不绑定具体业务表；知识平台传入自己的
-   :func:`app.core.rag.vector_store.upsert_chunks` 封装即可复用整条链路；
+3. 向量写入通过 ``writer`` 回调注入，core 不绑定具体业务表；业务侧传入自己的
+   ``upsert_chunks`` 封装（内部调用 :func:`app.core.rag.vector_store.upsert_documents`）即可复用整条链路；
 4. 标识列（如 ``record_id`` / ``revision`` 或 ``space_id`` / ``doc_id``）由调用方给出，
    core 不假设任何表结构。
 """

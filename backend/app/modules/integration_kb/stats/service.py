@@ -160,6 +160,6 @@ class IntegrationKbStatsService:
         if not vector_store_ready():
             return 0
         try:
-            return await count_chunks(self.db)
+            return await count_chunks()
         except CustomException:
             return 0

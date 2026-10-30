@@ -17,7 +17,8 @@ from app.modules.integration_kb.retrieval import KnowledgeHit
 
 def _hit(index: int, content: str) -> KnowledgeHit:
     return KnowledgeHit(
-        chunk_id=index,
+        # 分片主键来自 PGVector（确定性 uuid5 字符串），测试里用可读的固定串
+        chunk_id=f"chunk-{index}",
         space_id=1,
         doc_id=1,
         chunk_index=index,
@@ -40,7 +41,7 @@ def test_build_cites_keeps_candidate_order() -> None:
                   Candidate(hit=_hit(2, "需要负责人审核。"), vector_score=0.8)]
     cites = build_cites(candidates, keywords=["vpn"])
 
-    assert [item.chunk_id for item in cites] == [1, 2]
+    assert [item.chunk_id for item in cites] == ["chunk-1", "chunk-2"]
     assert [item.doc_id for item in cites] == [1, 1]
     assert cites[0].doc == "VPN 申请操作手册"
     assert cites[0].page == 1

@@ -25,6 +25,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as e:
         logger.error(f"❌ 向量存储初始化失败（pgvector 不可用，后续向量能力将不可用）: {e!s}")
 
+    # LangGraph 断点（PostgresSaver）：文档流水线的节点级快照。失败只告警——
+    # 断点是可观测能力，流水线本身不依赖它，不能因为台账不可用而拖住启动
+    from app.core.rag.checkpointer import init_checkpointer
+
+    try:
+        await init_checkpointer()
+    except Exception as e:
+        logger.error(f"❌ LangGraph 断点初始化失败（流水线照常执行，仅无节点级快照）: {e!s}")
+
     # 表结构与元数据：按模块统一初始化（integration_kb / integration_chat / system / kb / voice），
     # 各域在自己的 bootstrap.py 里声明表并按依赖顺序建出，缺表才建；单域失败只告警
     from app.bootstrap import ensure_all_tables
@@ -113,6 +122,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     shutdown_io_executor(wait=True)
     shutdown_parse_executor(wait=True)
+
+    # 断点与向量库各自持有独立的 psycopg 连接池，都在业务 asyncpg 连接池之前释放
+    from app.core.rag.checkpointer import close_checkpointer
+    from app.core.rag.vector_store import close_vector_store
+
+    await close_checkpointer()
+    await close_vector_store()
+
     await async_engine.dispose()
 
 

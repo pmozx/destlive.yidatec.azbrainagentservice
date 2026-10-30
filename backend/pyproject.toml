@@ -5,31 +5,36 @@ description = "服务大脑智能体应用"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "aiofiles>=25.1.0",
-    "aiomysql[rsa]>=0.3.2",
-    "aiosqlite>=0.21.0",
+    # 下限取当前实测稳定版，上界只防破坏性大版本（或次版本行为变更）；
+    # 精确版本由 uv.lock 负责复现，不在这里钉 ==，否则安全补丁进不来。
+    "aiofiles>=25.1.0,<26",
+    "aiomysql[rsa]>=0.3.2,<0.4",
+    "aiosqlite>=0.22,<1",
     "apscheduler>=3.11,<4",
-    "asyncpg>=0.32.0",
-    "fastapi>=0.135.2",
-    "greenlet>=3.5.4",
-    "httpx>=0.28.1",
-    "loguru==0.7.3",
-    "rich>=15.0.0",
-    "pgvector>=0.5.1",
-    "openai==2.46.0",                        # OpenAI 兼容 SDK（DeepSeek 直连 / langchain 传递依赖）
-    "langchain==1.3.9",                      # LangChain 1.3 智能体框架（create_agent / langgraph astream）
-    "langgraph>=1.2.16,<2",                  # StateGraph 显式编排（问答五节点，langchain 传递依赖显式声明）
-    "langchain-openai==1.7.2",               # ChatOpenAI(DeepSeek 兼容模式) + OpenAIEmbeddings
-    "pydantic-settings>=2.14.2",
-    "pydantic[email]>=2.13.4",
-    "python-dotenv>=1.2.3",
-    "python-multipart>=0.0.22",
-    "sqlalchemy==2.0.51",
-    "typer==0.26.7",
-    "uvicorn[standard]>=0.42.0",
-    "mineru-open-sdk>=0.2.5",
-    "boto3>=1.43.120",
-    "alembic>=1.20.1",
+    "asyncpg>=0.32,<1",
+    "fastapi>=0.162,<1",
+    "greenlet>=3.5.6,<4",
+    "httpx>=0.28.1,<1",
+    "loguru>=0.7.3,<1",
+    "rich>=15.0.0,<16",
+#    "pgvector>=0.3.6,<0.4",                   # langchain-postgres 约束 <0.4（原手写向量层用 0.5.x）
+    "langchain>=1.4,<2",                      # LangChain 1.4 智能体框架（create_agent / langgraph astream）
+    "langgraph>=1.2.18,<2",                    # StateGraph 显式编排（文档流水线与问答链路）
+    "langchain-openai>=1.7.3,<2",              # ChatOpenAI(DeepSeek 兼容模式) + OpenAIEmbeddings
+    "langchain-ollama>=1.1,<2",                # OllamaEmbeddings（EMBEDDING_PROTOCOL=ollama 私有化部署）
+    "langchain-text-splitters>=1.1,<2",        # RecursiveCharacterTextSplitter（文档分片）
+    "langchain-postgres>=0.0.19,<0.1",          # PGVector 向量库（分片表 + 余弦检索，psycopg v3 驱动）
+    "langgraph-checkpoint-postgres>=3.2,<4",    # PostgresSaver（文档流水线断点续跑）
+    "pydantic-settings>=2.16,<3",
+    "pydantic[email]>=2.14,<3",
+    "python-dotenv>=1.2.4,<2",
+    "python-multipart>=0.0.32,<1",
+    "sqlalchemy>=2.1,<2.2",                    # 2.1 有行为调整，锁次版本；2.2 升级前单独验证
+    "typer>=0.27,<1",
+    "uvicorn[standard]>=0.54,<1",
+    "mineru-open-sdk>=0.2.5,<0.3",
+    "boto3>=1.43.120,<2",                      # 补丁版交给 lock，不钉死 patch 以免每次发布都要改
+    "alembic>=1.20,<2",
 ]
 
 [tool.uv]

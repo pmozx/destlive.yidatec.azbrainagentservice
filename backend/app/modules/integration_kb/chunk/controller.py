@@ -35,7 +35,7 @@ async def get_chunk_list_controller(
 @IntegrationKbChunkRouter.delete("/delete", summary="02-删除知识分片", response_model=ResponseSchema[None])
 async def delete_chunk_controller(
         db: Annotated[AsyncSession, Depends(db_getter)],
-        ids: Annotated[list[int], Body(description="分片ID列表")],
+        ids: Annotated[list[str], Body(description="分片ID列表")],
 ) -> JSONResponse:
     await IntegrationKbChunkService(db).delete(ids=ids)
     return SuccessResponse(msg="删除知识分片成功")

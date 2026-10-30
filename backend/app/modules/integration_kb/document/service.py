@@ -540,7 +540,7 @@ class IntegrationKbDocumentService:
         """清理单文档的分片与对象存储目录（失败只告警：删除不能因外部依赖半途中断）。"""
         if vector_store_ready():
             try:
-                await delete_chunks(self.db, doc_ids=[document.id])
+                await delete_chunks(doc_ids=[document.id])
             except Exception:
                 logger.warning("删除文档：清理分片失败（doc_id={}）", document.id, exc_info=True)
         storage = S3StorageClient()

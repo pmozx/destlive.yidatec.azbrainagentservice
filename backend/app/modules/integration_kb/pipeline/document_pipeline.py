@@ -10,6 +10,10 @@
 5. 解析成功后立即写一份续跑快照（正文 + 版面 + 产物键），分片成功后再补写分片清单；
    ``resume_from`` 大于解析节点时直接从快照续跑，某节点失败只需原地重跑该节点，
    不必为一个向量化失败再把整份文档送去 MinerU 解析一遍。
+6. 编排走 LangGraph ``StateGraph``（parse → chunk → index）：节点边界即续跑边界，
+   任务步骤表回写与节点执行保持同一顺序；接上 ``PostgresSaver`` 后每次执行都留下
+   节点级快照，便于定位「卡在哪个节点」。图状态只放可 JSON 序列化的数据
+   （续跑快照 dict + 计数），正文/分片仍以对象存储快照为准，避免 checkpoint 膨胀。
 """
 
 import json
@@ -17,15 +21,15 @@ import time
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, TypedDict
 
 from fastapi import status
-from sqlalchemy.ext.asyncio import AsyncSession
+from langgraph.graph import END, StateGraph
 
 from app.core.clients import EmbeddingClient
-from app.core.database import async_session_factory
 from app.core.exceptions import CustomException
 from app.core.logger import logger
+from app.core.rag.checkpointer import get_checkpointer
 from app.core.rag.pipeline import build_embedding_rows as core_build_embedding_rows
 from app.core.rag.parsers import ParsedDocument, parse_document
 from app.utils.text_splitter import TextChunk, split_text
@@ -351,12 +355,190 @@ def _artifacts_from_bundle(payload: dict[str, Any]) -> ArtifactSummary | None:
     )
 
 
-async def _write_rows(rows: Sequence[dict[str, Any]], session: AsyncSession | None) -> int:
-    """写入分片：调用方给会话就复用（加入其事务），没给则自开短事务。"""
-    if session is not None:
-        return await upsert_chunks(session, rows)
-    async with async_session_factory() as own_session, own_session.begin():
-        return await upsert_chunks(own_session, rows)
+class PipelineState(TypedDict, total=False):
+    """图状态：只放可 JSON 序列化的编排产物。
+
+    ``ParsedDocument`` 带图片字节、``TextChunk`` 是 dataclass，都不适合进 checkpoint；
+    正文、版面与分片清单统一留在 ``bundle``（对象存储快照）里，节点内部按需重建对象。
+    """
+
+    bundle: dict[str, Any]
+    parsed_chars: int
+    vector_dim: int
+    written: int
+
+
+@dataclass(frozen=True)
+class _PipelineDeps:
+    """一次流水线执行的不变量（字节、回调、存储客户端不可序列化，故不进图状态）。"""
+
+    path: str | Path
+    space_id: int
+    doc_id: int
+    space_code: str
+    data: bytes | None
+    chunk_size: int | None
+    overlap: int | None
+    resume_from: int
+    storage: S3StorageClient
+    bundle_key: str
+    embedding_client: EmbeddingClient
+    on_stage: StageCallback | None
+
+
+async def _notify(deps: _PipelineDeps, stage: StepStage, phase: str, **info: Any) -> None:
+    """节点事件回写（调用方不关心步骤表时是空操作）。"""
+    if deps.on_stage is not None:
+        await deps.on_stage(int(stage), phase, info)
+
+
+def _build_graph(deps: _PipelineDeps):
+    """按本次执行的依赖装配图：parse → chunk → index，节点失败即中断并向上抛。"""
+
+    async def parse_node(state: PipelineState) -> PipelineState:
+        if deps.resume_from > int(StepStage.PARSE):
+            # 续跑：不重复调用 MinerU，直接吃解析成功时落下的快照（正文 / 版面 / 产物键）
+            cached = await load_parse_bundle(deps.space_code, deps.doc_id, storage=deps.storage)
+            if cached is None:
+                raise CustomException(
+                    msg="解析结果缓存缺失，无法从中间节点续跑，请重新解析该文档",
+                    status_code=status.HTTP_409_CONFLICT,
+                )
+            document = _document_from_bundle(cached)
+            logger.info(
+                "==== 文档续跑自节点 {}（doc_id={}，{}）：复用解析快照 ====",
+                StepStage(deps.resume_from).name,
+                deps.doc_id,
+                document.source,
+            )
+            return {"bundle": cached, "parsed_chars": len(document.text)}
+
+        await _notify(deps, StepStage.PARSE, STAGE_STARTED)
+        started = time.perf_counter()
+        document = await run_in_parse_pool(parse_document, deps.path, data=deps.data)
+        image_names = _stored_image_names(document)
+        await _notify(
+            deps,
+            StepStage.PARSE,
+            STAGE_SUCCEEDED,
+            elapsed_ms=_elapsed_ms(started),
+            output_count=len(document.text),
+            detail={
+                "source": document.source,
+                "mode": str(document.meta.get("mode") or ""),
+                "chars": len(document.text),
+                "pages": len(document.page_map),
+                "images": len(document.images),
+            },
+        )
+        # 解析成功立刻落产物与续跑快照：后续节点失败时不必再为同一份文档调一次 MinerU
+        artifacts = await persist_artifacts(document, space_code=deps.space_code, doc_id=deps.doc_id, storage=deps.storage)
+        payload = _bundle_payload(document, artifacts=artifacts, image_names=image_names)
+        await _save_bundle(deps.storage, deps.bundle_key, payload)
+        return {"bundle": payload, "parsed_chars": len(document.text)}
+
+    async def chunk_node(state: PipelineState) -> PipelineState:
+        bundle = state["bundle"]
+        document = _document_from_bundle(bundle)
+        if deps.resume_from > int(StepStage.CHUNK):
+            # 分片已成功过：优先复用快照里的分片清单，避免同一文档因向量化失败而重算分片
+            chunks = _chunks_from_bundle(bundle)
+            if chunks is not None:
+                logger.info("==== 文档续跑复用分片快照（doc_id={}）：{} 块 ====", deps.doc_id, len(chunks))
+                return {}
+
+        await _notify(deps, StepStage.CHUNK, STAGE_STARTED)
+        started = time.perf_counter()
+        chunks = await run_in_parse_pool(
+            split_text,
+            document.text,
+            chunk_size=deps.chunk_size,
+            overlap=deps.overlap,
+            meta=document.meta,
+        )
+        if not chunks:
+            raise CustomException(
+                msg=f"文档解析后无有效内容，未生成分片：{document.source}",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        await _notify(
+            deps,
+            StepStage.CHUNK,
+            STAGE_SUCCEEDED,
+            elapsed_ms=_elapsed_ms(started),
+            input_count=len(document.text),
+            output_count=len(chunks),
+            detail={"chars": len(document.text), "chunks": len(chunks)},
+        )
+        # 分片清单补进快照：向量化 / 写库失败时可直接从这里续跑，不再重算分片
+        image_names = [name for name in bundle.get("image_names") or [] if isinstance(name, str)]
+        payload = _bundle_payload(
+            document,
+            artifacts=_artifacts_from_bundle(bundle),
+            image_names=image_names,
+            chunks=chunks,
+        )
+        await _save_bundle(deps.storage, deps.bundle_key, payload)
+        return {"bundle": payload}
+
+    async def index_node(state: PipelineState) -> PipelineState:
+        bundle = state["bundle"]
+        document = _document_from_bundle(bundle)
+        chunks = _chunks_from_bundle(bundle)
+        if chunks is None:
+            raise CustomException(
+                msg="分片快照缺失，无法续跑向量化节点，请重新解析该文档",
+                status_code=status.HTTP_409_CONFLICT,
+            )
+
+        await _notify(deps, StepStage.EMBED, STAGE_STARTED)
+        started = time.perf_counter()
+        vectors = await deps.embedding_client.embed_texts([chunk.content for chunk in chunks])
+        vector_dim = len(vectors[0]) if vectors else 0
+        await _notify(
+            deps,
+            StepStage.EMBED,
+            STAGE_SUCCEEDED,
+            elapsed_ms=_elapsed_ms(started),
+            input_count=len(chunks),
+            output_count=len(vectors),
+            detail={"vector_dim": vector_dim},
+        )
+
+        rows = build_embedding_rows(
+            chunks,
+            vectors,
+            space_id=deps.space_id,
+            doc_id=deps.doc_id,
+            page_map=document.page_map,
+        )
+        await _notify(deps, StepStage.WRITE, STAGE_STARTED)
+        started = time.perf_counter()
+        written = await upsert_chunks(rows)
+        await _notify(
+            deps,
+            StepStage.WRITE,
+            STAGE_SUCCEEDED,
+            elapsed_ms=_elapsed_ms(started),
+            input_count=len(rows),
+            output_count=written,
+            detail={
+                "written": written,
+                "vector_dim": vector_dim,
+                "artifacts": _artifacts_from_bundle(bundle) is not None,
+            },
+        )
+        return {"vector_dim": vector_dim, "written": written}
+
+    builder = StateGraph(PipelineState)
+    builder.add_node("parse", parse_node)
+    builder.add_node("chunk", chunk_node)
+    builder.add_node("index", index_node)
+    builder.set_entry_point("parse")
+    builder.add_edge("parse", "chunk")
+    builder.add_edge("chunk", "index")
+    builder.add_edge("index", END)
+    return builder.compile(checkpointer=get_checkpointer())
 
 
 async def process_document(
@@ -367,11 +549,11 @@ async def process_document(
     space_code: str,
     data: bytes | None = None,
     embedding_client: EmbeddingClient | None = None,
-    session: AsyncSession | None = None,
     chunk_size: int | None = None,
     overlap: int | None = None,
     on_stage: StageCallback | None = None,
     resume_from: int = int(StepStage.PARSE),
+    thread_id: str | None = None,
 ) -> PipelineResult:
     """完整流水线：解析 → 分片 → 向量化 → 幂等入库；``resume_from`` 指定从哪个节点起跑。
 
@@ -384,160 +566,57 @@ async def process_document(
 
     ``resume_from`` 大于解析节点时不调用 MinerU，直接读解析成功时落下的快照；
     大于分片节点且快照里有分片清单时也不再重算分片——失败重试只补跑失败的节点。
+
+    ``thread_id`` 用于 LangGraph 断点：同一 (文档, 任务, 续跑节点) 一个线程，
+    每次执行留下节点级快照；不给则不带断点执行（脚本、单测场景）。
     """
     if not space_code or not space_code.strip():
         raise CustomException(msg="space_code 不能为空", status_code=status.HTTP_400_BAD_REQUEST)
     if not int(StepStage.PARSE) <= resume_from <= int(StepStage.WRITE):
         raise CustomException(msg=f"续跑节点非法：{resume_from}", status_code=status.HTTP_400_BAD_REQUEST)
 
-    storage = S3StorageClient()
-    bundle_key = parsed_result_key(space_code, doc_id)
-
-    async def notify(stage: StepStage, phase: str, **info: Any) -> None:
-        if on_stage is not None:
-            await on_stage(int(stage), phase, info)
-
-    async def keep_bundle(
-        document: ParsedDocument,
-        artifacts: ArtifactSummary | None,
-        image_names: Sequence[str],
-        chunks: Sequence[TextChunk] | None = None,
-    ) -> None:
-        await _save_bundle(
-            storage,
-            bundle_key,
-            _bundle_payload(document, artifacts=artifacts, image_names=image_names, chunks=chunks),
-        )
+    deps = _PipelineDeps(
+        path=path,
+        space_id=space_id,
+        doc_id=doc_id,
+        space_code=space_code,
+        data=data,
+        chunk_size=chunk_size,
+        overlap=overlap,
+        resume_from=resume_from,
+        storage=S3StorageClient(),
+        bundle_key=parsed_result_key(space_code, doc_id),
+        embedding_client=embedding_client or EmbeddingClient(),
+        on_stage=on_stage,
+    )
+    graph = _build_graph(deps)
 
     start = time.perf_counter()
-    artifacts: ArtifactSummary | None = None
-    image_names: list[str] = []
-    cached: dict[str, Any] | None = None
+    config = {"configurable": {"thread_id": thread_id}} if thread_id else None
+    final: PipelineState = await graph.ainvoke({}, config=config)
 
-    # ── 1. 解析 ────────────────────────────────────────────────────────────
-    if resume_from > int(StepStage.PARSE):
-        # 续跑：不重复调用 MinerU，直接吃解析成功时落下的快照（正文 / 版面 / 产物键）
-        cached = await load_parse_bundle(space_code, doc_id, storage=storage)
-        if cached is None:
-            raise CustomException(
-                msg="解析结果缓存缺失，无法从中间节点续跑，请重新解析该文档",
-                status_code=status.HTTP_409_CONFLICT,
-            )
-        document = _document_from_bundle(cached)
-        artifacts = _artifacts_from_bundle(cached)
-        image_names = [name for name in cached.get("image_names") or [] if isinstance(name, str)]
-        logger.info(
-            "==== 文档续跑自节点 {}（doc_id={}，{}）：复用解析快照 ====",
-            StepStage(resume_from).name,
-            doc_id,
-            document.source,
-        )
-    else:
-        await notify(StepStage.PARSE, STAGE_STARTED)
-        stage_started = time.perf_counter()
-        document = await run_in_parse_pool(parse_document, path, data=data)
-        image_names = _stored_image_names(document)
-        await notify(
-            StepStage.PARSE,
-            STAGE_SUCCEEDED,
-            elapsed_ms=_elapsed_ms(stage_started),
-            output_count=len(document.text),
-            detail={
-                "source": document.source,
-                "mode": str(document.meta.get("mode") or ""),
-                "chars": len(document.text),
-                "pages": len(document.page_map),
-                "images": len(document.images),
-            },
-        )
-        # 解析成功立刻落产物与续跑快照：后续节点失败时不必再为同一份文档调一次 MinerU
-        artifacts = await persist_artifacts(document, space_code=space_code, doc_id=doc_id, storage=storage)
-        await keep_bundle(document, artifacts, image_names)
-
-    # ── 2. 分片 ────────────────────────────────────────────────────────────
-    chunks: list[TextChunk] | None = None
-    if resume_from > int(StepStage.CHUNK):
-        # 分片已成功过：优先复用快照里的分片清单，避免同一文档因向量化失败而重算分片
-        chunks = _chunks_from_bundle(cached or {})
-        if chunks is not None:
-            logger.info("==== 文档续跑复用分片快照（doc_id={}）：{} 块 ====", doc_id, len(chunks))
-    if chunks is None:
-        await notify(StepStage.CHUNK, STAGE_STARTED)
-        stage_started = time.perf_counter()
-        chunks = await run_in_parse_pool(
-            split_text,
-            document.text,
-            chunk_size=chunk_size,
-            overlap=overlap,
-            meta=document.meta,
-        )
-        if not chunks:
-            raise CustomException(
-                msg=f"文档解析后无有效内容，未生成分片：{document.source}",
-                status_code=status.HTTP_400_BAD_REQUEST,
-            )
-        await notify(
-            StepStage.CHUNK,
-            STAGE_SUCCEEDED,
-            elapsed_ms=_elapsed_ms(stage_started),
-            input_count=len(document.text),
-            output_count=len(chunks),
-            detail={"chars": len(document.text), "chunks": len(chunks)},
-        )
-        # 分片清单补进快照：向量化 / 写库失败时可直接从这里续跑，不再重算分片
-        await keep_bundle(document, artifacts, image_names, chunks)
-
-    # ── 3. 向量化 ──────────────────────────────────────────────────────────
-    await notify(StepStage.EMBED, STAGE_STARTED)
-    stage_started = time.perf_counter()
-    client = embedding_client or EmbeddingClient()
-    vectors = await client.embed_texts([chunk.content for chunk in chunks])
-    vector_dim = len(vectors[0]) if vectors else 0
-    await notify(
-        StepStage.EMBED,
-        STAGE_SUCCEEDED,
-        elapsed_ms=_elapsed_ms(stage_started),
-        input_count=len(chunks),
-        output_count=len(vectors),
-        detail={"vector_dim": vector_dim},
-    )
-
-    # ── 4. 写入 pgvector ───────────────────────────────────────────────────
-    resolved_doc_id = doc_id
-    rows = build_embedding_rows(
-        chunks,
-        vectors,
-        space_id=space_id,
-        doc_id=resolved_doc_id,
-        page_map=document.page_map,
-    )
-    await notify(StepStage.WRITE, STAGE_STARTED)
-    stage_started = time.perf_counter()
-    written = await _write_rows(rows, session)
-    await notify(
-        StepStage.WRITE,
-        STAGE_SUCCEEDED,
-        elapsed_ms=_elapsed_ms(stage_started),
-        input_count=len(rows),
-        output_count=written,
-        detail={"written": written, "vector_dim": vector_dim, "artifacts": artifacts is not None},
-    )
-
+    bundle = final["bundle"]
+    document = _document_from_bundle(bundle)
+    artifacts = _artifacts_from_bundle(bundle)
+    vector_dim = int(final.get("vector_dim") or 0)
+    written = int(final.get("written") or 0)
+    chunk_count = len(_chunks_from_bundle(bundle) or [])
+    parsed_chars = int(final.get("parsed_chars") or len(document.text))
     elapsed_ms = int((time.perf_counter() - start) * 1000)
     logger.info(
         "==== 文档流水线完成（{}）：分片 {} 条，向量 {} 维，写入 {} 条，耗时 {}ms）====",
         document.source,
-        len(chunks),
+        chunk_count,
         vector_dim,
         written,
         elapsed_ms,
     )
     return PipelineResult(
-        doc_id=resolved_doc_id,
+        doc_id=doc_id,
         space_id=space_id,
         chunk_count=written,
         vector_dim=vector_dim,
-        parsed_chars=len(document.text),
+        parsed_chars=parsed_chars,
         elapsed_ms=elapsed_ms,
         preview=document.text[:PREVIEW_CHARS],
         artifacts=artifacts,

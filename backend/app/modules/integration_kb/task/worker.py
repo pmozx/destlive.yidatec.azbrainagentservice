@@ -221,8 +221,7 @@ async def _discard_artifacts(space_code: str, doc_id: int) -> None:
     """
     if vector_store_ready():
         try:
-            async with async_session_factory() as session, session.begin():
-                removed = await delete_chunks(session, doc_ids=[doc_id])
+            removed = await delete_chunks(doc_ids=[doc_id])
             logger.info("==== 已撤销无主分片 {} 条（doc_id={}）====", removed, doc_id)
         except Exception as exc:
             logger.error("撤销无主分片失败（doc_id={}）：{}", doc_id, exc)
@@ -276,6 +275,9 @@ async def _run_document(job: ParseJob) -> None:
                 space_code=job.space_code,
                 on_stage=_build_stage_hook(task_id, job.doc_id, state),
                 resume_from=job.resume_from,
+                # 一个 (文档, 任务, 续跑节点) 一个断点线程：每次执行都独立留痕，
+                # 续跑语义仍由 resume_from 决定，避免断点自动跳过节点与业务续跑口径打架
+                thread_id=f"kb-parse-{job.doc_id}-{task_id or 0}-{int(job.resume_from)}",
             )
         except asyncio.CancelledError:
             # 关停时的取消：交给启动期的 reset_interrupted_documents 兜底改回待解析

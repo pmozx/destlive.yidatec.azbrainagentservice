@@ -28,9 +28,12 @@ from .space.model import IntegrationKbSpaceModel
 
 @dataclass(frozen=True)
 class KnowledgeHit:
-    """一条知识命中（分片原文 + 文档元数据，够拼上下文与引用卡片）"""
+    """一条知识命中（分片原文 + 文档元数据，够拼上下文与引用卡片）。
 
-    chunk_id: int
+    ``chunk_id`` 是 PGVector 主键（确定性 uuid5 字符串），随引用卡片一起回给前端。
+    """
+
+    chunk_id: str
     space_id: int
     doc_id: int
     chunk_index: int
@@ -56,7 +59,6 @@ async def search_knowledge(
 ) -> list[KnowledgeHit]:
     """按问题向量召回知识分片（只回「已上架且解析完成」的文档内容）。"""
     rows = await search_chunks(
-        db,
         query_embedding,
         space_ids=space_ids,
         top_k=top_k,
@@ -83,7 +85,7 @@ async def search_knowledge(
         category_id = meta["category_id"]
         hits.append(
             KnowledgeHit(
-                chunk_id=int(row["id"]),
+                chunk_id=str(row["id"]),
                 space_id=space_id,
                 doc_id=int(row["doc_id"]),
                 chunk_index=int(row["chunk_index"]),

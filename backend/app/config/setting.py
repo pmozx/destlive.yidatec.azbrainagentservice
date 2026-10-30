@@ -93,7 +93,10 @@ class Settings(BaseSettings):
     # ==================== 向量存储配置（pgvector） ====================
     VECTOR_ENABLE: bool = Field(default=True, description="是否启用 pgvector 向量存储（仅 DATABASE_TYPE=postgres 生效）")
     VECTOR_DIM: int = Field(default=1024, description="向量维度，须与 embedding 模型输出一致（bge-m3 为 1024）")
-    VECTOR_AUTO_CREATE: bool = Field(default=True, description="启动时自动创建 vector 扩展、分片表与 HNSW 索引")
+    VECTOR_AUTO_CREATE: bool = Field(default=True, description="启动时自动创建 vector 扩展、PGVector 表与 HNSW 索引")
+    CHECKPOINT_ENABLE: bool = Field(
+        default=True, description="是否启用 LangGraph PostgresSaver 断点（文档流水线节点级快照，DB 非 postgres 时自动跳过）"
+    )
 
     # ==================== 模型服务集成配置（LLM / Embedding / Rerank，两个集成域共用） ====================
     # 三类推理服务都按“OpenAI 兼容 / 私有化部署”统一收口；地址留空 = 尚未接入，调用时抛可读 503，
@@ -270,6 +273,19 @@ class Settings(BaseSettings):
     def async_db_url(self) -> str:
         """异步数据库连接 URI（别名，兼容 database.py）"""
         return self.database_url
+
+    @computed_field
+    @property
+    def psycopg_url(self) -> str:
+        """同步 psycopg v3 DSN（LangGraph PostgresSaver 专用）。
+
+        asyncpg 的 URL 不能直接给 psycopg（驱动名不同），这里单独拼 ``postgresql://``；
+        非 postgres 环境返回空串，调用方据此关闭断点能力而不是把连接串写错。
+        """
+        if self.DATABASE_TYPE != DatabaseTypeEnum.POSTGRES.value:
+            return ""
+        credential = f"{quote_plus(self.DATABASE_USER)}:{quote_plus(self.DATABASE_PASSWORD)}"
+        return f"postgresql://{credential}@{self.DATABASE_HOST}:{self.DATABASE_PORT}/{self.DATABASE_NAME}"
 
 
 # 全局配置单例（导入即用）

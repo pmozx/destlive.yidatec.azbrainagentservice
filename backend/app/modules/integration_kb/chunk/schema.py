@@ -6,8 +6,12 @@ from app.core.base_schema import BaseQueryParam, BaseSchema
 
 
 class ChunkOutSchema(BaseSchema):
-    """分片响应模型（含向量化后的原文与溯源信息）"""
+    """分片响应模型（含向量化后的原文与溯源信息）。
 
+    分片主键沿用 PGVector 主键（确定性 uuid5 字符串），故覆盖基类的整型 ``id``。
+    """
+
+    id: str | None = Field(default=None, description="分片ID（PGVector 主键）")
     space_id: int = Field(default=0, description="知识空间ID")
     doc_id: int = Field(default=0, description="文档ID")
     chunk_index: int = Field(default=0, description="分片序号(文档内从0递增)")
@@ -29,4 +33,4 @@ class ChunkQueryParam(BaseQueryParam):
 class ChunkBatchDeleteSchema(BaseModel):
     """按主键批量删除分片参数（人工清理脏数据）"""
 
-    ids: list[int] = Field(..., min_length=1, description="分片ID列表")
+    ids: list[str] = Field(..., min_length=1, description="分片ID列表")
