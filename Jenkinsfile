@@ -37,6 +37,7 @@ pipeline {
     }
 
     environment {
+        DOCKER_REPO_URL = 'crpi-7nbh1cvsjd338a37.cn-qingdao.personal.cr.aliyuncs.com'
         DOCKER_REPO_USERNAME = 'qwerasd5'
         DOCKER_REPO_PASSWORD = '15513974562_Meng'
     }

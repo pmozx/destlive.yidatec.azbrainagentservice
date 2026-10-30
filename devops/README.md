@@ -450,11 +450,9 @@ docker compose -f devops/common-server/docker-compose-postgres.yml down
 
 ### 6.7 独立服务器部署（只上传 devops）
 
-适用场景：目标机只装了 docker 与 docker compose（无 git、无 Python、无源码构建链），镜像已由 Jenkins 构建并推送，
-手上只有构建输出的 `image_tag`。
+适用场景：目标机只装了 docker 与 docker compose（无 git、无 Python、无源码构建链），镜像已由 Jenkins 构建并推送，手上只有构建输出的 `image_tag`。
 
-前置：`docker compose version` 能输出版本（需 compose v2 插件，v1 的 `docker-compose` 不适用）、宿主有 `curl`、
-当前用户能执行 docker 命令、可访问镜像仓库。
+前置：`docker compose version` 能输出版本（需 compose v2 插件，v1 的 `docker-compose` 不适用）、宿主有 `curl`、当前用户能执行 docker 命令、可访问镜像仓库。
 
 #### 目录约定（脚本按此推导，不能随意改层级）
 
@@ -488,12 +486,17 @@ docker compose -f devops/common-server/docker-compose-postgres.yml down
 
 #### 一次性准备
 
-```bash
-# 1) 上传：先建父目录，否则 scp 会把 devops 直接改名成 service_brain_agent
-ssh user@server 'mkdir -p ~/service_brain_agent'
-scp -r devops user@server:~/service_brain_agent/
+Windows 侧：在资源管理器中**右键 `devops` 文件夹本身 → 压缩为 ZIP**，得到 `devops.zip`（zip 内顶层须为 `devops/`，不能进入文件夹全选压缩），再通过远程桌面拖拽、SFTP 客户端、堡垒机或 U 盘等任意方式放到服务器 `~/` 下。
 
-# 2) 从 Windows 上传的先去掉 CRLF，否则报 $'\r': command not found，再补执行权限
+Linux 侧执行：
+
+```bash
+# 1) 解压（zip 内顶层为 devops/）
+mkdir -p ~/service_brain_agent
+cd ~/service_brain_agent
+unzip -o ~/devops.zip
+
+# 2) 去掉 CRLF（Windows 打包必带），并补执行权限
 find ~/service_brain_agent/devops -name '*.sh' -exec sed -i 's/\r$//' {} +
 chmod +x ~/service_brain_agent/devops/scripts/*.sh ~/service_brain_agent/devops/scripts/manual/*.sh
 
