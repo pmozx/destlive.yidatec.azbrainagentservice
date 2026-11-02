@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from sqlalchemy import Index, Integer, String, text, Text
+from sqlalchemy import CheckConstraint, Index, Integer, String, text, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -17,6 +17,11 @@ class KbParseJobModel(ModelMixin):
 
     __tablename__: str = "sbp_ai_kb_parse_job"
     __table_args__: tuple = (
+        CheckConstraint(
+            "status IN ('queued', 'running', 'succeeded', 'failed')",
+            name="ck_sbp_ai_kb_parse_job_status",
+        ),
+        CheckConstraint("progress >= 0 AND progress <= 100", name="ck_sbp_ai_kb_parse_job_progress_range"),
         Index("ix_sbp_ai_kb_parse_job_status_created", "status", "created_time"),
         {"comment": "解析任务（#01/#02 状态机载体）"},
     )

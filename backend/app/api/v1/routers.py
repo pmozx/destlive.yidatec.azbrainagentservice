@@ -17,6 +17,9 @@ from app.modules_gsi.sys.audience_team_member.controller import SbpSysAudienceTe
 from app.modules_gsi.sys.org.controller import SbpSysOrgRouter
 from app.modules_gsi.sys.org_member.controller import SbpSysOrgMemberRouter
 from app.modules_gsi.sys.user.controller import SbpSysUserRouter
+from app.modules.kb.dup_group.controller import KbDupGroupRouter
+from app.modules.kb.knowledge.controller import KbKnowledgeRouter
+from app.modules.kb.parse_job.admin_controller import KbParseJobRouter
 from app.modules.system.access_trace.controller import AccessTraceRouter
 from app.modules.system.api_log.controller import SystemApiLogRouter
 
@@ -26,6 +29,11 @@ DOMAIN_CONTROLLERS: dict[str, list[APIRouter]] = {
     "/system": [
         SystemApiLogRouter,
         AccessTraceRouter,
+    ],
+    "/kb": [
+        KbKnowledgeRouter,
+        KbParseJobRouter,
+        KbDupGroupRouter,
     ],
     "/gsi": [
         SbpSysOrgRouter,

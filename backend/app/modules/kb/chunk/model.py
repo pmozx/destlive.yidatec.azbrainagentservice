@@ -4,7 +4,7 @@
 表达式索引交给手写脚本更可控。
 """
 
-from sqlalchemy import BigInteger, Index, Integer, String, text, Text, UniqueConstraint
+from sqlalchemy import BigInteger, CheckConstraint, Index, Integer, String, text, Text, UniqueConstraint
 from pgvector.sqlalchemy import Vector
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -21,6 +21,9 @@ class KbChunkModel(ModelMixin):
         # 契约 #04 按 chunk_id 精读：同一快照内必须唯一，跨快照（record_id 不同）允许重复编号。
         # 迁移期前的行 chunk_id 为 NULL，PG/SQLite 的唯一约束都不拦多个 NULL，不影响存量。
         UniqueConstraint("record_id", "chunk_id", name="uq_sbp_ai_kb_chunk_rec_chunk"),
+        CheckConstraint("status IN ('online', 'archived')", name="ck_sbp_ai_kb_chunk_status"),
+        CheckConstraint("seq >= 0", name="ck_sbp_ai_kb_chunk_seq_non_negative"),
+        CheckConstraint("revision >= 0", name="ck_sbp_ai_kb_chunk_revision_non_negative"),
         Index("ix_sbp_ai_kb_chunk_status_created", "status", "created_time"),
         Index("ix_sbp_ai_kb_chunk_pub_rev", "publication_id", "revision"),
         Index(

@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, Index, String, text, UniqueConstraint
+from sqlalchemy import BigInteger, CheckConstraint, DateTime, Index, String, text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.base_model import ModelMixin
@@ -14,6 +14,10 @@ class KbPublicationModel(ModelMixin):
     __tablename__: str = "sbp_ai_kb_publication"
     __table_args__: tuple = (
         UniqueConstraint("publication_id", name="uq_sbp_ai_kb_publication_pid"),
+        # 状态与类型的白名单落在 DDL 上：裸 SQL / 其它服务写入也绕不过去（D3）
+        CheckConstraint("resource_type IN ('document', 'faq')", name="ck_sbp_ai_kb_publication_resource_type"),
+        CheckConstraint("status IN ('active', 'inactive', 'deleted')", name="ck_sbp_ai_kb_publication_status"),
+        CheckConstraint("current_revision >= 0", name="ck_sbp_ai_kb_publication_revision_non_negative"),
         Index("ix_sbp_ai_kb_publication_status_created", "status", "created_time"),
         # 归属校验的三元组：缺它就只能比 resource_type，拿到 publication_id 即可改写他人知识（P0-10）
         Index("ix_sbp_ai_kb_publication_tenant_resource", "tenant_id", "resource_type", "resource_id"),

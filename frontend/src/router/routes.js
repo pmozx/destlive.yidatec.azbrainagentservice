@@ -44,6 +44,33 @@ export const constantRoutes = [
     ],
   },
   {
+    path: '/kb',
+    name: 'KnowledgeBase',
+    component: Layout,
+    redirect: '/kb/knowledge',
+    meta: { title: '知识平台', icon: 'Collection' },
+    children: [
+      {
+        path: 'knowledge',
+        name: 'KbKnowledge',
+        component: () => import('@/views/module_kb/knowledge/index.vue'),
+        meta: { title: '知识维护', icon: 'Document' },
+      },
+      {
+        path: 'parse-job',
+        name: 'KbParseJob',
+        component: () => import('@/views/module_kb/parseJob/index.vue'),
+        meta: { title: '解析任务', icon: 'Files' },
+      },
+      {
+        path: 'dup-group',
+        name: 'KbDupGroup',
+        component: () => import('@/views/module_kb/dupGroup/index.vue'),
+        meta: { title: '重复治理', icon: 'CopyDocument' },
+      },
+    ],
+  },
+  {
     path: '/monitor',
     name: 'Monitor',
     component: Layout,

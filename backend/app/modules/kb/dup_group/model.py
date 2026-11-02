@@ -3,7 +3,7 @@
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Index, Numeric, String, text
+from sqlalchemy import CheckConstraint, Index, Numeric, String, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -15,6 +15,7 @@ class KbDupGroupModel(ModelMixin):
 
     __tablename__: str = "sbp_ai_kb_dup_group"
     __table_args__: tuple = (
+        CheckConstraint("status IN ('active', 'merged', 'dismissed')", name="ck_sbp_ai_kb_dup_group_status"),
         Index("ix_sbp_ai_kb_dup_group_status_created", "status", "created_time"),
         {"comment": "重复分组（#16–#20 治理物化）"},
     )

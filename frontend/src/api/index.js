@@ -6,4 +6,7 @@
  * 一起删除，前端目录已不存在。重新接入时在此登记新的业务模块目录，禁止重复导出。
  */
 export * from './module_system/log'
+export * from './module_kb/knowledge'
+export * from './module_kb/parseJob'
+export * from './module_kb/dupGroup'
 export * from './module_monitor/endpoint'

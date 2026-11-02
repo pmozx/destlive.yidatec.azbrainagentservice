@@ -1,6 +1,6 @@
 """版本历史模型（表 ``sbp_ai_kb_revision``）：``(publication_id, revision)`` 唯一 + ``base_record_id`` 防并发覆盖。"""
 
-from sqlalchemy import BigInteger, Boolean, Index, Integer, String, text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, Index, Integer, String, text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -13,6 +13,9 @@ class KbRevisionModel(ModelMixin):
     __tablename__: str = "sbp_ai_kb_revision"
     __table_args__: tuple = (
         UniqueConstraint("publication_id", "revision", name="uq_sbp_ai_kb_revision_pub_rev"),
+        CheckConstraint("status IN ('online', 'archived')", name="ck_sbp_ai_kb_revision_status"),
+        CheckConstraint("revision >= 0", name="ck_sbp_ai_kb_revision_non_negative"),
+        CheckConstraint("chunk_count >= 0", name="ck_sbp_ai_kb_revision_chunk_count_non_negative"),
         Index("ix_sbp_ai_kb_revision_status_created", "status", "created_time"),
         Index("ix_sbp_ai_kb_revision_record", "record_id"),
         # #04 精读按契约 version_id 回查：它不是主键也不是 revision 的别名，必须独立索引
