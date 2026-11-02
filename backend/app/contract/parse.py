@@ -3,7 +3,7 @@
 分工：
 - 契约字段校验（必填 / FAQ 条件必填 / 类型白名单 / 10MB）在这里；
 - 任务状态机与产物落库在 ``app.modules.kb.parse_job.service``；
-- 解析/分片复用 ``integration_kb.pipeline``，不在本层另写一套解析器。
+- 解析/分片复用 ``app.core.rag``（解析 → 分片 → 向量化唯一实现），不在本层另写一套解析器。
 
 关键口径：
 1. ``file_url`` 必须在校验期**同步拉完**再返回 202：超限要能回 413、类型不支持和地址不可读要能回 400，
@@ -25,10 +25,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from app.core.clients.base import trust_env_for_url
 from app.core.exceptions import CustomException
 from app.core.logger import logger
-from app.modules.integration_kb.pipeline.document_pipeline import ChunkedDocument, parse_and_chunk
-from app.modules.integration_kb.pipeline.page_map import PageLocator
-from app.modules.integration_kb.pipeline.parsers import supported_suffixes
+from app.core.rag import ChunkedDocument, parse_and_chunk, supported_suffixes
 from app.modules.kb.parse_job.service import ParseJobSnapshot, KbParseJobService
+from app.utils.page_locator import PageLocator
 
 from .errors import (
     DEFAULT_MESSAGES,

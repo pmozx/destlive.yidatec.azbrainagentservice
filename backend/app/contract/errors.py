@@ -235,6 +235,8 @@ def _failed(request: Request, error: ContractApiError, body: bytes = b"") -> Res
 
     FastAPI 的依赖退出代码在响应发出之后才执行，错误体又已经被本路由类接住（异常不再上抛），
     不标记的话请求级数据库事务会被当成成功提交，把半成品写入落库。
+    读取方：``app/core/dependencies.py::db_getter``（提交前检查该标记并回滚）
+    与 ``app/contract/deps.py::_idempotent_guard``（失败释放幂等预约）。
     """
     request.state.contract_failed = True
     # 签名通过后才失败的请求也要留下失败码，否则审计里只有 4xx 响应码、没有原因

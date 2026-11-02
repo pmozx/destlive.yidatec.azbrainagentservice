@@ -1,7 +1,9 @@
-"""引用快照与引用编号后处理（`integration_chat.cite`）回归。
+"""引用快照与引用编号后处理（`app.core.chat.cite`）回归。
 
 POC 下线（阶段 0）时由 `test_poc_signature.py` 的 citation 用例迁来：
 POC 期的 `build_citations/pick_quote` 对应生产侧的 `build_cites/build_snippet/sanitize_citations`。
+逻辑原在 `app/modules/integration_chat/cite.py`，模块删除后迁入 `app/core/chat/cite.py`，
+本测试跟随迁移（能力未丢失，core 为唯一来源）。
 
 覆盖口径：
 1. cites 顺序与 `[n]` 编号严格一致（第 n 条引用必须是第 n 个候选，不能重排）；
@@ -9,29 +11,39 @@ POC 期的 `build_citations/pick_quote` 对应生产侧的 `build_cites/build_sn
 3. 正文越界编号（模型凭空编造 `[9]`）必须被摘除，且仍保留正文，不整段作废。
 """
 
+from dataclasses import dataclass
+
 from app.config.setting import settings
-from app.modules.integration_chat.cite import build_cites, build_snippet, sanitize_citations
-from app.modules.integration_chat.rerank import Candidate
-from app.modules.integration_kb.retrieval import KnowledgeHit
+from app.core.chat import Candidate
+from app.core.chat.cite import build_cites, build_snippet, sanitize_citations
 
 
-def _hit(index: int, content: str) -> KnowledgeHit:
-    return KnowledgeHit(
-        # 分片主键来自 PGVector（确定性 uuid5 字符串），测试里用可读的固定串
+@dataclass(frozen=True)
+class _Hit:
+    """测试用命中项：满足 `CitableHit` 协议（含重排所需的 section_title/content/score）。"""
+
+    chunk_id: str
+    doc_id: int
+    content: str
+    section_title: str
+    score: float
+    doc_title: str | None = None
+    page_no: int | None = None
+    space_name: str | None = None
+    category_name: str | None = None
+
+
+def _hit(index: int, content: str) -> _Hit:
+    return _Hit(
         chunk_id=f"chunk-{index}",
-        space_id=1,
         doc_id=1,
-        chunk_index=index,
-        page_no=1,
-        section_title="申请流程",
         content=content,
+        section_title="申请流程",
         score=0.9,
         doc_title="VPN 申请操作手册",
-        file_name="vpn-guide.md",
-        file_type="md",
+        page_no=1,
         space_name="运维空间",
         category_name="操作手册",
-        meta={},
     )
 
 

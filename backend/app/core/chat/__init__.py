@@ -1,11 +1,20 @@
-"""AI 问答核心能力：重排序、置信判定、流式输出消费。
+"""AI 问答核心能力：重排序、置信判定、引用后处理、流式输出消费。
 
 设计约定：
-- ``rerank`` 通过 ``RankedHit`` 协议解耦业务命中结构，不 import 任何业务模型；
+- ``rerank`` / ``cite`` 通过 ``RankedHit`` / ``CitableHit`` 协议解耦业务命中结构，
+  不 import 任何业务模型；
 - ``streaming`` 只负责超时/断连判定与流关闭，不写业务表；
-- 提示词、引用、检索等业务语义留在业务域，core 只提供可复用的稳定机制。
+- 提示词、检索、会话落库等业务语义留在业务域，core 只提供可复用的稳定机制。
 """
 
+from .cite import (
+    CiteItem,
+    CitableHit,
+    build_cites,
+    build_followups,
+    build_snippet,
+    sanitize_citations,
+)
 from .rerank import (
     Candidate,
     GradeResult,
@@ -23,13 +32,19 @@ from .streaming import (
 
 __all__ = [
     "Candidate",
+    "CiteItem",
+    "CitableHit",
     "GradeResult",
     "RankedHit",
     "StreamInterruptedError",
     "StreamTimeoutError",
+    "build_cites",
+    "build_followups",
+    "build_snippet",
     "close_stream",
     "grade",
     "iter_stream",
     "rerank_candidates",
+    "sanitize_citations",
     "to_candidates",
 ]

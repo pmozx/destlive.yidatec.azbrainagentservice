@@ -122,6 +122,20 @@ class KbParseJobService:
             error_message=error_message,
         )
 
+    async def reset_unfinished(self, *, error_code: str, error_message: str) -> int:
+        """启动期中断恢复：把上次进程留下的 queued/running 任务改判 failed，返回行数。
+
+        契约 #01 的解析跑在响应后置任务里，进程重启后任务不复存在；不改判的话
+        #02 会永远返回 running，调用方只能无限轮询。失败码由调用方给（本层不依赖契约层）。
+        """
+        async with async_session_factory() as session, session.begin():
+            affected = await KbParseJobCRUD(session).fail_unfinished(
+                error_code=error_code,
+                error_message=error_message,
+                progress=PROGRESS_DONE,
+            )
+        return affected
+
     async def get_snapshot(self, job_id: str) -> ParseJobSnapshot | None:
         """按 job_id（即 uuid）查询；成功态一并带出产物。"""
         async with async_session_factory() as session:

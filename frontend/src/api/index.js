@@ -1,18 +1,9 @@
 /**
  * 接口统一出口
- * 业务页面按模块引入，例如：import { getSpaceList } from '@/api'
+ * 业务页面按模块引入，例如：import { getApiLogList } from '@/api'
+ *
+ * 注意：知识库 / 问答（原 module_integration_kb / module_integration_chat）随后端模块
+ * 一起删除，前端目录已不存在。重新接入时在此登记新的业务模块目录，禁止重复导出。
  */
 export * from './module_system/log'
 export * from './module_monitor/endpoint'
-
-// 集成-知识库：空间 → 分类 → 文档 → 分片 / 任务 / 统计
-export * from './module_integration_kb/space'
-export * from './module_integration_kb/category'
-export * from './module_integration_kb/document'
-export * from './module_integration_kb/chunk'
-export * from './module_integration_kb/task'
-export * from './module_integration_kb/stats'
-
-// 集成-AI 问答：问答流（SSE）+ 会话管理
-export * from './module_integration_chat/chat'
-export * from './module_integration_chat/session'

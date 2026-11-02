@@ -1,7 +1,7 @@
 """知识切片模型（表 ``sbp_ai_kb_chunk``）★ 核心表：``uuid`` 即契约 ``chunk_id``。
 
-只建 HNSW 向量索引；中文全文/trigram 索引留到 T4.1（keyword 检索）用原生 SQL 迁移补，
-表达式索引由 Alembic autogenerate 表达不准确，手写脚本更可控。
+只建 HNSW 向量索引；中文全文/trigram 索引留到 T4.1（keyword 检索）用手写 SQL 补，
+表达式索引交给手写脚本更可控。
 """
 
 from sqlalchemy import BigInteger, Index, Integer, String, Text, UniqueConstraint

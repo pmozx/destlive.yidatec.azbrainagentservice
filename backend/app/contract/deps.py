@@ -14,6 +14,7 @@
 缺头、时钟越窗、签名不符还是 nonce 重放。
 """
 
+import asyncio
 import json
 from collections.abc import AsyncGenerator
 from typing import Annotated, Any
@@ -227,8 +228,14 @@ async def verified_signature(
 def _idempotent_guard(scope: str):
     """按幂等域生成依赖：预约 → 交给路由 → 成功登记结果 / 失败释放。
 
-    依赖的退出代码在**响应发出之后**才执行，而契约路由类已把异常换成错误响应（不再上抛），
-    所以失败判定用 `request.state.contract_failed` 标记，而不是 try/except。
+    失败有**两条出口**，都必须释放预约，否则该 ID 会被锁在 `processing`（重试全部 409）：
+
+    1. **正常退出**：契约路由类把异常换成了错误响应（异常不再上抛），依赖栈看到的是
+       "正常返回"——FastAPI 的依赖收尾在响应发出之后才执行，try/except 根本收不到，
+       所以失败判定用 `request.state.contract_failed` 标记（见 else 分支）；
+    2. **异常被抛进生成器**：客户端断连（GeneratorExit）、请求任务被取消（CancelledError）、
+       或路由类没接住的异常（如响应序列化失败）——此时 yield 之后的代码不会执行，
+       只有 except 分支能释放（见 except 分支）。
     """
 
     async def dependency(request: Request) -> AsyncGenerator[Reservation, None]:
@@ -243,23 +250,46 @@ def _idempotent_guard(scope: str):
         digest = payload_digest(payload)
         reservation = await reserve(scope=scope, biz_id=biz_id, body_hash=digest)
         request.state.idempotency_reservation = reservation
-        yield reservation
 
-        if reservation.is_replay or getattr(request.state, "idempotency_settled", False):
-            # 回放请求不能释放首次记录；已提前登记（见 record_receipt）的也不再重复写
+        if reservation.is_replay:
+            # 回放请求没有占用新预约，不能释放首次记录
+            yield reservation
             return
-        result = getattr(request.state, "idempotency_result", None)
-        if getattr(request.state, "contract_failed", False) or result is None:
-            # 失败或骨架期无结果：释放预约，否则该 ID 会被永久锁在 processing
-            await release(scope=scope, biz_id=biz_id, body_hash=digest)
-            return
-        await complete(
-            scope=scope,
-            biz_id=biz_id,
-            body_hash=digest,
-            result=result,
-            tombstone=bool(getattr(request.state, "idempotency_tombstone", False)),
-        )
+
+        try:
+            yield reservation
+        except BaseException:
+            # 出口 2：异常抛进生成器。用 shield 让释放动作在取消场景下仍能于后台完成；
+            # CancelledError/GeneratorExit 单独处理（它们不是 Exception），原异常继续上抛。
+            try:
+                await asyncio.shield(release(scope=scope, biz_id=biz_id, body_hash=digest))
+            except asyncio.CancelledError:
+                logger.warning("请求取消中，幂等预约释放转入后台执行: scope={} biz_id={}", scope, biz_id)
+            except Exception as exc:
+                logger.error(
+                    "幂等预约异常路径释放失败（该 ID 将锁在 processing 直到 TTL 过期）: scope={} biz_id={} err={}",
+                    scope,
+                    biz_id,
+                    exc,
+                )
+            raise
+        else:
+            # 出口 1：正常退出（契约路由已把异常换成错误响应）。
+            if getattr(request.state, "idempotency_settled", False):
+                # 已提前登记（见 record_receipt），依赖退出只做兜底，不再重复写
+                return
+            result = getattr(request.state, "idempotency_result", None)
+            if getattr(request.state, "contract_failed", False) or result is None:
+                # 失败或骨架期无结果：释放预约
+                await release(scope=scope, biz_id=biz_id, body_hash=digest)
+                return
+            await complete(
+                scope=scope,
+                biz_id=biz_id,
+                body_hash=digest,
+                result=result,
+                tombstone=bool(getattr(request.state, "idempotency_tombstone", False)),
+            )
 
     return dependency
 

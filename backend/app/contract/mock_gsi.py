@@ -10,7 +10,7 @@
 
     rem 输出冒烟记录
     .venv\\Scripts\\python.exe -m app.contract.mock_gsi --base-url http://127.0.0.1:8003 --allow-skeleton ^
-        --record "..\\00-document\\02-服务大脑AI项目开发文档\\02-3 POC 验证\\01-POC冒烟记录.md"
+        --record "..\\00-document\\04-服务大脑AI项目开发过程文档\\01-POC验证\\01-POC冒烟记录.md"
 
 它做的事：
 1. 起一个本地 `http.server` 托管样例 Markdown，给 #01 一个**真实可拉取**的 `file_url`

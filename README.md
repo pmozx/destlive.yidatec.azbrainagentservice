@@ -1,20 +1,22 @@
-# 智能体应用监控台（d00-fastapi-integration）
+# 服务大脑（service_brain_agent）
 
-基于 **FastAPI + Vue 3** 的前后端一体化应用工程：后端提供日志审计与接口自检等基础能力，前端为与之同源部署的监控台，构建产物由 FastAPI 的 `/ui` 直接托管。
+基于 **FastAPI + Vue 3** 的前后端一体化应用工程：后端提供 `/v1` 契约接入面（解析任务与知识条目写入已实现，检索/会话为骨架）与 `/api/v1` 管理面（日志审计、接入调用追踪），前端为与之同源部署的监控台，构建产物由 FastAPI 的 `/ui` 直接托管。
 
 - 后端：FastAPI 工厂模式 + 异步 SQLAlchemy 2.0 + APScheduler + loguru，业务模块集中在 `app/modules`，由路由总表显式注册，同时提供 Swagger / ReDoc 接口文档
 - 前端：Vue 3 + Vite 7 + Element Plus，顶部横向导航 + 白色大圆角卡片布局，酒红紫主题，支持深色模式与主题色切换
 - 工程化：uv 管理 Python 依赖、npm 管理前端依赖；pytest + ruff；SCSS（BEM + mixins）
+
+> **能力边界（务必先读）**：知识库域（`kb`）与语音质检域（`voice`）当前**只有数据模型与表结构，没有 controller**，即无 HTTP 出口。对外能力 = `/v1` 契约面（**20 条中 5 条已实现业务逻辑，其余 15 条为骨架，返回 501**）+ `/api/v1` 管理面（日志审计、接入调用追踪）。原 `integration` 过渡域（知识空间、分片 CRUD、对象存储、集成自检端点）已整体删除，删除决策与能力回退清单见 [`00-document/04-.../03-代码评审与优化/01-backend代码优化建议报告.md`](00-document/04-服务大脑AI项目开发过程文档/03-代码评审与优化/01-backend代码优化建议报告.md) 的 〇-A 章。
 
 ## 技术栈
 
 | 层次 | 选型 |
 | --- | --- |
 | Web 框架 | FastAPI、uvicorn[standard] |
-| 数据层 | SQLAlchemy 2.0（async）、asyncpg（PostgreSQL 主选）/ aiomysql / aiosqlite、alembic |
-| 向量存储 | PostgreSQL + pgvector（`pgvector` Python 包 + HNSW 余弦索引，表 `sbp_ai_integration_chunk`） |
-| 对象存储 | MinIO（S3 协议兼容，boto3 + path-style；桶按 `S3_AUTO_CREATE` 启动时幂等创建） |
-| 文档解析 | MinerU（`mineru-open-sdk`）：PDF / Office / 图片 → Markdown + 版面 JSON（页码溯源）；纯文本/HTML 走内置解析器 |
+| 数据层 | SQLAlchemy 2.0（async）、asyncpg（PostgreSQL 主选）/ aiomysql / aiosqlite |
+| 向量存储 | PostgreSQL + pgvector（`pgvector` Python 包 + HNSW 余弦索引）；业务向量落 `sbp_ai_kb_chunk.embedding`，通用向量层为 `sbp_ai_kb_vector_collection` / `sbp_ai_kb_vector_embedding` |
+| 对象存储 | ~~MinIO（S3 协议兼容）~~ **已随 `integration` 域删除**，`S3StorageClient` 不再存在；`S3_*` 配置保留为重建时的口径基线（无消费方） |
+| 文档解析 | MinerU（`mineru-open-sdk`）：PDF / Office / 图片 → Markdown + 版面 JSON（页码溯源）；纯文本/HTML 走内置解析器。实现位于 `app/core/rag/`，当前仅契约 #01 解析任务使用 |
 | 配置与日志 | pydantic-settings、python-dotenv、loguru |
 | 调度 | APScheduler 3.x |
 | 前端 | Vue 3.5、Vite 7、Vue Router 4、Pinia 3、Element Plus 2.x、SCSS(sass) |
@@ -29,20 +31,21 @@ service_brain_agent/                # 仓库根：前后端一体化工程
 │   ├── app/
 │   │   ├── __init__.py          # create_app：lifespan、路由注册、前端托管
 │   │   ├── api/v1/routers.py    # 路由总表：域前缀 → 该域 controller 清单（唯一路由事实来源）
+│   │   ├── contract/            # /v1 契约接入面：签名/nonce/幂等/审计、#01–#20 端点、解析编排
 │   │   ├── modules/             # 业务模块：域/功能两级，表名统一前缀 sbp_ai_[域缩写]_
-│   │   │   ├── system/api_log/ # 系统管理：接口审计日志（sbp_ai_system_api_log）
-│   │   │   ├── kb/             # 知识库管理：当前暂空，分片与知识空间定稿后迁入（表名改 sbp_ai_kb_*）
-│   │   │   ├── voice/          # 语音质检管理：二期预留（sbp_ai_voice_*）
-│   │   │   └── integration/    # 待集成区：LLM/向量化/重排/MinerU 客户端、解析线程池、文档流水线、自检端点
-│   │   │       ├── clients/    # 集成层客户端：LLM / 向量化 / 重排 / MinerU / S3 对象存储
-│   │   │       ├── runtime/    # 阻塞任务线程池：解析线程池 + 对象存储 IO 线程池
-│   │   │       ├── space/      # 集成期知识空间与文档（sbp_ai_integration_space / _document，上传 + 线程池解析）
-│   │   │       └── chunk/      # 集成期分片与向量存储（sbp_ai_integration_chunk，表结构未定稿，带前端 CRUD）
+│   │   │   ├── system/         # 系统管理：接口审计日志 + 接入调用追踪（仅此域有 controller）
+│   │   │   │   ├── api_log/    # 日志审计（sbp_ai_system_api_log）
+│   │   │   │   └── access_trace/ # 接入调用追踪：nonce / 幂等台账 / 请求台账概览
+│   │   │   ├── kb/             # 知识库域：8 个功能目录，模型与 CRUD 已就绪，**暂无 controller**
+│   │   │   │   └── (chunk / publication / revision / parse_job / parse_result / dup_group / chat_session / chat_message)
+│   │   │   └── voice/          # 语音质检域：8 张表模型已就绪，**暂无 controller**（二期）
 │   │   ├── core/                # 数据库、依赖、异常、日志、审计路由类、校验器
+│   │   │   ├── rag/            # 解析/分片/向量存储/流水线/MinerU（契约 #01 与 #03 使用）
+│   │   │   ├── chat/           # 引用构造、重排、流式工具（纯函数，解耦业务模型）
+│   │   │   └── clients/        # LLM / Embedding / Rerank / MinerU 客户端
 │   │   ├── config/              # 路径常量 + Settings（多环境）
 │   │   ├── common/              # 常量、枚举、响应体、请求体
-│   │   ├── utils/               # banner、密码、通用工具
-│   │   └── alembic/             # 数据库迁移
+│   │   └── utils/               # banner、密码、通用工具
 │   ├── env/                     # 多环境配置：.env / .env.dev / .env.test / .env.prod ...
 │   ├── static/                  # 前端构建产物（/ui 托管）与后端静态资源
 │   ├── tests/                   # pytest 用例
@@ -51,9 +54,9 @@ service_brain_agent/                # 仓库根：前后端一体化工程
 │   └── pytest.ini / .python-version / banner.txt
 ├── frontend/                    # Vue 3 前端工程
 │   ├── src/
-│   │   ├── api/                 # 接口封装（module_system / module_monitor / module_integration）
+│   │   ├── api/                 # 接口封装（module_system / module_monitor）
 │   │   ├── layouts/             # 顶栏、页签、设置抽屉、布局骨架
-│   │   ├── views/               # dashboard、module_system、module_monitor、module_integration、error
+│   │   ├── views/               # dashboard、module_system、module_monitor、error
 │   │   ├── components/          # SectionCard、StatCard、JsonViewer、TaskStatusTag
 │   │   ├── assets/styles/       # SCSS：index / reset / variables / mixins
 │   │   ├── router/ store/ config/ hooks/ utils/ enums/
@@ -121,87 +124,49 @@ DATABASE_PASSWORD=Yidatec@2026!
 DATABASE_NAME=service_brain
 VECTOR_ENABLE=true
 VECTOR_DIM=1024                  # 须与 embedding 模型输出一致（bge-m3=1024）
-VECTOR_AUTO_CREATE=true          # 启动时幂等建扩展、分片表与 HNSW 索引
+VECTOR_AUTO_CREATE=true          # 启动时只建 vector 扩展；分片表由 kb 域 bootstrap 建
 ```
 
-向量存储（`backend/app/modules/integration/chunk/vector_store.py`）：启动时幂等建 `vector` 扩展、分片表与 HNSW 索引，为后续 RAG 能力预留。分片表结构尚未定稿（后续可能拆原文/向量表、补分类与权重列），因此暂寄在待集成区并带完整 CRUD 接口，定稿后整体迁入知识库域（表名改 `sbp_ai_kb_chunk`，路由前缀改 `/kb/chunk`）。
+向量落点：契约 #03 写入时由 `EmbeddingClient` 批量生成向量，直接落 `sbp_ai_kb_chunk.embedding`（`KbEntryService._build_chunk_rows`），维度不符整批拒绝、不入库。`core/rag/vector_store.py` 另有一套通用向量层（表 `sbp_ai_kb_vector_collection` / `sbp_ai_kb_vector_embedding`，SQLAlchemy Core 直接写 SQL，表名与索引名自持），当前**仅 `validate_embedding` 被调用**，`upsert_documents` / `search_documents` 等无真实消费方。解析链路（`contract/parse.py`）只做「解析 → 分片」（`core/rag/parse_and_chunk`），不负责向量化。
 
-集成期分片接口（`/api/v1/integration/chunk`，审计路由 `ApiLogRoute`）：
+### 对象存储（已下线）
 
-| 方法与路径 | 说明 |
-| --- | --- |
-| `GET /list` | 分页查询（`space_id` / `doc_id` / `content` 模糊，`page_no` 精确），不返回 embedding 列 |
-| `GET /detail/{id}` | 单条详情 |
-| `POST /create` | 新增分片：先查 `(space_id, doc_id, chunk_index)` 重复（409），再调 embedding 服务生成向量并校验维度 |
-| `PUT /update/{id}` | 更新；仅当 `content` 变化才重算向量，改页码/meta 不触发向量化 |
-| `DELETE /delete` | 批量物理删除（body 为 id 数组） |
-| `POST /search` | 余弦相似度检索（`query` / `space_id` / `doc_id` / `top_k` / `min_score`），`score = 1 - cosine_distance` |
+原 `S3StorageClient`（boto3 + IO 线程池）、`ensure_bucket`、`/integration/probe?target=s3` 自检端点**已随 `integration_kb` 域一起删除**，代码中不再有任何 S3 实现；契约 #01 改为 `file_url` 直拉，不落对象存储。
 
-向量由服务端调用 `EmbeddingClient` 生成，前端不传 embedding，避免脏向量；`VECTOR_ENABLE=false` 或未接 embedding 服务时，新增/搜索返回 503 并提示缺失变量。
-
-### 对象存储（MinIO / S3 兼容）
-
-文档原件与解析产物落对象存储，统一走 S3 协议（客户端：`backend/app/modules/integration/clients/s3.py`，boto3 + 阻塞 IO 线程池）；
-本地/私有化部署由 `devops/common-server` 的 `minio` 服务提供，客户端能力不依赖 MinIO 私有 API，日后换云厂商只改 endpoint 与凭据。
-
-```ini
-S3_ENABLE=true
-S3_ENDPOINT=http://192.168.29.120:39900   # 宿主进程直连；容器内改 http://service-brain-minio:9000
-S3_ACCESS_KEY=service-brain
-S3_SECRET_KEY=...                         # 密钥只写 env，不入库、不进代码
-S3_BUCKET=service-brain-dev               # 多环境共用一套 MinIO 时按桶名隔离
-S3_ADDRESSING_STYLE=path                  # MinIO 必须 path-style，virtual 会拼子域名直接失败
-S3_AUTO_CREATE=true                       # 启动时幂等建桶（与建向量表/审计表同一策略）
-IO_THREAD_POOL_SIZE=4                     # 对象存储上传/下载的线程池并发
-```
-
-客户端能力：`ensure_bucket()`（幂等建桶）、`put_object()` / `put_file()`（流式上传，不整份进内存）、`get_object()`、
-`object_exists()`、`delete_object()`、`list_keys()`（自动翻页）、`delete_prefix()`（按目录清理；批量接口被 S3 兼容实现拒掉时逐个删）、
-`presigned_url()`（预签名下载，host 即 `S3_ENDPOINT`）、`build_key()`
-（`{前缀}/{日期}/{uuid}_{文件名}`，避免同名覆盖）。
-
-上传/下载全部在独立 IO 线程池里执行，不占事件循环；与解析线程池分开，避免分钟级文档解析把上传堵在队列里。
-配置缺项时调用报 503 并点明该填哪个变量；`GET /api/v1/integration/probe?target=s3` 会真实建桶、写入探针对象、读回比对后删除。
+`S3_*` 与 `IO_THREAD_POOL_SIZE` 配置项仍保留在 `setting.py`，标注为「当前无消费方」，供文件上传能力重建时复用——**改这些值不会产生任何效果**。MinIO 编排（`devops/common-server/docker-compose-minio.yml`）仍在仓库内，但应用侧不再连接。
 更完整的编排口径（镜像、端口、凭据与运维命令）见 [devops/README.md 6.6](./devops/README.md)。
 
-### 集成期知识空间（上传 → 线程池解析 → 分片入库）
+### 知识库域现状（模型就绪，无 controller）
 
-表结构未定稿，先暂寄待集成区：`sbp_ai_integration_space`（空间）、`sbp_ai_integration_document`（文档），
-启动时由 `ensure_space_tables()` 幂等建表，并把上次进程中断留下的「解析中」改回「待解析」。
+kb 域 8 张表（`sbp_ai_kb_*`）由 `app/modules/kb/bootstrap.py` 在启动时幂等建好，CRUD 与服务层也在各功能目录内，但**没有任何 controller**，因此不存在 `/api/v1/kb/*` 端点。知识能力的唯一入口是 `/v1` 契约面（见下节）。
 
-```ini
-SPACE_UPLOAD_MAX_FILES=10      # 单次批量上传文件数上限
-SPACE_UPLOAD_MAX_SIZE_MB=50    # 单个文件大小上限，超限逐份报错、不回滚整批
-```
+原 `/api/v1/integration/space/*`（知识空间、文档上传/解析、产物预览）与 `/api/v1/integration/chunk/*`（分片 CRUD、相似度检索）**全部随模块删除**；`ensure_space_tables()`、`reset_interrupted_documents()`、`space/task.py` 任务登记表均不再存在。
 
-口径：
+进程重启后的中断恢复改为 `KbParseJobService.reset_unfinished()`（`KbParseJobCRUD.fail_unfinished()` 一条 UPDATE 批量改判 failed），不再有「解析中→待解析」的回退语义。
 
-1. 空间 `code` 就是分片表的 `space_id`，文档 `doc_id` 就是分片表的 `doc_id` —— 空间文档解析完可直接在「文档分片」页按这两个键查到分片；代价是 `code` 创建后不可修改；
-2. 上传只做「写对象存储 + 落库为待解析」，不自动解析：解析是分钟级动作，必须由用户显式提交，否则一个误传的大文件就会占满解析线程池；
-3. 解析任务走 `space/task.py` 的进程内任务登记表 + 独立会话：同一文档不并行解析、状态机（待解析 → 解析中 → 已完成/失败）只在任务里推进、关停时统一取消；
-4. 并发由信号量限制在 `PARSE_THREAD_POOL_SIZE`，解析/分片在解析线程池、向量化走异步 HTTP、写库用 `upsert_chunks` 按文档幂等覆盖（重跑不产生重复分片，重跑后条数变少会清掉多出来的尾块）；
-5. 删除是级联的：删文档/删空间都会连带删分片、对象存储原件与解析产物（`parsed/` 整目录），失败只告警不阻断；
-6. 解析产物键布局照搬知识库口径：`{S3_KEY_PREFIX}/spaces/{space}/{doc_id}/parsed/{full.md, content_list.json, images/*}`。键全部由 `space_id + doc_id` 推导，不新增文档表列；
-7. 产物落盘失败只告警、不影响分片入库（解析成功就不该记成失败）；反过来，文档在解析途中被删除时，任务回写状态会发现文档已不存在，随即撤销本次写出的分片与产物，不留无主数据。
+### 契约接入面 `/v1`
 
-| 接口 | 说明 |
-| --- | --- |
-| `GET /api/v1/integration/space/list` | 空间分页（附文档/分片统计） |
-| `GET /api/v1/integration/space/detail/{id}` | 空间详情 |
-| `POST /api/v1/integration/space/create` | 新建空间（`code` 唯一且不可变） |
-| `PUT /api/v1/integration/space/update/{id}` | 更新名称/说明 |
-| `DELETE /api/v1/integration/space/delete` | 删除空间（级联文档、分片、原件） |
-| `GET /api/v1/integration/space/document/list` | 文档分页（列表不加载 `preview`） |
-| `GET /api/v1/integration/space/document/detail/{id}` | 文档详情（含解析正文预览与失败原因） |
-| `POST /api/v1/integration/space/document/upload` | multipart 批量上传（`space_id` + `files`） |
-| `POST /api/v1/integration/space/document/parse` | 提交解析（`document_ids` 留空 = 空间全部待解析/失败，`force=true` 含已完成） |
-| `GET /api/v1/integration/space/document/markdown/{doc_id}` | 预览解析产物：Markdown 全文（图片引用重写为图片读取接口）+ 图片数 + 是否留存版面 JSON |
-| `GET /api/v1/integration/space/document/asset/{doc_id}/images/{name}` | 读取产物图片（带 `nosniff` 与 CSP sandbox；GET 不进审计日志） |
-| `DELETE /api/v1/integration/space/document/delete` | 删除文档（级联分片、原件与解析产物） |
+由 `app/contract/` 提供，`CONTRACT_V1_ENABLE=true` 时经 `register_contract(app)` 挂载（独立于 `/api/v1` 管理面）。所有端点统一走签名 + nonce + 幂等 + 审计链路（`ContractApiRoute`），即使骨架端点也已具备这三层保护；签名与错误码口径见 `00-document/01-.../05-接口契约与数据基线/`。
 
-### 模型服务（待集成区 `app/modules/integration`）
+| 端点 | 状态 | 说明 |
+| --- | --- | --- |
+| `POST /v1/parse/jobs` | ✅ 已实现 | #01 提交解析任务：`file_url` 同步拉取、10MB/类型校验、解析在线程池执行 |
+| `GET /v1/parse/jobs/{job_id}` | ✅ 已实现 | #02 查询解析进度与完整结果 |
+| `POST /v1/knowledge/entries` | ✅ 已实现 | #03 首次发布写入正式切片（含 embedding 落库） |
+| `PUT /v1/knowledge/entries/{publication_id}` | ✅ 已实现 | #05 修订：版本切换 / 单片删除 |
+| `DELETE /v1/knowledge/entries/{publication_id}` | ✅ 已实现 | #06 整单删除 |
+| `POST /v1/knowledge/entries/{id}/query` | ⛔ 骨架 501 | #04 读取当前生效基线 |
+| `POST /v1/knowledge/search` | ⛔ 骨架 501 | #07 关键词 / 自然语言检索 |
+| `/v1/chat/sessions*`（#08–#13） | ⛔ 骨架 501 | 会话创建、分页、详情、改标题、删除、清空历史 |
+| `POST /v1/chat/completions`、`/chat/requests/{id}/query` | ⛔ 骨架 501 | #14/#15 非流式问答、超时结果查询 |
+| `/v1/knowledge/duplicates/*`（#16–#19） | ⛔ 骨架 501 | 查重、分组查询、分组详情、合并预览 |
+| `POST /v1/knowledge/entries/{id}/deactivate` | ⛔ 骨架 501 | #20 停用已生效知识 |
 
-集成本地/私有化模型时按需填写，缺省留空即视为“未接入”，调用时报 503 并提示该填哪个变量，不做静默降级：
+骨架端点返回 `501` + `INTERNAL_ERROR`（`retryable=false`），并在错误体里原样带回 `request_id`——这是刻意设计的明确信号，不是路由缺失。业务实现随 Tx 逐个替换，契约形状不变。
+
+### 模型服务（LLM / Embedding / Rerank）
+
+客户端实现位于 `app/core/clients/`（`llm.py` / `embedding.py` / `rerank.py` / `mineru.py`），均为独立 HTTP 客户端，不依赖业务模块。按需填写配置，缺省留空即视为“未接入”，调用时报 503 并提示该填哪个变量，不做静默降级：
 
 ```ini
 # 大语言模型（OpenAI 兼容：DeepSeek 直连 / 自建 vLLM / Azure 网关）
@@ -236,7 +201,7 @@ MINERU_OCR=true                  # 扫描件必须开
 MINERU_LANGUAGE=ch
 ```
 
-解析器分工（`app/modules/integration/pipeline/`）：
+解析器分工（`app/core/rag/parsers.py` + `app/core/rag/mineru.py`）：
 
 | 文件类型 | 处理方式 |
 | --- | --- |
@@ -250,9 +215,17 @@ MinerU 返回的 `content_list` 会转成「文本 → 页码」映射，分片�
 1. **flash 与 precise 差别很大**：未配 `MINERU_API_TOKEN` 走 flash，只回 Markdown —— 既没有 `content_list`（页码只能留空），也没有图片（落不了 `content_list.json` / `images/`）。要页码与完整产物必须配 token 走 precise；
 2. MinerU 的提交+轮询是分钟级阻塞调用，一律在解析线程池里执行，不占事件循环。
 
-解析完成后 `full.md`、`content_list.json` 与图片一并落对象存储（键布局见上一节第 6 条），前端详情弹窗的「解析产物预览」直接读桶里的 Markdown 渲染，图片走 `/document/asset/...` 接口；历史文档需在页面点「强制重新解析」才会补上页码与产物。
+解析产物当前**不落对象存储**（S3 客户端已删除），`full.md` / `content_list.json` / 图片仅作为契约 #01/#02 的返回载荷存在；解析结果的正本落在 `sbp_ai_kb_parse_result` 与 `sbp_ai_kb_chunk`。原「解析产物预览」弹窗与 `/document/asset/...` 图片接口已随前端页面一起删除。
 
-联调前先跑自检：`GET /api/v1/integration/probe?target=all`（可选 `llm`/`embedding`/`rerank`/`mineru`/`pipeline`），逐项返回 `configured`（是否已配置）、`ok`、耗时与错误原因；`mineru` 与 `pipeline` 项只做静态检查（SDK 是否安装、模式、解析器是否接管后缀、分片参数、向量存储可用性），不触达外部服务。
+联调验收用 `app/contract/verify_m1.py`（服务已启动后执行，退出码非 0 即验收不达标）：
+
+```bash
+# 在 backend/ 下执行
+.venv/Scripts/python.exe -m app.contract.verify_m1 --base-url http://127.0.0.1:8002
+# 需要把验收记录写成 Markdown 时追加：--record <输出路径>
+```
+
+它用 Mock GSI 四头签名打通 20 条 `/v1` 路由，逐条断言签名/nonce/错误码，并直连核对审计与幂等台账。原 `GET /api/v1/integration/probe` 集成自检端点已随模块删除。
 
 ### 前端环境
 
@@ -267,10 +240,10 @@ MinerU 返回的 `content_list` 会转成「文本 → 页码」映射，分片�
 | --- | --- | --- |
 | `/dashboard` | 运行总览 | Hero 检索、指标条、最近任务（示例数据）、快捷入口、后端服务信息 |
 | `/system/log` | 日志审计 | 对接 `/api/v1/system/api-log`，分页查询、条件筛选、详情、批量删除、按天数清理 |
+| `/system/trace` | 接入调用追踪 | 概览指标 + 调用明细（`api_log` 按 `request_id` 精确匹配）、防重放登记（`nonce`）、幂等台账、按 `request_id` 的调用链路时间线 |
 | `/monitor/endpoint` | 接口自检 | 接口清单 + 逐个探测，JSON 展示响应与耗时 |
-| `/integration/space` | 知识空间 | 空间增删改（`code` 即分片 `space_id`）、批量上传文档到对象存储、提交解析（选中/全部/强制）、按状态轮询进度、详情看解析预览与失败原因 |
-| `/integration/probe` | 集成自检 | LLM / 向量化 / 重排 / 对象存储 / MinerU / 流水线卡片式自检，展示是否已配置、耗时与失败原因 |
-| `/integration/chunk` | 文档分片 | 分片分页查询、新增/编辑/批量删除（meta 用 JSON 录入）、余弦相似度检索 |
+
+> 原 `/integration/space`（知识空间）、`/integration/probe`（集成自检）、`/integration/chunk`（文档分片）三个页面已随模块删除，前端 `views/module_integration` 与 `api/module_integration` 目录均不存在。
 
 布局与交互：
 
@@ -298,9 +271,11 @@ MinerU 返回的 `content_list` 会转成「文本 → 页码」映射，分片�
 ## 后端要点
 
 - 路由注册：`register_routers()` 只挂载 `backend/app/api/v1/routers.py` 的 `api_v1`；新增业务模块时在 `backend/app/modules/<域>/<功能>/controller.py` 定义 Router，再到 `DOMAIN_CONTROLLERS` 登记，不做包扫描自动注册
-- 命名口径：表名 `sbp_ai_[域缩写]_[业务名]`（`system` / `kb` / `voice`），与目录、模型类一一对应，详见 `backend/app/modules/__init__.py`
-- 待集成区：`app/modules/integration` 不是业务域，承接还没定稿的能力（模型客户端、S3 对象存储、MinerU 解析、解析/IO 线程池、文档流水线、知识空间、分片与向量存储）。依赖方向单向——integration 可引用业务域，业务域禁止 import integration；某个能力调通后整体搬进目标业务模块并删除本域实现，不必留转发薄壳。当前提供 `GET /api/v1/integration/probe` 自检端点、`/api/v1/integration/space` 知识空间与文档上传/解析、`/api/v1/integration/chunk` 分片 CRUD
-- 解析生命周期：解析任务跑在请求之外，用 `async_session_factory` 自开短事务回写状态；启动时 `reset_interrupted_documents()` 把残留「解析中」改回「待解析」，关停时先 `cancel_all()` 再关 IO/解析线程池，避免半截分片写库
+- 命名口径：表名 `sbp_ai_[域缩写]_[业务名]`（`system` / `kb` / `voice`），与目录、模型类一一对应，详见 `backend/app/modules/__init__.py`。当前共 **24 张**：kb 8（`chunk`/`publication`/`revision`/`parse_job`/`parse_result`/`dup_group`/`chat_session`/`chat_message`）、system 6（`api_log`/`nonce`/`idempotency`/`request_log`/`auth_cache`/`prompt_template`）、voice 8、通用向量层 2（`kb_vector_collection`/`kb_vector_embedding`，由 `core/rag/vector_store.py` 懒建，非 ORM 模型）
+- 域收敛：`app/modules/` 只有 `kb` / `system` / `voice` 三个正式域，无过渡域。`bootstrap.py` 按 `kb → system → voice` 顺序建表（kb 在前，因分片表含 pgvector 列，须待 vector 扩展就绪）
+- 契约链路：`app/contract/` 自成一套接入层——`ContractApiRoute` 负责请求级审计，`deps.py` 的幂等守卫按 `reserve → processing → complete/release` 状态机推进，异常路径用 `asyncio.shield` 保证释放动作不被取消吞掉
+- 解析生命周期：解析任务跑在请求之外，用 `async_session_factory` 自开短事务回写状态；进程重启后由 `KbParseJobService.reset_unfinished()` 把残留「解析中」批量改判 `failed`（不再有「回退待解析」语义）
+- 事务出口：`db_getter` 显式三分支——正常 commit / 契约失败标记命中则 rollback / 异常 rollback 后上抛，避免契约路由吞异常导致请求级事务「错误提交」
 - 异常出口：`create_app` 内注册 `handle_exception`，`CustomException` 统一转成 `{code, success, msg, data}`；`ENVIRONMENT=prod` 时不回显异常细节。未注册时所有异常都会退化成 500，前端拿不到 409/503 等可读提示
 - 审计开关：`API_LOG_*`（接口审计日志，落表 `sbp_ai_system_api_log`）
 - 前端托管：`app.frontend("/ui", directory=STATIC_DIR, fallback="index.html")`，支持前端 history 路由直达
@@ -315,6 +290,8 @@ uv run ruff check .        # 静态检查
 uv run ruff format .       # 格式化
 cd ../frontend && npm run build   # 前端构建校验
 ```
+
+当前基线：**80 passed**（`test_access_trace` 9 / `test_chat_cite` 4 / `test_db_getter_transaction` 3 / `test_idempotent_guard_release` 6 / `test_security_signature` 12 / `test_v1_contract` 35 / `test_v1_knowledge_entries` 11）。全量用例不依赖真实 PostgreSQL（用 aiosqlite + monkeypatch 会话工厂，或桩替换幂等台账），可直接在 CI 跑。
 
 ## 部署（Docker Compose）
 
@@ -342,4 +319,4 @@ devops/scripts/manual/rollback.sh prod 20261025213000
 - `backend/env/` 是配置目录（不是虚拟环境），不要加入 `.gitignore`
 - 默认主题色在 `index.html` 首屏脚本中预置，避免闪蓝；若浏览器 localStorage 存有旧主题色，可在「界面设置 → 恢复默认设置」后生效
 - 服务端口以 `backend/main.py` 为准（8002）；`backend/env` 中的 `HOST`/`PORT` 便于外部部署时对齐
-- 仓库根目录 `00-document/`、`01-document-AI Agent/` 为配套学习笔记，与运行无关
+- 项目文档集中在 `00-document/`，入口见 [`00-document/README.md`](00-document/README.md)（目录划分、命名规范、文档归属判定）；文档与运行代码解耦，不参与构建与启动

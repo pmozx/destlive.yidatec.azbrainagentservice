@@ -17,13 +17,13 @@ dependencies = [
     "httpx>=0.28.1,<1",
     "loguru>=0.7.3,<1",
     "rich>=15.0.0,<16",
-#    "pgvector>=0.3.6,<0.4",                   # langchain-postgres 约束 <0.4（原手写向量层用 0.5.x）
+    "pgvector>=0.3.6,<0.4",                   # Vector 列类型（kb 分片表 embedding 列；向量存取走原生 SQL）
+    "psycopg[binary]>=3.2,<4",                # PostgreSQL 驱动：向量层连接池 + LangGraph checkpointer（binary 自带 libpq）
     "langchain>=1.4,<2",                      # LangChain 1.4 智能体框架（create_agent / langgraph astream）
     "langgraph>=1.2.18,<2",                    # StateGraph 显式编排（文档流水线与问答链路）
     "langchain-openai>=1.7.3,<2",              # ChatOpenAI(DeepSeek 兼容模式) + OpenAIEmbeddings
     "langchain-ollama>=1.1,<2",                # OllamaEmbeddings（EMBEDDING_PROTOCOL=ollama 私有化部署）
     "langchain-text-splitters>=1.1,<2",        # RecursiveCharacterTextSplitter（文档分片）
-    "langchain-postgres>=0.0.19,<0.1",          # PGVector 向量库（分片表 + 余弦检索，psycopg v3 驱动）
     "langgraph-checkpoint-postgres>=3.2,<4",    # PostgresSaver（文档流水线断点续跑）
     "pydantic-settings>=2.16,<3",
     "pydantic[email]>=2.14,<3",
@@ -34,7 +34,6 @@ dependencies = [
     "uvicorn[standard]>=0.54,<1",
     "mineru-open-sdk>=0.2.5,<0.3",
     "boto3>=1.43.120,<2",                      # 补丁版交给 lock，不钉死 patch 以免每次发布都要改
-    "alembic>=1.20,<2",
 ]
 
 [tool.uv]

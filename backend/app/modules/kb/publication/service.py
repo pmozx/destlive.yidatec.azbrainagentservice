@@ -18,7 +18,7 @@ from app.core.clients.embedding import EmbeddingClient
 from app.core.database import async_session_factory
 from app.core.exceptions import CustomException
 from app.core.logger import logger
-from app.modules.integration_kb.chunk.vector_store import validate_embedding
+from app.core.rag.vector_store import validate_embedding
 
 from ..chunk.crud import KbChunkCRUD
 from ..revision.crud import KbRevisionCRUD

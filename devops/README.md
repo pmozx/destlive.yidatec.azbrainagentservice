@@ -62,8 +62,8 @@ build（门禁校验） → package（构建并推送镜像） → deploy（dock
 | 容器端口   | 容器内固定 8001，宿主机端口由 `BACKEND_PORT` 控制       | 容器内固定 **8002**，宿主机端口由 `APP_PORT` 控制（与 `main.py` 默认一致） |
 | 启动方式   | 入口脚本 `python main.py run --env=<env>`               | 入口脚本 `python -m uvicorn app:create_app --factory`（关掉热重载） |
 | 中间件     | `devops/common-server`（MySQL + Redis + Milvus）        | `devops/common-server`（**PostgreSQL 17 + pgvector + MinIO + Ollama / llama.cpp 模型服务**，可选用） |
-| 数据与向量 | 业务库 MySQL + 向量库 Milvus 两套存储                   | **单库合流**：业务表、知识空间表（`sbp_ai_integration_space` / `_document`）与向量表（`sbp_ai_integration_chunk`）同在 PostgreSQL，靠 pgvector 检索 |
-| 对象存储   | 业务库 MySQL + 向量库 Milvus                            | **MinIO（S3 协议）**：文档原件与解析产物落桶，镜像锁 RELEASE，应用侧走 boto3 + path-style |
+| 数据与向量 | 业务库 MySQL + 向量库 Milvus 两套存储                   | **单库合流**：业务表与向量表（`sbp_ai_kb_chunk`，含 `embedding vector` 列）同在 PostgreSQL，靠 pgvector + HNSW 检索 |
+| 对象存储   | 业务库 MySQL + 向量库 Milvus                            | ~~**MinIO（S3 协议）**：文档原件与解析产物落桶~~ **当前应用侧不使用**（客户端已随 integration 域删除，编排保留待重建） |
 
 ---
 
@@ -78,7 +78,7 @@ service_brain_agent/
 ├── .gitignore                              # 忽略 image_tag.txt、devops/**/*.env、devops/data/ 等
 ├── backend/                                # 后端工程：应用代码、依赖、运行目录与多环境配置
 │   ├── main.py                             # 启动入口（默认 0.0.0.0:8002，本地热重载）
-│   ├── app/                                # api / modules / core / config / common / utils / alembic
+│   ├── app/                                # api / modules / core / config / common / utils
 │   ├── env/                                # 多环境配置 .env / .env.<dev|test|uat|prod>（入库模板）
 │   ├── static/                             # 前端构建产物（/ui 托管）+ 后端静态资源
 │   ├── logs/  data/                        # 运行日志、SQLite 数据文件（gitignore）
@@ -228,7 +228,7 @@ devops/scripts/manual/rollback.sh prod 20261025213000
 
 - 两者都走同一套 `deploy-defaults.sh` + `deploy.sh`，与 CI 完全一致的配置来源与发布路径；
 - compose 没有 Deployment 版本历史，**回滚 = 用历史 tag 重放部署**；
-- 回滚不改数据库结构：若目标版本早于最近的表结构变更，需人工确认 DDL 可回退性（本工程暂未接入 Alembic 迁移链，表结构变更需随发布单独评审）。
+- 回滚不改数据库结构：若目标版本早于最近的表结构变更，需人工确认 DDL 可回退性（本工程不使用数据库迁移，表结构变更需随发布单独评审）。
 
 ### 6.3 中间件与模型服务：自建数据库 / MinIO / Ollama / llama.cpp（可选）
 
@@ -256,7 +256,8 @@ docker compose -f devops/common-server/docker-compose-agent.yml up -d      # 向
 
 镜像 `pgvector/pgvector:pg17` 自带 pgvector 扩展（实测 0.8.7）。`initdb/00-init.sql` 在数据目录**首次**初始化时执行
 `CREATE EXTENSION IF NOT EXISTS vector`；数据卷已存在时会跳过 initdb，此时由应用启动阶段按 `VECTOR_AUTO_CREATE`
-幂等补建（实现在 `app/modules/integration/chunk/vector_store.py`）。两条路径均幂等，重复执行无副作用。
+幂等补建（实现在 `app/core/table_bootstrap.py` 的 `ensure_pgvector_extension()`，lifespan 第一顺位执行）。两条路径均幂等，重复执行无副作用。
+扩展就绪后才轮到各域建表（`kb → system → voice`），否则 `sbp_ai_kb_chunk` 的 `vector` 列与 HNSW 索引会建失败。
 
 自建后把 `backend/env/.env.<env>` 指向容器名即可（与中间件同在 `service-brain-agent` 网络）：
 
@@ -282,29 +283,33 @@ VECTOR_AUTO_CREATE=true
 
 ### 6.4 向量存储（pgvector）
 
-分片表 `sbp_ai_integration_chunk`：`space_id` / `doc_id` / `chunk_index` 唯一约束（重复向量化幂等覆盖）、`content` 原文、
-`embedding vector(<VECTOR_DIM>)`、`meta jsonb`，索引为 HNSW + `vector_cosine_ops`（m=16, ef_construction=64）。
+分片表 `sbp_ai_kb_chunk`（kb 域正式表，由 `app/modules/kb/bootstrap.py` 在建扩展后创建）：
+`publication_id` / `record_id` / `revision` / `seq` 定位切片，`content` 原文、`embedding vector(<VECTOR_DIM>)`、
+`content_hash` 去重、`status` 生效标记，索引为 HNSW + `vector_cosine_ops`（m=16, ef_construction=64）。
 
-表结构尚未定稿（后续可能拆原文/向量表、补分类与权重列），因此当前寄存在待集成区
-（`app/modules/integration/chunk/vector_store.py`），并已挂 `/api/v1/integration/chunk` 的 CRUD 与检索接口；
-定稿后整体迁入知识库域，表名改回 `sbp_ai_kb_chunk`、路由改 `/kb/chunk`。
+写入链路：契约 #03/#05 → `KbEntryService._build_chunk_rows` → `EmbeddingClient.embed_texts` 批量向量化 →
+`validate_embedding` 校验维度 → `KbChunkCRUD.insert_many` 落库。**维度不符或条数不一致整批拒绝，不留半截数据**。
 
-服务层函数：
-
-| 能力 | 函数 | 说明 |
-| ---- | ---- | ---- |
-| 建扩展/表/索引 | `ensure_vector_store()` | 启动时幂等执行，数据库不可用时只告警不阻断启动 |
-| 幂等写入 | `upsert_chunks()` | 按 (space_id, doc_id, chunk_index) 覆盖，写入前校验维度 |
-| 相似度召回 | `search_chunks()` | 余弦召回，支持 `space_id` / `doc_id` 过滤、`top_k`、`min_score` |
-| 按文档删除 | `delete_chunks()` | 按 `doc_id`（可选 `space_id`）清理整篇分片 |
+> **两套向量表的分工**（务必分清，不要两套并存写同一份数据）：
+>
+> | 表 | 归属 | 现状 |
+> | --- | --- | --- |
+> | `sbp_ai_kb_chunk` | kb 域业务表 | 契约 #03/#05 的**唯一写入落点**，带完整业务字段（`publication_id`/`revision`/`seq` 等） |
+> | `sbp_ai_kb_vector_collection`<br>`sbp_ai_kb_vector_embedding` | `app/core/rag/vector_store.py` 的通用向量层 | **无消费方**，仅 `validate_embedding` 被 `kb/publication/service.py` 复用；表由首次读写懒建，也可显式调 `ensure_vector_store(collection)` 预建 |
+>
+> 通用向量层不 import 任何业务模型：一套表 + 按 collection 名逻辑隔离，业务字段全部落在 `cmetadata`（JSONB，
+> `jsonb_path_ops` GIN 索引），向量索引为 HNSW + `vector_cosine_ops`（m=16, ef_construction=64）。
+>
+> **为什么不用 langchain-postgres 的 `PGVector`**：它把表名硬编码成 `langchain_pg_collection` /
+> `langchain_pg_embedding`，构造参数无法覆盖，与「表名必须 `sbp_ai_` 开头」的强规范冲突。2026-11-02 起该依赖已移除，
+> 改为 SQLAlchemy Core 直接写 SQL（表名、索引名、维度全部本模块自持），库里原 `langchain_pg_*` 两张表已删除。
 
 - **分数口径**：`score = 1 - cosine_distance`，越大越相似；阈值需按实际 embedding 模型重标，不要跨模型复用；
-- **embedding 由调用方生成**：本工程只做维度校验与存取，不绑定模型供应商；自建模型服务见 6.5；
-- **维度不可原地变更**：`sbp_ai_integration_chunk` 的向量列类型在进程导入期定型，`VECTOR_DIM` 改动后启动时会检测到表维度不一致并报错，
-  需新建表/库并重新灌入（与第 9 节限制一致）；
-- **审计口径**：向量写入属高频批量路径，批量写入函数不挂 `ApiLogRoute`；`/api/v1/integration/chunk` 的 CRUD 端点一次性操作单条/少量分片，保留审计。
-- **旧表清理**：从 `sbp_ai_kb_chunk` 迁到 `sbp_ai_integration_chunk` 后，旧表不再被引用。dev 环境可直接 `DROP TABLE` 重建；
-  若需保留历史数据，`ALTER TABLE sbp_ai_kb_chunk RENAME TO sbp_ai_integration_chunk` 后重建 HNSW 索引（索引名已改为 `ix_sbp_ai_integration_chunk_embedding_hnsw`）。
+- **embedding 由服务端生成**：本工程只做维度校验与存取，不绑定模型供应商；自建模型服务见 6.5；
+- **维度不可原地变更**：`sbp_ai_kb_chunk.embedding` 与 `sbp_ai_kb_vector_embedding.embedding` 的列类型在进程导入期定型，
+  `VECTOR_DIM` 改动后启动时会检测到维度不一致并报错，需新建表/库并重新灌入（与第 9 节限制一致）；
+- **审计口径**：向量写入属高频批量路径，批量写入函数不挂 `ApiLogRoute`；只有契约入口的请求级审计。
+- **表结构变更**：本工程不使用迁移工具，`bootstrap.py` 只 `create` 不 `alter`；改列需手工 DDL + 发布评审。
 
 ### 6.5 模型服务：Ollama 向量化 + llama.cpp 重排序（可选）
 
@@ -350,9 +355,12 @@ curl -fsS http://service-brain-rerank:8001/v1/rerank \
 > - **模型来源**：rerank GGUF 默认从 `hf-mirror.com` 下载（国内直连 huggingface.co 通常不通），可用 `RERANK_MODEL_URL`
 >   指向 ModelScope、内网制品库或其他镜像站地址。
 
-### 6.6 对象存储：MinIO（S3 兼容，可选）
+### 6.6 对象存储：MinIO（S3 兼容，可选，**应用侧当前不使用**）
 
-`devops/common-server/docker-compose-minio.yml` 提供 S3 兼容对象存储，用于存放文档原件与解析产物：
+> **状态变更**：`S3StorageClient` 已随 `integration_kb` 域删除，应用代码中不再有任何 S3 实现，契约 #01 改为 `file_url` 直拉。
+> 本节的编排仍保留在仓库内供文件上传能力重建时复用，但**当前发布无需拉起 MinIO**，`S3_*` 配置改了也不产生效果。
+
+`devops/common-server/docker-compose-minio.yml` 提供 S3 兼容对象存储（原用于存放文档原件与解析产物）：
 
 | 项 | 值 |
 | --- | --- |
@@ -395,30 +403,15 @@ S3_AUTO_CREATE=true                            # 启动时幂等建桶
 >   批量接口会回 `MissingContentMD5`；客户端已退化为逐个 `delete_object`，日志里会有一条 warning（属预期降级，不是故障）；
 > - **镜像名**：是 `minio/minio`（不是 `milvusdb/minio`），Milvus 官方编排引用的也是 `minio/minio` 的同一 RELEASE 构建。
 
-### 6.7 知识空间表（上传与线程池解析）
+### 6.7 知识空间表（**已删除**）
 
-知识空间与文档表同样暂寄待集成区，应用启动时 `ensure_space_tables()` 幂等建表（`checkfirst=True`，只建这两张表、不改其它表结构）：
+原 `sbp_ai_integration_space`（知识空间）与 `sbp_ai_integration_document`（空间文档）两张表、`ensure_space_tables()` 建表逻辑、
+`space/task.py` 进程内任务登记表，均随 `integration_kb` 模块**整体删除**。dev 环境已核验：`public` schema 中**不存在任何名字含
+`integration` 的表**，`sbp_ai_*` 恰为 22 张（kb 8 / system 6 / voice 8），与代码模型一一对应。
 
-| 表 | 用途 | 关键约束 |
-| --- | --- | --- |
-| `sbp_ai_integration_space` | 知识空间 | `code` 唯一；它同时是分片表的 `space_id`，创建后不可修改 |
-| `sbp_ai_integration_document` | 空间文档 | `doc_id` 唯一；`space_id + status` 索引（列表按空间+状态过滤） |
-
-> - **原件不入库**：文档字节只落对象存储（见 6.6），库里只留 `object_key`；上传只做「写桶 + 落库为待解析」，
->   解析必须显式提交（选中 / 整空间 / 强制重跑），避免误传大文件直接占满解析线程池；
-> - **状态机**：`0 待解析 / 1 解析中 / 2 已完成 / 3 失败`，只在 `space/task.py` 里推进；任务跑在请求之外，
->   用独立会话回写，服务重启时会把残留「解析中」改回「待解析」并附提示原因；
-> - **并发口径**：进程内信号量把同时在解析的文档数限制在 `PARSE_THREAD_POOL_SIZE`，解析/分片在解析线程池，
->   向量化是异步 HTTP，写库按 `doc_id` 幂等覆盖；
-> - **单副本前提**：任务登记表在进程内存里。多副本部署时同一文档可能被两个实例同时解析——不会写重复分片，
->   但会重复消耗模型资源；需要水平扩展时先把任务落表并换分布式队列；
-> - **级联删除**：删文档/删空间会连带删分片、原件与解析产物（失败只告警），所以“删不掉”不会成为无法收拾的状态；
-> - **解析产物**：解析完成才落 `full.md` / `content_list.json` / `images/*`，落盘失败只告警——分片已入库就算解析成功，
->   前端详情弹窗的「解析产物预览」直接读桶里的 Markdown（图片走 `/document/asset/...` 接口），没产物的旧文档提示「先提交解析」；
-> - **页码依赖 precise**：`MINERU_API_TOKEN` 为空走 flash，只回 Markdown（无 `content_list`），分片 `page_no` 只能留空，
->   按页码分页查不到数据；配了 token 走 precise 才有版块信息与图片，历史文档需在页面点「强制重新解析」补页码；
-> - **解析途中被删**：删除只清「当时已有」的数据，正在跑的解析随后还会写一份，所以任务回写状态时会发现文档已不存在，
->   随即按 `doc_id` 撤销本次分片与 `parsed/` 产物，不留无主数据。
+原「上传 → 写桶 → 落库待解析 → 显式提交解析」的编排队列、级联删除、解析产物落桶、按 `space_id`/`doc_id` 查分片等口径**全部作废**。
+解析任务的新落点是 `sbp_ai_kb_parse_job` + `sbp_ai_kb_parse_result`，状态机由 `KbParseJobService` 推进，进程重启后残留「解析中」批量改判 `failed`
+（`KbParseJobService.reset_unfinished()`），不再回退为「待解析」。
 
 ### 6.8 运维常用命令
 
@@ -448,7 +441,7 @@ docker compose -f devops/common-server/docker-compose-minio.yml down
 docker compose -f devops/common-server/docker-compose-postgres.yml down
 ```
 
-### 6.7 独立服务器部署（只上传 devops）
+### 6.9 独立服务器部署（只上传 devops）
 
 适用场景：目标机只装了 docker 与 docker compose（无 git、无 Python、无源码构建链），镜像已由 Jenkins 构建并推送，手上只有构建输出的 `image_tag`。
 
@@ -657,7 +650,7 @@ bash devops/scripts/manual/deploy.sh prod <image_tag>
 | 限制                                   | 影响                                                     | 后续做法                                                       |
 | -------------------------------------- | -------------------------------------------------------- | -------------------------------------------------------------- |
 | 仅 compose、单副本                     | 更新期间容器重启，服务短暂中断（数秒）                   | 需要零中断或集群化时，在 `deploy.sh` 增加 `DEPLOY_MODE=k8s` 分支 |
-| 无数据库迁移链                         | 表结构变更无版本管理，回滚不覆盖 DDL                     | 接入 Alembic（`backend/app/alembic/versions` 目录已就位）并在启动前执行 `upgrade head` |
+| 无数据库迁移链                         | 表结构变更无版本管理，回滚不覆盖 DDL                     | 表结构由启动期各域 bootstrap 幂等建表（仅补缺表）；如需版本管理再引入迁移工具 |
 | 前端 lock 未入库                       | 同一 commit 两次构建可能得到不同前端依赖版本             | 提交 `package-lock.json` 并改 `npm ci`                          |
 | 健康检查不探 DB                        | `/healthz` 只反映进程存活，数据库不可用时仍报健康        | 需要就绪探针时，新增 `/readyz` 校验 `get_db_version()`          |
 | 单机 bind 挂载日志                     | 日志随宿主目录增长，需宿主侧轮转                         | 已启用 loguru 按日轮转（保留 30 天），必要时接入集中日志采集     |

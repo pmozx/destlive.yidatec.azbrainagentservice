@@ -93,7 +93,7 @@ class Settings(BaseSettings):
     # ==================== 向量存储配置（pgvector） ====================
     VECTOR_ENABLE: bool = Field(default=True, description="是否启用 pgvector 向量存储（仅 DATABASE_TYPE=postgres 生效）")
     VECTOR_DIM: int = Field(default=1024, description="向量维度，须与 embedding 模型输出一致（bge-m3 为 1024）")
-    VECTOR_AUTO_CREATE: bool = Field(default=True, description="启动时自动创建 vector 扩展、PGVector 表与 HNSW 索引")
+    VECTOR_AUTO_CREATE: bool = Field(default=True, description="首次读写向量表时幂等创建 vector 扩展、向量表与 HNSW 索引")
     CHECKPOINT_ENABLE: bool = Field(
         default=True, description="是否启用 LangGraph PostgresSaver 断点（文档流水线节点级快照，DB 非 postgres 时自动跳过）"
     )
@@ -124,7 +124,9 @@ class Settings(BaseSettings):
     PARSE_CHUNK_SIZE: int = Field(default=800, description="默认分片长度（字符数）")
     PARSE_CHUNK_OVERLAP: int = Field(default=120, description="默认相邻分片重叠字符数，须小于分片长度")
 
-    # ==================== AI 问答检索生成配置（app/modules/integration_chat） ====================
+    # ==================== AI 问答检索生成配置（当前无消费方，待 #07/#14 在 kb 域重建） ====================
+    # 原消费方 app/modules/integration_chat 已随模块删除；这些策略参数保留为重建时的口径基线，
+    # 重建完成前改它们不会产生任何效果（KB_RETRIEVE_TOP_K / KB_LLM_TIMEOUT 目前零引用）。
     # 模型本身不再建表配置：LLM_* / EMBEDDING_* / RERANK_* 即运行时唯一来源，
     # 此处只保留「检索与生成策略」参数，换模型无需改代码。
     KB_RETRIEVE_TOP_K: int = Field(default=20, description="向量召回候选条数（精排前的粗排窗口）")
@@ -161,6 +163,8 @@ class Settings(BaseSettings):
     MINERU_LANGUAGE: str = Field(default="ch", description="文档语言代码（ch/en 等，影响 OCR 识别）")
 
     # ---- S3 兼容对象存储（当前对接自建 MinIO）----
+    # 【当前无消费方】S3StorageClient 随 integration_kb 删除，契约 #01 走 file_url 直拉不落 S3；
+    # 配置保留供文件上传能力重建时复用，重建前改它们不产生任何效果。
     # 走 S3 协议而不是 MinIO 私有 API：日后换云厂商只改 endpoint 与凭据；
     # endpoint 留空 = 未接入，调用时抛可读 503。MinIO 必须 path-style 寻址。
     S3_ENABLE: bool = Field(default=False, description="是否启用对象存储（文档原件/解析产物）")

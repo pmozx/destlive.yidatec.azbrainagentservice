@@ -1,36 +1,39 @@
-"""pgvector 向量存储（langchain-postgres 的 ``PGVector``）：建表/索引、幂等写入、余弦检索。
+"""pgvector 向量存储：建表/索引、幂等写入、余弦检索、分页浏览。
 
 设计约定：
 1. 仅 PostgreSQL + pgvector 可用；其它数据库调用即报错，不做静默降级，
    避免「看起来写入成功、实际检索不到」的隐性故障；
-2. 一套通用表（``langchain_pg_collection`` / ``langchain_pg_embedding``）+ 按 collection 名隔离，
+2. 表名遵循项目强命名规范 ``sbp_ai_[域]_[业务名]``：``sbp_ai_kb_vector_collection``（集合元数据）
+   与 ``sbp_ai_kb_vector_embedding``（向量行）。一套表 + 按 collection 名逻辑隔离，
    业务字段全部落在 ``cmetadata``（JSONB，自带 GIN 索引），本模块不 import 任何业务模型；
-3. **驱动与线程模型**：PGVector 只支持 psycopg v3，且 psycopg 的异步模式不接受 Windows 默认的
-   Proactor 事件循环；建扩展语句又是「多条 SQL 拼一次执行」（asyncpg 直接报
-   "cannot insert multiple commands into a prepared statement"）。因此：
-   - 向量库单独用 psycopg 的**同步**连接池（与会走 asyncpg 的业务表完全隔离）；
-   - 对外仍是 async 函数，内部 ``asyncio.to_thread`` 丢进线程池，事件循环不被阻塞，
-     与项目里 ``run_in_parse_pool`` 处理阻塞调用的口径一致；
-4. 主键由调用方给**确定性 id**（同一文档重跑得到同一 id）：PGVector 的
-   ``add_embeddings`` 是 ``INSERT ... ON CONFLICT (id) DO UPDATE``，天然幂等，
-   不需要业务侧维护唯一约束，也不用「先删后插」；
-5. embedding 由调用方生成后传入，维度校验在此收口（建表时也用 ``embedding_length`` 固定列宽）；
-6. 距离度量固定 cosine，检索分数统一换算为 ``1 - cosine_distance``（越大越相似）；
-7. PGVector 未提供「按 metadata 区间删除」与分页浏览，这几条窄 SQL 收口在本模块，
-   业务侧只调函数、不写 SQL；
+3. **不使用 langchain-postgres 的 ``PGVector``**：该实现的表名在类定义里硬编码为
+   ``langchain_pg_collection`` / ``langchain_pg_embedding``，构造参数无法覆盖，也没有扩展点，
+   与项目「表名必须 ``sbp_ai_`` 开头」的强规范冲突。此处用 SQLAlchemy Core 直接写 SQL，
+   表名、索引名、维度全部本模块自持；对外仍是 :func:`ensure_vector_store` /
+   :func:`upsert_documents` / :func:`search_documents` 等函数，调用方无感；
+4. **驱动与线程模型**：向量库单独用 psycopg v3 的**同步**连接池（与会走 asyncpg 的业务表完全隔离）；
+   对外仍是 async 函数，内部 ``asyncio.to_thread`` 丢进线程池，事件循环不被阻塞，
+   与项目里 ``run_in_parse_pool`` 处理阻塞调用的口径一致；
+5. 主键由调用方给**确定性 id**（同一文档重跑得到同一 id）：写入是 ``INSERT ... ON CONFLICT (id) DO UPDATE``，
+   天然幂等，不需要业务侧维护唯一约束，也不用「先删后插」；
+6. embedding 由调用方生成后传入，维度校验在此收口（建表时也用 ``VECTOR_DIM`` 固定列宽）；
+7. 距离度量固定 cosine，检索分数统一换算为 ``1 - cosine_distance``（越大越相似）；
 8. 表与扩展的创建是幂等的：重复执行无副作用。
+
+> **与 ``sbp_ai_kb_chunk`` 的关系**：kb 域的业务分片表 ``sbp_ai_kb_chunk`` 自带 ``embedding`` 列与
+> HNSW 索引，是契约 #03 写入与检索的落点。本模块是**通用向量层**（不依赖任何业务模型），
+> 目前**没有调用方**，仅 :func:`validate_embedding` 被 ``kb/publication/service.py`` 复用做维度校验。
+> 后续检索能力接入时须二选一收敛，不要两套并存写同一份数据。
 """
 
 import asyncio
 import json
+import re
 from collections.abc import Mapping, Sequence
 from typing import Any, Final
 
 from fastapi import status
-from langchain_core.embeddings import Embeddings
-from langchain_postgres import PGVector
-from langchain_postgres.vectorstores import DistanceStrategy
-from sqlalchemy import Engine, create_engine, text
+from sqlalchemy import Engine, bindparam, create_engine, text
 from sqlalchemy.orm import Session
 
 from app.common.enums import DatabaseTypeEnum
@@ -38,33 +41,28 @@ from app.config.setting import settings
 from app.core.exceptions import CustomException
 from app.core.logger import logger
 
-# PGVector 固定表名（建索引与窄 SQL 需要直接引用）
-COLLECTION_TABLE: Final[str] = "langchain_pg_collection"
-EMBEDDING_TABLE: Final[str] = "langchain_pg_embedding"
+# 向量层表名（遵循 sbp_ai_[域]_[业务名]；窄 SQL 需要直接引用）
+COLLECTION_TABLE: Final[str] = "sbp_ai_kb_vector_collection"
+EMBEDDING_TABLE: Final[str] = "sbp_ai_kb_vector_embedding"
+
+# 索引名（建索引是幂等的，名称固定便于运维直接按名重建）
+COLLECTION_ID_INDEX: Final[str] = "ix_sbp_ai_kb_vector_embedding_collection_id"
+METADATA_INDEX: Final[str] = "ix_sbp_ai_kb_vector_embedding_cmetadata"
+VECTOR_INDEX: Final[str] = "ix_sbp_ai_kb_vector_embedding_hnsw"
 
 # 允许在分页浏览里排序的元数据字段（白名单，防止标识符注入）
 _SORTABLE_FIELDS: Final[frozenset[str]] = frozenset(
     {"doc_id", "chunk_index", "page_no", "token_count", "space_id"}
 )
 
+# 索引名只允许字母数字下划线（index_name 拼进 DDL，不接受任意标识符）
+_IDENTIFIER_RE: Final[re.Pattern[str]] = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
 
-class _PrecomputedEmbeddings(Embeddings):
-    """占位 embedding：向量由业务侧算好后直接传入，PGVector 不会调用这两个方法。"""
-
-    def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        raise NotImplementedError("向量由调用方预先计算，请使用 add_embeddings 直接写入")
-
-    def embed_query(self, text: str) -> list[float]:
-        raise NotImplementedError("查询向量由调用方预先计算，请使用 similarity_search_by_vector")
-
-
-_PLACEHOLDER = _PrecomputedEmbeddings()
-
-# 每个 collection 一个 PGVector 实例：实例构造时会建表再缓存，避免每次调用都建表
-_STORES: dict[str, PGVector] = {}
-
-# 向量库专用 psycopg 同步连接池（见模块 docstring 第 3 条）
+# 向量库专用 psycopg 同步连接池（见模块 docstring 第 4 条）
 _VECTOR_ENGINE: Engine | None = None
+
+# 本进程内表结构是否已就绪：读写入口先过一遍懒建，避免调用方忘调 ensure_vector_store
+_SCHEMA_READY: bool = False
 
 
 def _vector_engine() -> Engine:
@@ -88,11 +86,11 @@ def _vector_engine() -> Engine:
 
 async def close_vector_store() -> None:
     """应用关停时释放向量库连接池。"""
-    global _VECTOR_ENGINE
+    global _VECTOR_ENGINE, _SCHEMA_READY
     if _VECTOR_ENGINE is not None:
         await asyncio.to_thread(_VECTOR_ENGINE.dispose)
     _VECTOR_ENGINE = None
-    _STORES.clear()
+    _SCHEMA_READY = False
 
 
 def vector_store_ready() -> bool:
@@ -124,22 +122,12 @@ def validate_embedding(embedding: Sequence[float]) -> list[float]:
     return [float(value) for value in embedding]
 
 
-def get_store(collection: str) -> PGVector:
-    """取（或惰性构造）指定 collection 的 PGVector 实例，复用向量库专用连接池。"""
-    store = _STORES.get(collection)
-    if store is None:
-        _require_postgres()
-        store = PGVector(
-            embeddings=_PLACEHOLDER,
-            connection=_vector_engine(),
-            embedding_length=settings.VECTOR_DIM,
-            collection_name=collection,
-            distance_strategy=DistanceStrategy.COSINE,
-            # 只允许异步入口（本模块统一 to_thread 调用），实例构造时即完成建表/建 collection
-            async_mode=False,
-        )
-        _STORES[collection] = store
-    return store
+def _vector_literal(values: Sequence[float]) -> str:
+    """把向量转成 pgvector 的字面量文本（``[0.1,0.2,...]``），SQL 里再 CAST 成 vector。
+
+    不依赖驱动的自定义类型注册：参数是纯文本，跨连接池、跨会话都稳定。
+    """
+    return "[" + ",".join(f"{value:.8g}" for value in values) + "]"
 
 
 def _existing_vector_dim(conn: Session, table_name: str) -> int | None:
@@ -169,45 +157,119 @@ def _collection_uuid(conn: Session, collection: str) -> str | None:
     return str(row[0]) if row else None
 
 
+def _get_or_create_collection_uuid(conn: Session, collection: str) -> str:
+    """取 collection 主键，不存在则创建（并发下靠 name 唯一约束兜底）。"""
+    existing = _collection_uuid(conn, collection)
+    if existing:
+        return existing
+    conn.execute(
+        text(f"INSERT INTO {COLLECTION_TABLE} (name) VALUES (:name) ON CONFLICT (name) DO NOTHING"),
+        {"name": collection},
+    )
+    created = _collection_uuid(conn, collection)
+    if created is None:
+        raise CustomException(
+            msg=f"向量集合 {collection} 创建失败（{COLLECTION_TABLE}.name 唯一冲突）",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+    return created
+
+
+def _create_schema(conn: Session, index_name: str | None = None) -> None:
+    """建扩展、两张向量表与索引（全部 IF NOT EXISTS，幂等），并校验既有表维度。"""
+    if index_name is not None and not _IDENTIFIER_RE.match(index_name):
+        raise CustomException(
+            msg=f"非法索引名 {index_name!r}：只允许字母、数字、下划线且不超过 63 字符",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+    resolved_index = index_name or VECTOR_INDEX
+    dimension = int(settings.VECTOR_DIM)
+
+    conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+    conn.execute(
+        text(
+            f"CREATE TABLE IF NOT EXISTS {COLLECTION_TABLE} ("
+            "uuid uuid PRIMARY KEY DEFAULT gen_random_uuid(), "
+            "name varchar(200) NOT NULL UNIQUE, "
+            "cmetadata jsonb)"
+        )
+    )
+    conn.execute(
+        text(
+            f"CREATE TABLE IF NOT EXISTS {EMBEDDING_TABLE} ("
+            "id varchar(200) PRIMARY KEY, "
+            f"collection_id uuid NOT NULL REFERENCES {COLLECTION_TABLE} (uuid) ON DELETE CASCADE, "
+            f"embedding vector({dimension}) NOT NULL, "
+            "document text, "
+            "cmetadata jsonb)"
+        )
+    )
+    conn.execute(text(f"CREATE INDEX IF NOT EXISTS {COLLECTION_ID_INDEX} ON {EMBEDDING_TABLE} (collection_id)"))
+    conn.execute(
+        text(
+            f"CREATE INDEX IF NOT EXISTS {METADATA_INDEX} ON {EMBEDDING_TABLE} "
+            "USING gin (cmetadata jsonb_path_ops)"
+        )
+    )
+
+    existing_dim = _existing_vector_dim(conn, EMBEDDING_TABLE)
+    if existing_dim is not None and existing_dim != dimension:
+        raise CustomException(
+            msg=(
+                f"分片表 {EMBEDDING_TABLE} 的向量维度为 {existing_dim}，与 VECTOR_DIM={dimension} 不一致；"
+                "换维度无法原地修改，需重建表并重新灌入向量"
+            )
+        )
+    conn.execute(
+        text(
+            f"CREATE INDEX IF NOT EXISTS {resolved_index} ON {EMBEDDING_TABLE} "
+            "USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64)"
+        )
+    )
+
+
+def _ensure_schema_once() -> None:
+    """读写入口的懒建：本进程首次访问时补建表结构（VECTOR_AUTO_CREATE 关闭则跳过）。
+
+    调用方可能直接调 upsert/search 而不先调 :func:`ensure_vector_store`，
+    这里兜住「表不存在」的情况；DDL 全部幂等，多进程并发同时执行也无副作用。
+    """
+    global _SCHEMA_READY
+    if _SCHEMA_READY or not settings.VECTOR_AUTO_CREATE:
+        return
+    with _vector_engine().begin() as conn:
+        _create_schema(conn)
+    _SCHEMA_READY = True
+
+
 def _ensure_vector_store(collection: str, index_name: str | None) -> None:
+    global _SCHEMA_READY
     if not (vector_store_ready() and settings.VECTOR_AUTO_CREATE):
         return
 
-    store = get_store(collection)
-    store.create_vector_extension()
-    store.create_tables_if_not_exists()
-    store.create_collection()
-
-    resolved_index = index_name or f"ix_{EMBEDDING_TABLE}_{collection}_hnsw"
     with _vector_engine().begin() as conn:
-        existing_dim = _existing_vector_dim(conn, EMBEDDING_TABLE)
-        if existing_dim is not None and existing_dim != settings.VECTOR_DIM:
-            raise CustomException(
-                msg=(
-                    f"分片表 {EMBEDDING_TABLE} 的向量维度为 {existing_dim}，与 VECTOR_DIM={settings.VECTOR_DIM} 不一致；"
-                    "换维度无法原地修改，需重建表并重新灌入向量"
-                )
-            )
+        _create_schema(conn, index_name)
+        # 集合元数据顺手建好，后续写入不必再判断集合是否存在
         conn.execute(
-            text(
-                f"CREATE INDEX IF NOT EXISTS {resolved_index} ON {EMBEDDING_TABLE} "
-                "USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64)"
-            )
+            text(f"INSERT INTO {COLLECTION_TABLE} (name) VALUES (:name) ON CONFLICT (name) DO NOTHING"),
+            {"name": collection},
         )
+    _SCHEMA_READY = True
 
     logger.info(
-        "==== 向量存储就绪（collection {}，维度 {}，索引 HNSW/cosine）====",
+        "==== 向量存储就绪（表 {}，collection {}，维度 {}，索引 HNSW/cosine）====",
+        EMBEDDING_TABLE,
         collection,
         settings.VECTOR_DIM,
     )
 
 
 async def ensure_vector_store(collection: str, *, index_name: str | None = None) -> None:
-    """幂等创建 vector 扩展、PGVector 表、collection 与 HNSW 索引（应用启动时调用）。
+    """幂等创建 vector 扩展、向量表、collection 与 HNSW 索引（应用启动时调用）。
 
-    HNSW + vector_cosine_ops 与检索口径（``<=>`` 余弦距离）保持一致；PGVector 自身只建
-    cmetadata 的 GIN 索引，向量索引由这里补上。``index_name`` 不给时按
-    ``ix_langchain_pg_embedding_{collection}_hnsw`` 推导。
+    HNSW + vector_cosine_ops 与检索口径（``<=>`` 余弦距离）保持一致；
+    ``index_name`` 不给时用固定名 ``ix_sbp_ai_kb_vector_embedding_hnsw``——
+    HNSW 索引建在表上、与 collection 无关，不必按 collection 各建一份。
     """
     await asyncio.to_thread(_ensure_vector_store, collection, index_name)
 
@@ -238,8 +300,24 @@ def _where_sql(
     return (" AND ".join(clauses), params)
 
 
+def _split_search_filters(
+    filters: Mapping[str, Any] | None,
+    in_filters: Mapping[str, Sequence[Any]] | None,
+) -> tuple[dict[str, Any], dict[str, Sequence[Any]]]:
+    """拆出检索过滤：``{"k": v}`` 走等值，``{"k": {"$in": [...]}}`` 走集合（兼容原 PGVector 语法）。"""
+    equals: dict[str, Any] = {}
+    in_sets: dict[str, Sequence[Any]] = dict(in_filters or {})
+    for name, value in (filters or {}).items():
+        if isinstance(value, Mapping) and "$in" in value:
+            in_sets[name] = list(value["$in"] or [])
+        else:
+            equals[name] = value
+    return equals, in_sets
+
+
 def _delete_tail(collection: str, *, group: Mapping[str, Any], index_field: str, upper_bound: int) -> None:
-    """删除同分组下序号 >= upper_bound 的旧尾块（PGVector 没有区间过滤删除，只能走窄 SQL）。"""
+    """删除同分组下序号 >= upper_bound 的旧尾块（重跑后条数变少时清理多余分片）。"""
+    _ensure_schema_once()
     with _vector_engine().begin() as conn:
         collection_id = _collection_uuid(conn, collection)
         if collection_id is None:
@@ -261,6 +339,17 @@ def _delete_tail(collection: str, *, group: Mapping[str, Any], index_field: str,
         )
 
 
+_UPSERT_SQL: Final[str] = (
+    f"INSERT INTO {EMBEDDING_TABLE} (id, collection_id, embedding, document, cmetadata) "
+    "VALUES (:id, CAST(:collection_id AS uuid), CAST(:vec AS vector), :document, CAST(:metadata AS jsonb)) "
+    "ON CONFLICT (id) DO UPDATE SET "
+    "collection_id = EXCLUDED.collection_id, "
+    "embedding = EXCLUDED.embedding, "
+    "document = EXCLUDED.document, "
+    "cmetadata = EXCLUDED.cmetadata"
+)
+
+
 def _upsert_documents(
     collection: str,
     documents: Sequence[Mapping[str, Any]],
@@ -271,21 +360,33 @@ def _upsert_documents(
 
     - ``documents`` 每项为 ``{"id","content","metadata","embedding"}``，metadata 即业务字段；
     - ``tail_group`` + ``index_field``：给出后按分组删除超出本次分片上界的旧尾块，
-      避免重跑后条数变少时旧分片永不更新（与原手写向量层的行为保持一致）。
+      避免重跑后条数变少时旧分片永不更新。
     """
     if not documents:
         return 0
 
-    texts = [str(item["content"]) for item in documents]
-    embeddings = [validate_embedding(item["embedding"]) for item in documents]
-    metadatas = [dict(item.get("metadata") or {}) for item in documents]
-    ids = [str(item["id"]) for item in documents]
-    get_store(collection).add_embeddings(texts, embeddings, metadatas, ids)
+    _ensure_schema_once()
+    rows = [
+        {
+            "id": str(item["id"]),
+            "vec": _vector_literal(validate_embedding(item["embedding"])),
+            "document": str(item["content"]),
+            "metadata": json.dumps(dict(item.get("metadata") or {}), ensure_ascii=False),
+        }
+        for item in documents
+    ]
+
+    with _vector_engine().begin() as conn:
+        collection_id = _get_or_create_collection_uuid(conn, collection)
+        conn.execute(
+            text(_UPSERT_SQL),
+            [{**row, "collection_id": collection_id} for row in rows],
+        )
 
     if tail_group and index_field:
         upper_bound = max(int(item.get("metadata", {}).get(index_field) or 0) for item in documents) + 1
         _delete_tail(collection, group=tail_group, index_field=index_field, upper_bound=upper_bound)
-    return len(ids)
+    return len(rows)
 
 
 async def upsert_documents(
@@ -295,7 +396,7 @@ async def upsert_documents(
     tail_group: Mapping[str, Any] | None = None,
     index_field: str = "chunk_index",
 ) -> int:
-    """按确定性 id 幂等写入分片（PGVector ``ON CONFLICT (id) DO UPDATE``），返回写入条数。"""
+    """按确定性 id 幂等写入分片（``ON CONFLICT (id) DO UPDATE``），返回写入条数。"""
     _require_postgres()
     return await asyncio.to_thread(_upsert_documents, collection, documents, tail_group, index_field)
 
@@ -308,25 +409,36 @@ def _search_documents(
     top_k: int,
     min_score: float | None,
 ) -> list[dict[str, Any]]:
-    vector = validate_embedding(query_embedding)
-    filter_payload: dict[str, Any] = dict(filters or {})
-    for name, values in (in_filters or {}).items():
-        if values:
-            filter_payload[name] = {"$in": list(values)}
+    vector = _vector_literal(validate_embedding(query_embedding))
+    equals, in_sets = _split_search_filters(filters, in_filters)
+    _ensure_schema_once()
 
-    hits = get_store(collection).similarity_search_with_score_by_vector(
-        vector, k=top_k, filter=filter_payload or None
-    )
+    with _vector_engine().begin() as conn:
+        collection_id = _collection_uuid(conn, collection)
+        if collection_id is None:
+            return []
+        where_sql, params = _where_sql(equals, in_sets, None)
+        condition = f" AND {where_sql}" if where_sql else ""
+        rows = conn.execute(
+            text(
+                f"SELECT id, document, cmetadata, embedding <=> CAST(:vec AS vector) AS distance "
+                f"FROM {EMBEDDING_TABLE} "
+                "WHERE collection_id = CAST(:collection_id AS uuid)"
+                f"{condition} ORDER BY embedding <=> CAST(:vec AS vector) LIMIT :top_k"
+            ),
+            {**params, "collection_id": collection_id, "vec": vector, "top_k": top_k},
+        ).all()
+
     results: list[dict[str, Any]] = []
-    for document, distance in hits:
-        score = 1.0 - float(distance)
+    for row in rows:
+        score = 1.0 - float(row[3])
         if min_score is not None and score < min_score:
             continue
         results.append(
             {
-                **dict(document.metadata or {}),
-                "id": document.id,
-                "content": document.page_content,
+                **dict(row[2] or {}),
+                "id": str(row[0]),
+                "content": row[1] or "",
                 "score": round(score, 6),
             }
         )
@@ -344,14 +456,16 @@ async def search_documents(
 ) -> list[dict[str, Any]]:
     """按余弦相似度召回分片，返回按 score 降序的命中列表。
 
-    - ``filters``：等值过滤（如 ``{"doc_id": 12}``）；
+    - ``filters``：等值过滤（如 ``{"doc_id": 12}``），也兼容 ``{"doc_id": {"$in": [1, 2]}}``；
     - ``in_filters``：集合过滤（如 ``{"space_id": [...]}``，空集合视为「不限」）；
     - score = 1 - cosine_distance，取值 [0, 2]，越大越相似；``min_score`` 过滤低相关命中。
     """
     _require_postgres()
     if top_k <= 0:
         raise CustomException(msg="top_k 必须大于 0", status_code=status.HTTP_400_BAD_REQUEST)
-    return await asyncio.to_thread(_search_documents, collection, query_embedding, filters, in_filters, top_k, min_score)
+    return await asyncio.to_thread(
+        _search_documents, collection, query_embedding, filters, in_filters, top_k, min_score
+    )
 
 
 def _delete_documents(
@@ -359,9 +473,21 @@ def _delete_documents(
     ids: Sequence[str] | None,
     filters: Mapping[str, Sequence[Any]] | None,
 ) -> int:
+    _ensure_schema_once()
     if ids:
-        get_store(collection).delete(ids=[str(item) for item in ids], collection_only=True)
-        return len(set(ids))
+        id_list = [str(item) for item in ids]
+        with _vector_engine().begin() as conn:
+            collection_id = _collection_uuid(conn, collection)
+            if collection_id is None:
+                return 0
+            conn.execute(
+                text(
+                    f"DELETE FROM {EMBEDDING_TABLE} "
+                    "WHERE collection_id = CAST(:collection_id AS uuid) AND id IN :ids"
+                ).bindparams(bindparam("ids", expanding=True)),
+                {"collection_id": collection_id, "ids": id_list},
+            )
+        return len(set(id_list))
 
     clauses_needed = {key: values for key, values in (filters or {}).items() if values}
     if not clauses_needed:
@@ -373,7 +499,10 @@ def _delete_documents(
             return 0
         where_sql, params = _where_sql(None, clauses_needed, None)
         result = conn.execute(
-            text(f"DELETE FROM {EMBEDDING_TABLE} WHERE collection_id = CAST(:collection_id AS uuid) AND {where_sql}"),
+            text(
+                f"DELETE FROM {EMBEDDING_TABLE} "
+                f"WHERE collection_id = CAST(:collection_id AS uuid) AND {where_sql}"
+            ),
             {**params, "collection_id": collection_id},
         )
         return int(result.rowcount or 0)
@@ -395,6 +524,7 @@ def _count_documents(
     filters: Mapping[str, Any] | None,
     in_filters: Mapping[str, Sequence[Any]] | None,
 ) -> int:
+    _ensure_schema_once()
     with _vector_engine().begin() as conn:
         collection_id = _collection_uuid(conn, collection)
         if collection_id is None:
@@ -402,7 +532,10 @@ def _count_documents(
         where_sql, params = _where_sql(filters, in_filters, None)
         condition = f" AND {where_sql}" if where_sql else ""
         result = conn.execute(
-            text(f"SELECT count(*) FROM {EMBEDDING_TABLE} WHERE collection_id = CAST(:collection_id AS uuid){condition}"),
+            text(
+                f"SELECT count(*) FROM {EMBEDDING_TABLE} "
+                f"WHERE collection_id = CAST(:collection_id AS uuid){condition}"
+            ),
             {**params, "collection_id": collection_id},
         )
         return int(result.scalar_one())
@@ -427,6 +560,7 @@ def _page_documents(
     limit: int,
     order_by: Sequence[tuple[str, str]],
 ) -> tuple[list[dict[str, Any]], int]:
+    _ensure_schema_once()
     with _vector_engine().begin() as conn:
         collection_id = _collection_uuid(conn, collection)
         if collection_id is None:
@@ -436,7 +570,10 @@ def _page_documents(
         condition = f" AND {where_sql}" if where_sql else ""
         total = int(
             conn.execute(
-                text(f"SELECT count(*) FROM {EMBEDDING_TABLE} WHERE collection_id = CAST(:collection_id AS uuid){condition}"),
+                text(
+                    f"SELECT count(*) FROM {EMBEDDING_TABLE} "
+                    f"WHERE collection_id = CAST(:collection_id AS uuid){condition}"
+                ),
                 {**params, "collection_id": collection_id},
             ).scalar_one()
         )
@@ -447,7 +584,9 @@ def _page_documents(
         for field, direction in order_by:
             if field not in _SORTABLE_FIELDS:
                 continue
-            order_parts.append(f"(cmetadata->>'{field}')::int {'DESC' if str(direction).lower() == 'desc' else 'ASC'}")
+            order_parts.append(
+                f"(cmetadata->>'{field}')::int {'DESC' if str(direction).lower() == 'desc' else 'ASC'}"
+            )
         order_sql = f" ORDER BY {', '.join(order_parts)}" if order_parts else ""
 
         rows = conn.execute(

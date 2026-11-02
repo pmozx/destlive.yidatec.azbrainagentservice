@@ -1,5 +1,9 @@
 """LangGraph 断点（``AsyncPostgresSaver``）：把图执行的每个节点状态落到 PostgreSQL。
 
+【当前无调用方】唯一使用方（``integration_kb`` 的文档流水线）已随模块删除，lifespan 也已
+不再初始化本模块（空转连接池）。保留文件是为 #14 问答编排重建时直接启用：
+届时按线程 id 挂 checkpointer，并恢复 ``init_checkpointer`` / ``close_checkpointer`` 的调用。
+
 约定：
 1. 断点存的是「编排状态」（走到了哪个节点、节点产出了什么），不替代业务表，
   也不替代文档流水线的续跑快照（正文/分片仍落对象存储，二者互不依赖）；

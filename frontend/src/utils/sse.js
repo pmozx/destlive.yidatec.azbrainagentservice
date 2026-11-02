@@ -4,13 +4,14 @@ import { getToken } from './auth'
  * POST + SSE 流式请求
  *
  * 为什么不用 EventSource：它有两条硬限制——只能 GET、不能带自定义请求头。
- * 问答入参（问题 + 问答范围 + 会话ID）必须放 body，鉴权走 Authorization，
+ * 流式入参（问题 + 范围 + 会话ID）必须放 body，鉴权走 Authorization，
  * 因此用 fetch + ReadableStream 手工解析 ``event:`` / ``data:`` 帧。
  *
- * 帧格式与后端 ``integration_chat.service.format_sse`` 严格对应：
- * 一个事件块以空行结束，块内 ``event: <name>`` 一行、``data: <单行 JSON>`` 一行。
+ * 帧格式约定（后端 SSE 端点须遵守）：一个事件块以空行结束，块内
+ * ``event: <name>`` 一行、``data: <单行 JSON>`` 一行，末帧为 ``event: done``。
+ * 当前后端没有 SSE 端点（问答链路随 integration 模块删除，待 #14 重建）。
  *
- * @param {string} path 接口路径（含 API 前缀，如 /api/v1/integration-chat/stream）
+ * @param {string} path 接口路径（含 API 前缀，如 /api/v1/kb/chat/stream）
  * @param {object} body 请求体（序列化为 JSON）
  * @param {{ onEvent: (event: string, data: object) => void, onError?: (message: string) => void, onClose?: () => void }} handlers
  * @returns {{ abort: () => void }}

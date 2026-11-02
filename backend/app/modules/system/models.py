@@ -2,10 +2,10 @@
 
 模型已按表拆分到各子模块（``nonce`` / ``idempotency`` / ``request_log`` /
 ``prompt_template`` / ``auth_cache``）；这里只做统一导出，保持
-``from app.modules.system.models import ...`` 与 Alembic/测试的既有引用不变。
+``from app.modules.system.models import ...`` 与启动期建表/测试的既有引用不变。
 
-导入本文件即把 5 张表注册进 ``MappedBase.metadata``：迁移基线与测试都依赖这一点，
-少了这里，迁移会"看不到表"却没有任何报错。
+导入本文件即把 5 张表注册进 ``MappedBase.metadata``：启动期建表与测试都依赖这一点，
+少了这里，建表会"看不到表"却没有任何报错。
 """
 
 from .auth_cache.model import SystemAuthCacheModel

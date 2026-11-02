@@ -1,7 +1,7 @@
 """system 域启动引导：表结构与元数据（一表一目录，DDL 统一收敛在此）。
 
 导入模型即把 6 张表注册进 ``MappedBase.metadata``（``models.py`` 覆盖 5 张台账，审计表
-单独导入），Alembic 基线与测试都依赖这一点。建表口径见 ``app.core.table_bootstrap``。
+单独导入），启动期建表与测试都依赖这一点。建表口径见 ``app.core.table_bootstrap``。
 """
 
 from sqlalchemy.sql.schema import Table
