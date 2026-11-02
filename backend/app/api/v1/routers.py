@@ -9,6 +9,14 @@
 
 from fastapi import APIRouter
 
+from app.modules_gsi.km.doc.controller import SbpKmDocRouter
+from app.modules_gsi.km.doc_publication.controller import SbpKmDocPublicationRouter
+from app.modules_gsi.km.doc_record.controller import SbpKmDocRecordRouter
+from app.modules_gsi.sys.audience_team.controller import SbpSysAudienceTeamRouter
+from app.modules_gsi.sys.audience_team_member.controller import SbpSysAudienceTeamMemberRouter
+from app.modules_gsi.sys.org.controller import SbpSysOrgRouter
+from app.modules_gsi.sys.org_member.controller import SbpSysOrgMemberRouter
+from app.modules_gsi.sys.user.controller import SbpSysUserRouter
 from app.modules.system.access_trace.controller import AccessTraceRouter
 from app.modules.system.api_log.controller import SystemApiLogRouter
 
@@ -18,6 +26,16 @@ DOMAIN_CONTROLLERS: dict[str, list[APIRouter]] = {
     "/system": [
         SystemApiLogRouter,
         AccessTraceRouter,
+    ],
+    "/gsi": [
+        SbpSysOrgRouter,
+        SbpSysOrgMemberRouter,
+        SbpSysAudienceTeamRouter,
+        SbpSysAudienceTeamMemberRouter,
+        SbpSysUserRouter,
+        SbpKmDocRouter,
+        SbpKmDocPublicationRouter,
+        SbpKmDocRecordRouter,
     ],
 }
 
