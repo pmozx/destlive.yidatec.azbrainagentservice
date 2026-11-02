@@ -7,7 +7,7 @@
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import BigInteger, DateTime, String, UniqueConstraint
+from sqlalchemy import BigInteger, DateTime, String, text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -30,5 +30,5 @@ class KbParseResultModel(MappedBase):
     warnings: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list, nullable=False, comment="解析告警")
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False, comment="产物整体哈希（版本比对）")
     created_time: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False, comment="创建时间"
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), server_default=text("now()"), nullable=False, comment="创建时间"
     )

@@ -14,8 +14,6 @@ class BaseSchema(BaseModel):
     uuid: str | None = Field(default=None, description="UUID")
     created_time: DateTimeStr | None = Field(default=None, description="创建时间")
     updated_time: DateTimeStr | None = Field(default=None, description="更新时间")
-    is_deleted: bool = Field(default=False, description="是否已删除")
-    deleted_time: DateTimeStr | None = Field(default=None, description="删除时间")
 
 
 class PageResultSchema[T](BaseModel):

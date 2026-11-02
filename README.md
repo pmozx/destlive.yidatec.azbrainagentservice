@@ -179,6 +179,8 @@ EMBEDDING_PROTOCOL=openai
 EMBEDDING_BASE_URL=
 EMBEDDING_MODEL=bge-m3
 EMBEDDING_BATCH_SIZE=16
+EMBEDDING_CONCURRENCY=3       # 分批并发数：300 分片 × batch16 = 19 批，串行要等 19 次往返
+EMBEDDING_MAX_RETRIES=2       # 单批失败重试次数（指数退避 0.5s/1s/2s…），耗尽才判整单失败
 
 # 重排序：llama.cpp --rerank（Jina / Cohere 同构报文）
 RERANK_BASE_URL=
@@ -273,6 +275,8 @@ MinerU 返回的 `content_list` 会转成「文本 → 页码」映射，分片�
 - 路由注册：`register_routers()` 只挂载 `backend/app/api/v1/routers.py` 的 `api_v1`；新增业务模块时在 `backend/app/modules/<域>/<功能>/controller.py` 定义 Router，再到 `DOMAIN_CONTROLLERS` 登记，不做包扫描自动注册
 - 命名口径：表名 `sbp_ai_[域缩写]_[业务名]`（`system` / `kb` / `voice`），与目录、模型类一一对应，详见 `backend/app/modules/__init__.py`。当前共 **24 张**：kb 8（`chunk`/`publication`/`revision`/`parse_job`/`parse_result`/`dup_group`/`chat_session`/`chat_message`）、system 6（`api_log`/`nonce`/`idempotency`/`request_log`/`auth_cache`/`prompt_template`）、voice 8、通用向量层 2（`kb_vector_collection`/`kb_vector_embedding`，由 `core/rag/vector_store.py` 懒建，非 ORM 模型）
 - 域收敛：`app/modules/` 只有 `kb` / `system` / `voice` 三个正式域，无过渡域。`bootstrap.py` 按 `kb → system → voice` 顺序建表（kb 在前，因分片表含 pgvector 列，须待 vector 扩展就绪）
+- 表结构初始化：启动期 `create_missing_tables` 按「**缺表才建，已存在的表一律跳过**」——不补列、不加索引、不补默认值、不改类型。因此：**新建库**由模型定义一切（含 `__table_args__` 里的表达式索引）；**存量库**的加列/加索引/改类型必须由提交者写出 `ALTER` 并随 PR 交付、在目标环境执行。删列属破坏性变更，人工确认 + 备份后手动做，没有任何脚本会自动删。规则见 `00-document/03-.../01-团队开发规范.md` **D17**（早期曾有 `upgrade_schema` 对齐脚本，v2.2 已移除）
+- 删除语义：基座**不做软删**（`ModelMixin` 无 `is_deleted`/`deleted_time`，`CRUDBase.delete()` 一律物理删，无 `restore()`）。需要留痕迹由领域自己用 `status` 表达（`kb_revision` 留 `archived` 墓碑、`kb_chunk` 必须物理删否则向量仍会被召回）——细节见 `00-document/03-.../01-团队开发规范.md` 规则 D19
 - 契约链路：`app/contract/` 自成一套接入层——`ContractApiRoute` 负责请求级审计，`deps.py` 的幂等守卫按 `reserve → processing → complete/release` 状态机推进，异常路径用 `asyncio.shield` 保证释放动作不被取消吞掉
 - 解析生命周期：解析任务跑在请求之外，用 `async_session_factory` 自开短事务回写状态；进程重启后由 `KbParseJobService.reset_unfinished()` 把残留「解析中」批量改判 `failed`（不再有「回退待解析」语义）
 - 事务出口：`db_getter` 显式三分支——正常 commit / 契约失败标记命中则 rollback / 异常 rollback 后上抛，避免契约路由吞异常导致请求级事务「错误提交」
@@ -291,7 +295,16 @@ uv run ruff format .       # 格式化
 cd ../frontend && npm run build   # 前端构建校验
 ```
 
-当前基线：**80 passed**（`test_access_trace` 9 / `test_chat_cite` 4 / `test_db_getter_transaction` 3 / `test_idempotent_guard_release` 6 / `test_security_signature` 12 / `test_v1_contract` 35 / `test_v1_knowledge_entries` 11）。全量用例不依赖真实 PostgreSQL（用 aiosqlite + monkeypatch 会话工厂，或桩替换幂等台账），可直接在 CI 跑。
+当前基线：**132 passed**。测试按被测对象分四个包（约定见 [`backend/tests/README.md`](backend/tests/README.md)）：
+
+| 包 | 用例 | 内容 |
+|---|---|---|
+| `tests/core/` | 51 | 基座：模型/索引口径、CRUD 条件、事务出口、请求体缓存、向量纯函数、配置校验 |
+| `tests/contract/` | 44 | 契约层：错误码、签名与拒绝原因、幂等台账、审计留痕、路由鉴权行为 |
+| `tests/modules/` | 34 | 业务域：kb（解析任务/发布单元/写入链路）、system（接入追踪） |
+| `tests/stages/` | 3 | 阶段验收：`m1_contract` 骨架（里程碑过完即整包复核） |
+
+除台账查询与落库端到端用例（`requires_db`，数据库不可达时自动 skip）外，其余用 aiosqlite + monkeypatch 会话工厂或桩替换，可直接在 CI 跑。
 
 ## 部署（Docker Compose）
 

@@ -9,8 +9,8 @@ from .schema import SystemApiLogCreateSchema
 class SystemApiLogCRUD(CRUDBase[SystemApiLogModel, SystemApiLogCreateSchema, SystemApiLogCreateSchema]):
     """接口审计日志数据层
 
-    审计表只追加、只查询，不存在业务更新；删除为物理删除（ModelMixin 无 deleted_id，
-    CRUDBase 判定为不支持软删除，否则回收站语义会让审计记录“看着还在”）。
+    审计表只追加、只查询，不存在业务更新；删除为物理删除——审计记录一旦"软删"就会出现
+    「列表看不到、库里还占着」的两义状态，取证时反而说不清记录到底在不在。
     """
 
     def __init__(self, db: AsyncSession) -> None:

@@ -1,11 +1,13 @@
 from collections.abc import Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Any, TypeVar, cast
 
+from fastapi import status
 from pydantic import BaseModel
-from sqlalchemy import asc, delete, desc, false, func, select, true, update
+from sqlalchemy import asc, delete, desc, false, func, select, update
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.engine import Result
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, load_only, selectinload
 from sqlalchemy.sql.elements import ColumnElement
@@ -13,6 +15,7 @@ from sqlalchemy.sql.elements import ColumnElement
 from app.core.base_model import ModelMixin
 from app.core.base_schema import PageResultSchema
 from app.core.exceptions import CustomException
+from app.core.logger import logger
 
 OutSchemaType = TypeVar("OutSchemaType", bound=BaseModel)
 CreateSchemaType = TypeVar("CreateSchemaType", bound=BaseModel)
@@ -66,25 +69,14 @@ class CRUDBase[ModelType: ModelMixin, CreateSchemaType, UpdateSchemaType]:
             raise CustomException(msg="暂不支持复合主键操作")
         return pk_cols[0]
 
-    @property
-    def _supports_soft_delete(self) -> bool:
-        # 判断模型是否有 is_deleted / deleted_time / deleted_id 三个字段
-        return all(hasattr(self.model, attr) for attr in ("is_deleted", "deleted_time", "deleted_id"))
-
-    def _soft_delete_values(self) -> dict[str, Any]:
-        """返回 UPDATE 设置软删除字段所需的 values 字典。"""
-        data: dict[str, Any] = {"is_deleted": True, "deleted_time": datetime.now(UTC)}
-        return data
-
     # ── 查询 ──────────────────────────────────────────────────────────
 
-    async def get(self, preload: list[str | Any] | None = None, include_deleted: bool = False, **kwargs) -> ModelType | None:
+    async def get(self, preload: list[str | Any] | None = None, **kwargs) -> ModelType | None:
         """单条查询：按字段等值匹配返回第一条记录，未找到返回 None。
 
         参数:
         - preload: 预加载的关系属性名列表。支持点号嵌套路径。
           一对一/多对一使用 joinedload，一对多/多对多使用 selectinload。
-        - include_deleted: 是否包含已软删除的记录，默认 False（自动排除）。
         - **kwargs: 字段名=值 形式的查询条件；值为非 tuple 时按等值比较。
 
         返回:
@@ -100,19 +92,19 @@ class CRUDBase[ModelType: ModelMixin, CreateSchemaType, UpdateSchemaType]:
 
             # 预加载关系（避免 N+1）
             user = await crud.get(id=1, preload=["dept", "roles"])
-
-            # 包含已删除记录
-            dept = await crud.get(id=1, include_deleted=True)
         """
         try:
-            conditions = await self._build_conditions(include_deleted=include_deleted, **kwargs)
+            conditions = await self._build_conditions(**kwargs)
             sql = select(self.model).where(*conditions)
             for opt in self._loader_options(preload):
                 sql = sql.options(opt)
             result: Result = await self.db.execute(sql)
             return result.scalars().first()
-        except Exception as e:
-            raise CustomException(msg=f"获取查询失败: {e!s}") from e
+        except SQLAlchemyError:
+            # 不在这里包 CustomException：会把唯一约束冲突压成同一个 500，
+            # 全局 handler 才能按异常类型映射（IntegrityError → 409 等）
+            logger.exception("CRUD {} 失败：model={}", "get", self.model.__name__)
+            raise
 
     async def get_or_404(
         self,
@@ -120,7 +112,6 @@ class CRUDBase[ModelType: ModelMixin, CreateSchemaType, UpdateSchemaType]:
         msg: str = "该数据不存在",
         preload: list[str | Any] | None = None,
         out_schema: type[OutSchemaType] | None = None,
-        include_deleted: bool = False,
         **kwargs,
     ) -> ModelType | OutSchemaType:
         """单条查询，未找到时直接抛出 CustomException（HTTP 404 语义）。
@@ -130,7 +121,6 @@ class CRUDBase[ModelType: ModelMixin, CreateSchemaType, UpdateSchemaType]:
         - msg: 未找到时抛出的异常消息。
         - preload: 预加载关系列表，同 :meth:`get`。
         - out_schema: 若提供，返回前自动调用 ``out_schema.model_validate(obj)`` 转换。
-        - include_deleted: 是否包含已软删除的记录。
         - **kwargs: 额外的等值查询条件，与 id 可叠加。
 
         返回:
@@ -157,16 +147,16 @@ class CRUDBase[ModelType: ModelMixin, CreateSchemaType, UpdateSchemaType]:
         """
         if id is not None:
             kwargs["id"] = id
-        obj = await self.get(preload=preload, include_deleted=include_deleted, **kwargs)
+        obj = await self.get(preload=preload, **kwargs)
         if not obj:
-            raise CustomException(msg=msg)
+            # docstring 承诺 404，而 CustomException 旧默认值是 500；这里显式钉住语义
+            raise CustomException(msg=msg, status_code=status.HTTP_404_NOT_FOUND)
         return out_schema.model_validate(obj) if out_schema else obj
 
-    async def exists(self, include_deleted: bool = False, **kwargs) -> bool:
+    async def exists(self, **kwargs) -> bool:
         """判断满足条件的记录是否存在（内部走 COUNT，不加载行数据）。
 
         参数:
-        - include_deleted: 是否将已软删除的记录纳入统计。
         - **kwargs: 字段名=值 形式的查询条件。
 
         返回:
@@ -181,18 +171,16 @@ class CRUDBase[ModelType: ModelMixin, CreateSchemaType, UpdateSchemaType]:
             # 检查某用户是否属于某部门
             found = await crud.exists(dept_id=1, username="admin")
         """
-        return await self.count(include_deleted=include_deleted, **kwargs) > 0
+        return await self.count(**kwargs) > 0
 
     async def count(
         self,
-        include_deleted: bool = False,
         extra_conditions: Sequence[ColumnElement] | None = None,
         **kwargs,
     ) -> int:
         """统计满足条件的记录行数（SELECT COUNT）。
 
         参数:
-        - include_deleted: 是否将已软删除的记录纳入统计。
         - **kwargs: 字段名=值 形式的查询条件。
 
         返回:
@@ -207,13 +195,16 @@ class CRUDBase[ModelType: ModelMixin, CreateSchemaType, UpdateSchemaType]:
             role_count = await crud.count(created_id=user_id)
         """
         try:
-            conditions = await self._build_conditions(include_deleted=include_deleted, **kwargs)
+            conditions = await self._build_conditions(**kwargs)
             conditions.extend(extra_conditions or [])
             count_sql = select(func.count()).select_from(self.model).where(*conditions)
             result: Result = await self.db.execute(count_sql)
             return result.scalar() or 0
-        except Exception as e:
-            raise CustomException(msg=f"统计失败: {e!s}") from e
+        except SQLAlchemyError:
+            # 不在这里包 CustomException：会把唯一约束冲突压成同一个 500，
+            # 全局 handler 才能按异常类型映射（IntegrityError → 409 等）
+            logger.exception("CRUD {} 失败：model={}", "count", self.model.__name__)
+            raise
 
     async def get_list(
         self,
@@ -221,7 +212,6 @@ class CRUDBase[ModelType: ModelMixin, CreateSchemaType, UpdateSchemaType]:
         order_by: list[dict[str, str]] | None = None,
         preload: list[str | Any] | None = None,
         load_columns: list | None = None,
-        include_deleted: bool = False,
         limit: int | None = None,
         extra_conditions: Sequence[ColumnElement] | None = None,
     ) -> Sequence[ModelType]:
@@ -234,7 +224,6 @@ class CRUDBase[ModelType: ModelMixin, CreateSchemaType, UpdateSchemaType]:
           默认为 ``[{"id": "asc"}]``。
         - preload: 预加载关系列表，同 :meth:`get`。
         - load_columns: 仅加载指定列（SELECT load_only），减少数据传输。
-        - include_deleted: 是否包含已软删除的记录。
 
         返回:
         - Sequence[ModelType]: 模型实例列表。
@@ -258,7 +247,7 @@ class CRUDBase[ModelType: ModelMixin, CreateSchemaType, UpdateSchemaType]:
             )
         """
         try:
-            conditions = await self._build_conditions(include_deleted=include_deleted, **(search or {}))
+            conditions = await self._build_conditions(**(search or {}))
             conditions.extend(extra_conditions or [])
             order = order_by or [{"id": "asc"}]
             sql = select(self.model).where(*conditions).order_by(*self._parse_order(order))
@@ -270,8 +259,11 @@ class CRUDBase[ModelType: ModelMixin, CreateSchemaType, UpdateSchemaType]:
                 sql = sql.options(opt)
             result: Result = await self.db.execute(sql)
             return result.scalars().all()
-        except Exception as e:
-            raise CustomException(msg=f"列表查询失败: {e!s}") from e
+        except SQLAlchemyError:
+            # 不在这里包 CustomException：会把唯一约束冲突压成同一个 500，
+            # 全局 handler 才能按异常类型映射（IntegrityError → 409 等）
+            logger.exception("CRUD {} 失败：model={}", "get_list", self.model.__name__)
+            raise
 
     async def page(
         self,
@@ -282,7 +274,6 @@ class CRUDBase[ModelType: ModelMixin, CreateSchemaType, UpdateSchemaType]:
         out_schema: type[OutSchemaType] | None = None,
         preload: list[str | Any] | None = None,
         load_columns: list | None = None,
-        include_deleted: bool = False,
         extra_conditions: Sequence[ColumnElement] | None = None,
     ) -> PageResultSchema[OutSchemaType] | PageResultSchema:
         """分页查询：先 COUNT 统计总数，再取当页数据，返回统一分页结构。
@@ -295,7 +286,6 @@ class CRUDBase[ModelType: ModelMixin, CreateSchemaType, UpdateSchemaType]:
         - out_schema: 若提供，每条记录自动调用 ``out_schema.model_validate(obj)`` 转换。
         - preload: 预加载关系列表，同 :meth:`get`。
         - load_columns: 仅加载指定列（SELECT load_only）。
-        - include_deleted: 是否包含已软删除的记录。
 
         返回:
         - PageResultSchema: 含 page_no / page_size / total / has_next / items 的分页结构。
@@ -321,7 +311,7 @@ class CRUDBase[ModelType: ModelMixin, CreateSchemaType, UpdateSchemaType]:
             )
         """
         try:
-            conditions = await self._build_conditions(include_deleted=include_deleted, **(search or {}))
+            conditions = await self._build_conditions(**(search or {}))
             conditions.extend(extra_conditions or [])
             order = order_by or [{"id": "asc"}]
 
@@ -354,8 +344,11 @@ class CRUDBase[ModelType: ModelMixin, CreateSchemaType, UpdateSchemaType]:
                 has_next=offset + limit < total,
                 items=items,
             )
-        except Exception as e:
-            raise CustomException(msg=f"分页查询失败: {e!s}") from e
+        except SQLAlchemyError:
+            # 不在这里包 CustomException：会把唯一约束冲突压成同一个 500，
+            # 全局 handler 才能按异常类型映射（IntegrityError → 409 等）
+            logger.exception("CRUD {} 失败：model={}", "page", self.model.__name__)
+            raise
 
     # ── 写入 ──────────────────────────────────────────────────────────
 
@@ -399,8 +392,11 @@ class CRUDBase[ModelType: ModelMixin, CreateSchemaType, UpdateSchemaType]:
                 obj = result.scalar_one()
 
             return obj
-        except Exception as e:
-            raise CustomException(msg=f"创建失败: {e!s}") from e
+        except SQLAlchemyError:
+            # 不在这里包 CustomException：会把唯一约束冲突压成同一个 500，
+            # 全局 handler 才能按异常类型映射（IntegrityError → 409 等）
+            logger.exception("CRUD {} 失败：model={}", "create", self.model.__name__)
+            raise
 
     async def update(self, id: int, data: UpdateSchemaType | dict[str, Any]) -> ModelType:
         """按主键更新一条记录，自动填充 updated_id，返回含关系的完整实例。
@@ -451,11 +447,17 @@ class CRUDBase[ModelType: ModelMixin, CreateSchemaType, UpdateSchemaType]:
             return obj
         except CustomException:
             raise
-        except Exception as e:
-            raise CustomException(msg=f"更新失败: {e!s}") from e
+        except SQLAlchemyError:
+            # 不在这里包 CustomException：会把唯一约束冲突压成同一个 500，
+            # 全局 handler 才能按异常类型映射（IntegrityError → 409 等）
+            logger.exception("CRUD {} 失败：model={}", "update", self.model.__name__)
+            raise
 
     async def delete(self, ids: list[int]) -> None:
-        """按主键批量删除。若模型支持软删除则标记 is_deleted，否则物理删除。
+        """按主键批量删除——**物理删除，不可恢复**。
+
+        基座不提供软删除（见 ``ModelMixin`` docstring）：删除语义属于领域知识，
+        需要留痕迹时由业务自己表达（如留 ``status='archived'`` 的墓碑行）。
 
         参数:
         - ids: 待删除记录的主键列表。
@@ -470,22 +472,16 @@ class CRUDBase[ModelType: ModelMixin, CreateSchemaType, UpdateSchemaType]:
         """
         try:
             pk = self._get_pk_col()
-            if self._supports_soft_delete:
-                # 加 is_deleted=false() 条件，防止重复软删除（幂等）
-                sql = update(self.model).where(pk.in_(ids)).where(
-                    getattr(self.model, "is_deleted") == false()
-                ).values(**self._soft_delete_values())
-            else:
-                sql = delete(self.model).where(pk.in_(ids))
-            await self.db.execute(sql)
+            await self.db.execute(delete(self.model).where(pk.in_(ids)))
             await self.db.flush()
-        except Exception as e:
-            raise CustomException(msg=f"删除失败: {e!s}") from e
+        except SQLAlchemyError:
+            # 不在这里包 CustomException：会把唯一约束冲突压成同一个 500，
+            # 全局 handler 才能按异常类型映射（IntegrityError → 409 等）
+            logger.exception("CRUD {} 失败：model={}", "delete", self.model.__name__)
+            raise
 
     async def delete_by_conditions(self, *conditions: ColumnElement) -> int:
         """按条件批量物理删除，返回删除行数（日志/台账过期清理用）。
-
-        注意：即使模型支持软删除，本方法也执行物理删除；调用方需明确这是清理语义。
 
         示例::
 
@@ -498,38 +494,17 @@ class CRUDBase[ModelType: ModelMixin, CreateSchemaType, UpdateSchemaType]:
             result = await self.db.execute(delete(self.model).where(*conditions))
             await self.db.flush()
             return int(getattr(result, "rowcount", 0) or 0)
-        except Exception as e:
-            raise CustomException(msg=f"条件删除失败: {e!s}") from e
+        except SQLAlchemyError:
+            # 不在这里包 CustomException：会把唯一约束冲突压成同一个 500，
+            # 全局 handler 才能按异常类型映射（IntegrityError → 409 等）
+            logger.exception("CRUD {} 失败：model={}", "delete_by_conditions", self.model.__name__)
+            raise
 
-    async def clear(self) -> None:
-        """清空整表数据。软删除模式下仅清理已标记删除的记录（回收站清空）。
-
-        示例::
-
-            # 清空日志表
-            await log_crud.clear()
-        """
-        try:
-            if self._supports_soft_delete:
-                sql = update(self.model).where(
-                    getattr(self.model, "is_deleted") == true()
-                ).values(**self._soft_delete_values())
-            else:
-                sql = delete(self.model)
-            await self.db.execute(sql)
-            await self.db.flush()
-        except Exception as e:
-            raise CustomException(msg=f"清空失败: {e!s}") from e
-
-    async def set(self, ids: list[int], include_deleted: bool = False, **kwargs) -> None:
+    async def set(self, ids: list[int], **kwargs) -> None:
         """按主键批量更新指定字段（UPDATE ... SET field=value）。
-
-        软删除模式下默认跳过已删除记录（``is_deleted=false()`` 条件），
-        可通过 ``include_deleted=True`` 覆盖。
 
         参数:
         - ids: 目标记录的主键列表。
-        - include_deleted: 是否对已软删除的记录也执行更新。
         - **kwargs: 要更新的字段名=值。
 
         示例::
@@ -539,47 +514,21 @@ class CRUDBase[ModelType: ModelMixin, CreateSchemaType, UpdateSchemaType]:
 
             # 批量修改数据权限
             await crud.set(ids=data.role_ids, data_scope=2)
-
-            # 包含已删除记录
-            await crud.set(ids=[1, 2], status=0, include_deleted=True)
         """
         try:
             pk = self._get_pk_col()
-            sql = update(self.model).where(pk.in_(ids))
-            if self._supports_soft_delete and not include_deleted:
-                sql = sql.where(getattr(self.model, "is_deleted") == false())
-            sql = sql.values(**kwargs)
+            sql = update(self.model).where(pk.in_(ids)).values(**kwargs)
             await self.db.execute(sql)
             await self.db.flush()
-        except Exception as e:
-            raise CustomException(msg=f"批量更新失败: {e!s}") from e
-
-    async def restore(self, ids: list[int]) -> None:
-        """反删除（恢复）：将 is_deleted 置为 False，清空 deleted_time 和 deleted_id。
-
-        仅对支持软删除的模型有效，否则抛出 CustomException。
-
-        参数:
-        - ids: 待恢复记录的主键列表。
-
-        示例::
-
-            # 从回收站恢复记录
-            await crud.restore(ids=[1, 2, 3])
-        """
-        try:
-            if not self._supports_soft_delete:
-                raise CustomException(msg="该模型不支持软删除，无法恢复")
-            pk = self._get_pk_col()
-            sql = update(self.model).where(pk.in_(ids)).values(is_deleted=False, deleted_time=None, deleted_id=None)
-            await self.db.execute(sql)
-            await self.db.flush()
-        except Exception as e:
-            raise CustomException(msg=f"恢复失败: {e!s}") from e
+        except SQLAlchemyError:
+            # 不在这里包 CustomException：会把唯一约束冲突压成同一个 500，
+            # 全局 handler 才能按异常类型映射（IntegrityError → 409 等）
+            logger.exception("CRUD {} 失败：model={}", "set", self.model.__name__)
+            raise
 
     # ── 条件与排序 ────────────────────────────────────────────────────
 
-    async def _build_conditions(self, include_deleted: bool = False, **kwargs) -> list[ColumnElement]:
+    async def _build_conditions(self, **kwargs) -> list[ColumnElement]:
         """根据 kwargs 动态拼接 WHERE 条件列表。
 
         值类型决定比较方式：
@@ -593,12 +542,14 @@ class CRUDBase[ModelType: ModelMixin, CreateSchemaType, UpdateSchemaType]:
         """
         conditions: list[ColumnElement] = []
 
-        # 自动排除已删除记录（除非调用方明确要查询已删除数据）
-        if hasattr(self.model, "is_deleted") and not include_deleted:
-            conditions.append(getattr(self.model, "is_deleted") == false())
-
         for key, value in kwargs.items():
             if value is None or value == "":
+                continue
+            if not hasattr(self.model, key):
+                # ``BaseQueryParam`` 无条件继承了 ``updated_time``，而台账类表（nonce /
+                # idempotency / request_log / auth_cache / parse_result / eval_case）没有该列：
+                # 前端一传时间范围这里就 AttributeError → 500。字段不存在即跳过，按「不筛选」处理。
+                logger.debug("查询字段 {} 不在模型 {} 上，已忽略", key, self.model.__name__)
                 continue
             attr = getattr(self.model, key)
             if isinstance(value, tuple):

@@ -3,7 +3,7 @@
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Index, Numeric, String
+from sqlalchemy import Index, Numeric, String, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -15,8 +15,6 @@ class KbDupGroupModel(ModelMixin):
 
     __tablename__: str = "sbp_ai_kb_dup_group"
     __table_args__: tuple = (
-        Index("ix_sbp_ai_kb_dup_group_status_deleted", "status", "is_deleted"),
-        Index("ix_sbp_ai_kb_dup_group_created_deleted", "created_time", "is_deleted"),
         Index("ix_sbp_ai_kb_dup_group_status_created", "status", "created_time"),
         {"comment": "重复分组（#16–#20 治理物化）"},
     )
@@ -28,4 +26,4 @@ class KbDupGroupModel(ModelMixin):
     merged_preview: Mapped[dict[str, Any] | None] = mapped_column(
         JSONB, default=None, nullable=True, comment="合并预览（草稿态，不落正式库）"
     )
-    status: Mapped[str] = mapped_column(String(20), default="active", nullable=False, comment="active/merged/dismissed")
+    status: Mapped[str] = mapped_column(String(20), default="active", server_default=text("'active'"), nullable=False, comment="active/merged/dismissed")

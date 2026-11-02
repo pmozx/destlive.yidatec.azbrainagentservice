@@ -53,9 +53,7 @@ from .idempotency import (
     reserve,
 )
 from .signature import build_signed_headers, now_ms
-
-# 骨架期统一响应：20 条路由都还没接业务，签名通过后落到这里
-SKELETON_STATUS: Final[int] = 501
+from .testing import SKELETON_STATUS, json_dict
 
 # (编号, 方法, 路径, 幂等域)。幂等域为 None 的接口不接幂等依赖；编号与手册 §五 一致
 ROUTES: Final[tuple[tuple[str, str, str, str | None], ...]] = (
@@ -167,7 +165,7 @@ class Gate:
         note: str = "",
     ) -> None:
         """断言状态码 + 错误体三段式；`request_id` 传了就必须原样回带。"""
-        payload = _json(response)
+        payload = json_dict(response)
         error = payload.get("error") if isinstance(payload.get("error"), dict) else {}
         actual_code = error.get("code")
         retryable = error.get("retryable")
@@ -557,15 +555,6 @@ async def ledger_cases(run: str) -> list[Case]:
 
 
 # ── 输出 ──────────────────────────────────────────────────────────
-
-
-def _json(response: httpx.Response) -> dict[str, Any]:
-    """尽力解析成 dict（错误体、非 JSON 都不该打断验收流程）。"""
-    try:
-        data = response.json()
-    except ValueError:
-        return {"raw": response.text[:300]}
-    return data if isinstance(data, dict) else {"data": data}
 
 
 def render(cases: list[Case], *, base_url: str, client_id: str) -> str:

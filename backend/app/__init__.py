@@ -85,6 +85,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     yield
 
+    from app.core.clients import close_clients
     from app.core.database import async_engine
     from app.core.router_class import flush_pending_api_logs
 
@@ -92,6 +93,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     flushed = await flush_pending_api_logs()
     if flushed:
         logger.info("==== 关停前等待 {} 条接口审计日志写入完成 ====", flushed)
+
+    # 出站 HTTP 客户端（LLM / 向量化）用的是进程级单例，连接池要显式关闭
+    closed = await close_clients()
+    if closed:
+        logger.info("==== 已关闭 {} 个出站 HTTP 客户端 ====", closed)
 
     await async_engine.dispose()
 

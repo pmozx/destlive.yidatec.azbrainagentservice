@@ -15,7 +15,6 @@
 """
 
 import asyncio
-import json
 from collections.abc import AsyncGenerator
 from typing import Annotated, Any
 
@@ -24,6 +23,7 @@ from fastapi.responses import JSONResponse
 
 from app.config.setting import settings
 from app.core.logger import logger
+from app.core.request_body import get_json_body
 from app.core.router_class import set_audit_security, set_audit_username
 from app.core.security_signature import (
     HEADER_CLIENT_ID,
@@ -72,18 +72,18 @@ _SIGNATURE_RULE = signature_rule_doc(unauthorized_code="UNAUTHORIZED")
 
 
 def load_json_body(body: bytes) -> Any:
-    """尽力把正文解析成 JSON（审计取 request_id、幂等取业务 ID 都靠它）；解析失败返回 None。"""
-    if not body:
-        return None
-    try:
-        return json.loads(body)
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        return None
+    """把原始字节解析成 JSON（解析失败返回 None）；只给手上已有字节的调用方用。
+
+    依赖/路由里请用 :func:`app.core.request_body.get_json_body`——它会缓存解析结果，
+    同一次请求多处读取只反序列化一次。
+    """
+    from app.core.request_body import parse_json_bytes
+
+    return parse_json_bytes(body)
 
 
-def _body_meta(body: bytes) -> tuple[str | None, str | None]:
-    """从正文取 (request_id, user_id)：用于审计回带与操作人回填，取不到不影响主流程。"""
-    payload = load_json_body(body)
+def _body_meta(payload: Any) -> tuple[str | None, str | None]:
+    """从已解析的正文取 (request_id, user_id)：用于审计回带与操作人回填，取不到不影响主流程。"""
     if not isinstance(payload, dict):
         return None, None
     request_id = payload.get("request_id")
@@ -138,8 +138,10 @@ async def verified_signature(
     上面的 Header 参数只用于 OpenAPI 展示，函数体统一从 `request.headers` 读原始值，
     避免「声明为可选」把缺失头的场景放过。
     """
+    # 签名原文最后一行是正文的 SHA-256，必须拿原始字节；body() 自带字节缓存，
+    # 与下面的 get_json_body（解析结果缓存）共用同一次读取
     body = await request.body()
-    request_id, user_id = _body_meta(body)
+    request_id, user_id = _body_meta(await get_json_body(request))
     current_ms = now_ms()
     record = SecurityRecord(
         headers_present=list(headers_present(request.headers)),
@@ -239,7 +241,7 @@ def _idempotent_guard(scope: str):
     """
 
     async def dependency(request: Request) -> AsyncGenerator[Reservation, None]:
-        payload = load_json_body(await request.body())
+        payload = await get_json_body(request)
         biz_id = extract_biz_id(scope, payload)
         if not biz_id:
             raise ContractApiError(

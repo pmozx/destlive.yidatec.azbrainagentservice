@@ -10,12 +10,11 @@
 """
 
 import asyncio
-import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import suppress
 from typing import Any
 
-logger = logging.getLogger(__name__)
+from app.core.logger import logger
 
 
 class StreamTimeoutError(Exception):
@@ -67,7 +66,7 @@ async def iter_stream(
     except (StreamTimeoutError, StreamInterruptedError):
         raise
     except Exception as exc:  # noqa: BLE001 上游异常统一为「生成中断」
-        logger.error(f"模型流式生成失败：{exc}")
+        logger.error("模型流式生成失败：{}", exc)
         raise StreamInterruptedError(f"模型流式生成失败：{exc}") from exc
 
 

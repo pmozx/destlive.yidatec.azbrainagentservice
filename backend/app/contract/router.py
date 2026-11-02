@@ -21,11 +21,12 @@ from typing import Annotated, Any, NoReturn
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Request, status
 
+from app.core.request_body import get_json_body
+
 from .deps import (
     idempotent_event,
     idempotent_job,
     idempotent_request,
-    load_json_body,
     record_receipt,
     replay_response,
     verified_signature,
@@ -100,7 +101,7 @@ async def enforced_authorization(request: Request) -> None:
     骨架期用「到达即校验」而不是「必填校验」：字段必填性随各 Tx 按手册逐字段落地，
     这里先把最容易被误用的时效口径钉住（POC 疑点 Q1/Q2）。
     """
-    payload = load_json_body(await request.body())
+    payload = await get_json_body(request)
     if not isinstance(payload, dict):
         return
     verify_authorization(payload.get("authorization") or payload.get("scope"))

@@ -6,7 +6,7 @@
 
 from datetime import UTC, datetime
 
-from sqlalchemy import BigInteger, DateTime, Index, String, UniqueConstraint
+from sqlalchemy import BigInteger, DateTime, Index, String, text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.base_model import MappedBase
@@ -19,6 +19,8 @@ class SystemNonceModel(MappedBase):
     __table_args__: tuple = (
         UniqueConstraint("client_id", "nonce", name="uq_sbp_ai_system_nonce_client_nonce"),
         Index("ix_sbp_ai_system_nonce_expires", "expires_at"),
+        # 重放取证按 request_id 反查：没有它只能全表扫（P1-6）
+        Index("ix_sbp_ai_system_nonce_request_id", "request_id"),
         {"comment": "防重放 nonce 登记表（首用时间 + 过期清理）"},
     )
 
@@ -27,7 +29,7 @@ class SystemNonceModel(MappedBase):
     nonce: Mapped[str] = mapped_column(String(128), nullable=False, comment="nonce 原文（契约 16–128 位）")
     request_id: Mapped[str | None] = mapped_column(String(64), default=None, nullable=True, comment="关联请求（重放取证）")
     created_time: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False, comment="首用时间"
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), server_default=text("now()"), nullable=False, comment="首用时间"
     )
     expires_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, comment="过期时间（首用 + 时间窗，默认 10 分钟）"

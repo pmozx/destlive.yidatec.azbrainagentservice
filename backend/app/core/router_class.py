@@ -172,24 +172,43 @@ async def flush_pending_api_logs(timeout: float = 5.0) -> int:
 
 
 async def _extract_request_payload(request: Request) -> str | None:
-    """采集请求参数：表单/JSON/文本分支处理，文件对象丢弃，敏感字段脱敏。"""
+    """采集请求参数：JSON 复用已解析结果，表单/文件**只记元信息**。
+
+    两条改进（原来这里对每个请求都重新 `json.loads`，且对 multipart 调 `request.form()`）：
+    1. JSON 正文走 ``app.core.request_body`` 的缓存，验签/幂等/审计共用一次反序列化；
+    2. 表单不再主动解析：``request.form()`` 会把上传文件整个读进内存，
+       审计只需知道「传了几个字段、多大」，没被业务读过的表单不值得为它付内存峰值。
+    """
+    from app.core.request_body import parse_json_bytes, peek_json_body
+
     oper_param: dict[str, Any] = {}
     content_type = request.headers.get("Content-Type", "")
     try:
         if content_type.startswith(("multipart/form-data", "application/x-www-form-urlencoded")):
-            form_data = await request.form()
-            oper_param["form"] = {
-                k: (_REDACTED if str(k).lower() in _SENSITIVE_KEYS else v)
-                for k, v in form_data.items()
-                if not hasattr(v, "read")  # 过滤 UploadFile，避免把文件内容写进日志
-            }
+            # 业务已解析过表单时 Starlette 会缓存，直接复用；没解析过就不在这里触发解析
+            cached_form = getattr(request, "_form", None)
+            if cached_form is not None:
+                oper_param["form"] = {
+                    k: (_REDACTED if str(k).lower() in _SENSITIVE_KEYS else v)
+                    for k, v in cached_form.items()
+                    if not hasattr(v, "read")  # 过滤 UploadFile，避免把文件内容写进日志
+                }
+            else:
+                oper_param["form"] = {
+                    "content_type": content_type,
+                    "content_length": request.headers.get("Content-Length"),
+                    "note": "表单未由业务解析，审计仅记录元信息（不把上传体读进内存）",
+                }
         else:
-            payload = await request.body()
-            if payload:
-                try:
-                    oper_param["body"] = _redact_sensitive(json.loads(payload.decode()))
-                except (json.JSONDecodeError, UnicodeDecodeError):
-                    oper_param["body"] = payload.decode("utf-8", errors="ignore")
+            payload = peek_json_body(request)
+            raw = b""
+            if payload is None:
+                raw = await request.body()
+                payload = parse_json_bytes(raw)
+            if payload is not None:
+                oper_param["body"] = _redact_sensitive(payload)
+            elif raw:
+                oper_param["body"] = raw.decode("utf-8", errors="ignore")
     except Exception:
         # 请求体已被下游流式消费等场景拿不到原文，不影响审计主流程
         oper_param["body"] = "<请求体不可读>"

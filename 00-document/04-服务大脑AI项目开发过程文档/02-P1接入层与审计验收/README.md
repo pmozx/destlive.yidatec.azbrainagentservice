@@ -88,6 +88,9 @@ POC 与 contract 曾各持一份验签实现：7 行原文拼装、±5 分钟窗
 | `tests/test_security_signature.py` | 12 条单测（2026-10-30 新增）：公共层为唯一实现、失败原因按契约码归口、nonce 时序、配置只有一组 |
 | `tests/test_chat_cite.py` | 4 条单测（阶段 0 由 POC citation 用例迁来）：cites 顺序、snippet 关键词窗口、越界编号摘除 |
 
+> **注（2026-11-02）**：测试文件已按被测对象重组为 `core/` / `contract/` / `modules/` / `stages/`
+> 四个包；上表文件名是阶段验收时的状态，新旧对照见 `backend/tests/README.md`。
+
 配置项（`backend/env/.env.*`）：前 5 项是**接口安全请求头**，contract 与 `mock_gsi` 共用同一组：
 
 | 项 | 默认 | 说明 |

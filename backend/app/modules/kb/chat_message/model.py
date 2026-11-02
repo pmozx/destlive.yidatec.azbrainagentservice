@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from sqlalchemy import Index, String, Text
+from sqlalchemy import Index, String, text, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -14,8 +14,7 @@ class KbChatMessageModel(ModelMixin):
 
     __tablename__: str = "sbp_ai_kb_chat_message"
     __table_args__: tuple = (
-        Index("ix_sbp_ai_kb_chat_message_status_deleted", "status", "is_deleted"),
-        Index("ix_sbp_ai_kb_chat_message_created_deleted", "created_time", "is_deleted"),
+        Index("ix_sbp_ai_kb_chat_message_status_created", "status", "created_time"),
         Index("ix_sbp_ai_kb_chat_message_session_created", "session_id", "created_time"),
         {"comment": "会话消息与引用留痕"},
     )
@@ -27,4 +26,4 @@ class KbChatMessageModel(ModelMixin):
     knowledge_deps: Mapped[list[dict[str, Any]]] = mapped_column(
         JSONB, default=list, nullable=False, comment="依赖的 publication_id + revision（失效则整条隐藏）"
     )
-    status: Mapped[str] = mapped_column(String(20), default="active", nullable=False, comment="active/hidden/deleted")
+    status: Mapped[str] = mapped_column(String(20), default="active", server_default=text("'active'"), nullable=False, comment="active/hidden/deleted")

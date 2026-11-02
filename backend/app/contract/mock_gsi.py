@@ -46,7 +46,9 @@ import httpx
 from app.config.setting import settings
 
 from .entries import canonical_content_hash
+from .errors import INVALID_REQUEST, NOT_FOUND, STALE_REVISION, UNAUTHORIZED, UNSUPPORTED_STREAM
 from .signature import build_signed_headers
+from .testing import SKELETON_STATUS, error_code, json_dict
 
 SAMPLE_DOC: Final[str] = """# VPN 申请操作手册
 
@@ -92,28 +94,6 @@ CHUNKS: Final[list[dict[str, Any]]] = [
 ]
 
 CHAT_PROMPT: Final[str] = "你是企业知识库问答助手，只能依据【参考资料】回答问题，资料未覆盖时直接说明。"
-
-# 契约错误码（大写下划线，见 `app/contract/errors.py`）；POC 期的小写码已随阶段 0 下线
-CODE_UNAUTHORIZED: Final[str] = "UNAUTHORIZED"
-CODE_NOT_FOUND: Final[str] = "NOT_FOUND"
-CODE_STALE_REVISION: Final[str] = "STALE_REVISION"
-CODE_INVALID_REQUEST: Final[str] = "INVALID_REQUEST"
-CODE_UNSUPPORTED_STREAM: Final[str] = "UNSUPPORTED_STREAM"
-SKELETON_STATUS: Final[int] = 501
-
-
-def _json(response: httpx.Response) -> dict[str, Any]:
-    """尽力把响应解析成 dict（错误体、非 JSON 都不会打断用例记录）。"""
-    try:
-        data = response.json()
-    except ValueError:
-        return {"raw": response.text[:300]}
-    return data if isinstance(data, dict) else {"data": data}
-
-
-def _error_code(body: dict[str, Any]) -> str:
-    error = body.get("error") if isinstance(body, dict) else None
-    return str((error or {}).get("code") or "") if isinstance(error, dict) else ""
 
 
 class _QuietHandler(SimpleHTTPRequestHandler):
@@ -220,7 +200,7 @@ class Smoke:
         `--allow-skeleton` 下 501 表示「业务尚未落地」，记为未实现而不算失败：
         阶段 0 之后 `/v1` 只有 contract 的骨架，这份脚本要能在骨架期跑出退出码 0。
         """
-        body = _json(response)
+        body = json_dict(response)
         skeleton = self.allow_skeleton and response.status_code == SKELETON_STATUS
         passed = skeleton or (response.status_code == status and ok)
         self.rows.append(
@@ -262,18 +242,18 @@ class Smoke:
         payload = self._search_payload("vpn 申请")
 
         response = self._client.post(path, json=payload, headers={"Content-Type": "application/json"})
-        self.record("签名·缺少签名头", response, status=401, ok=_error_code(_json(response)) == CODE_UNAUTHORIZED)
+        self.record("签名·缺少签名头", response, status=401, ok=error_code(json_dict(response)) == UNAUTHORIZED)
 
         response = self.post(path, payload, secret="wrong-secret")
-        self.record("签名·签名不符", response, status=401, ok=_error_code(_json(response)) == CODE_UNAUTHORIZED)
+        self.record("签名·签名不符", response, status=401, ok=error_code(json_dict(response)) == UNAUTHORIZED)
 
         response = self.post(path, payload, timestamp_ms=int(time.time() * 1000) - 600_000)
-        self.record("签名·时间戳越窗", response, status=401, ok=_error_code(_json(response)) == CODE_UNAUTHORIZED)
+        self.record("签名·时间戳越窗", response, status=401, ok=error_code(json_dict(response)) == UNAUTHORIZED)
 
         nonce = f"replay-nonce-{self.run_id}"
         self.post(path, payload, nonce=nonce)
         response = self.post(path, payload, nonce=nonce)
-        self.record("签名·nonce 重放", response, status=401, ok=_error_code(_json(response)) == CODE_UNAUTHORIZED)
+        self.record("签名·nonce 重放", response, status=401, ok=error_code(json_dict(response)) == UNAUTHORIZED)
 
     def _parse_payload(self, file_url: str, job_id: str) -> dict[str, Any]:
         return {
@@ -294,7 +274,7 @@ class Smoke:
         payload = self._parse_payload(file_url, job_id)
 
         response = self.post("/v1/parse/jobs", payload)
-        body = _json(response)
+        body = json_dict(response)
         self.record(
             "#01 受理解析任务",
             response,
@@ -304,7 +284,7 @@ class Smoke:
         )
 
         response = self.post("/v1/parse/jobs", payload)
-        receipt = _json(response)
+        receipt = json_dict(response)
         self.record("#01 幂等重试（同 job_id 同正文）", response, status=202, ok=receipt.get("status") == "queued")
         return job_id
 
@@ -315,7 +295,7 @@ class Smoke:
         body: dict[str, Any] = {}
         for _ in range(60):
             response = self.get(f"/v1/parse/jobs/{job_id}")
-            body = _json(response)
+            body = json_dict(response)
             status = str(body.get("status") or "")
             if response.status_code != 200 or status in {"succeeded", "failed"}:
                 break
@@ -333,7 +313,7 @@ class Smoke:
         )
 
         response = self.get(f"/v1/parse/jobs/parse-not-exist-{self.run_id}")
-        self.record("#02 任务不存在", response, status=404, ok=_error_code(_json(response)) == CODE_NOT_FOUND)
+        self.record("#02 任务不存在", response, status=404, ok=error_code(json_dict(response)) == NOT_FOUND)
 
     def _entry_payload(self, *, request_id: str, publication_id: str) -> dict[str, Any]:
         return {
@@ -358,7 +338,7 @@ class Smoke:
         payload = self._entry_payload(request_id=f"request-entry-{self.run_id}", publication_id=publication_id)
 
         response = self.post("/v1/knowledge/entries", payload)
-        body = _json(response)
+        body = json_dict(response)
         self.record(
             "#03 首次发布写入",
             response,
@@ -368,7 +348,7 @@ class Smoke:
         )
 
         response = self.post("/v1/knowledge/entries", payload)
-        body = _json(response)
+        body = json_dict(response)
         self.record(
             "#03 幂等重试（同 request_id 同正文）",
             response,
@@ -384,7 +364,7 @@ class Smoke:
             "#03 同 publication_id 重复发布",
             response,
             status=409,
-            ok=_error_code(_json(response)) == CODE_STALE_REVISION,
+            ok=error_code(json_dict(response)) == STALE_REVISION,
             note="契约只写「已有 publication_id 返回 409」；本侧按基线冲突归口 STALE_REVISION（Q7）",
         )
         return publication_id
@@ -411,7 +391,7 @@ class Smoke:
         for mode in ("keyword", "natural_language"):
             payload = self._search_payload("vpn 申请怎么提交", mode=mode)
             response = self.post("/v1/knowledge/search", payload)
-            body = _json(response)
+            body = json_dict(response)
             hits = body.get("hits") or []
             self.record(
                 f"#07 检索（mode={mode}）",
@@ -429,7 +409,7 @@ class Smoke:
             "#07 authorization 跨度超限",
             response,
             status=400,
-            ok=_error_code(_json(response)) == CODE_INVALID_REQUEST,
+            ok=error_code(json_dict(response)) == INVALID_REQUEST,
             note="契约未定义该场景专用错误码",
         )
 
@@ -458,14 +438,14 @@ class Smoke:
             "#14 stream=true 明确拒绝",
             response,
             status=400,
-            ok=_error_code(_json(response)) == CODE_UNSUPPORTED_STREAM,
+            ok=error_code(json_dict(response)) == UNSUPPORTED_STREAM,
         )
 
         request_id = f"request-chat-{self.run_id}"
         response = self.post(
             "/v1/chat/completions", self._chat_payload(question="vpn 申请后多久能审批完成？", request_id=request_id)
         )
-        body = _json(response)
+        body = json_dict(response)
         citations = body.get("citations") or []
         contents = "".join(chunk["content"] for chunk in CHUNKS)
         quotes_ok = all(citation.get("quote") and citation["quote"] in contents for citation in citations)
@@ -480,7 +460,7 @@ class Smoke:
         response = self.post(
             "/v1/chat/completions", self._chat_payload(question="vpn 申请后多久能审批完成？", request_id=request_id)
         )
-        again = _json(response)
+        again = json_dict(response)
         self.record(
             "#14 幂等重试（同 request_id 同正文）",
             response,

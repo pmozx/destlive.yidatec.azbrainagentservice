@@ -82,6 +82,8 @@ class LlmClient:
         self.max_retries = max(0, settings.LLM_MAX_RETRIES if max_retries is None else max_retries)
         # 模型名随调用可变（多模型对比）：按模型名缓存已构造的 ChatOpenAI 实例
         self._clients: dict[str, ChatOpenAI] = {}
+        # 每个 ChatOpenAI 自带的 httpx 客户端，关停时统一关闭
+        self._http_clients: list[httpx.AsyncClient] = []
 
     # ── 内部辅助 ──────────────────────────────────────────────────────
 
@@ -101,6 +103,8 @@ class LlmClient:
         if cached is not None:
             return cached
         trust_env = trust_env_for_url(self.base_url)
+        http_client = httpx.AsyncClient(timeout=self.timeout, trust_env=trust_env)
+        self._http_clients.append(http_client)
         client = ChatOpenAI(
             model=model_name,
             # 私有化 vLLM 常不带密钥，而 OpenAI SDK 不允许空 key（不是密钥校验，只是必填占位）
@@ -111,10 +115,17 @@ class LlmClient:
             streaming=True,
             # 末帧带 usage（映射到 usage_metadata），落库 token 统计依赖它
             stream_usage=True,
-            http_async_client=httpx.AsyncClient(timeout=self.timeout, trust_env=trust_env),
+            http_async_client=http_client,
         )
         self._clients[model_name] = client
         return client
+
+    async def aclose(self) -> None:
+        """关闭所有模型实例底层的 httpx 连接池（应用关停时统一调用）。"""
+        for http_client in self._http_clients:
+            await http_client.aclose()
+        self._http_clients.clear()
+        self._clients.clear()
 
     def messages_for(self, messages: Sequence[ChatMessage]) -> list[tuple[str, str]]:
         """把 OpenAI 兼容消息体转成 LangChain 入参形式（保持顺序与角色）。"""

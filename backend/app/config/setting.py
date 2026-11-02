@@ -5,7 +5,7 @@ from urllib.parse import quote_plus
 from dotenv import dotenv_values
 from pathlib import Path
 from pydantic_settings import BaseSettings
-from pydantic import Field, computed_field
+from pydantic import Field, computed_field, model_validator
 from app.config.path_conf import ENV_DIR, BASE_ENV_FILE
 from app.common.enums import DatabaseTypeEnum
 
@@ -64,6 +64,8 @@ class Settings(BaseSettings):
         "env_file": _get_env_file(),
         "env_file_encoding": "utf-8",
         "case_sensitive": False,
+        # 校验失败时不要把整个配置字典（含数据库密码、API Key）打进异常信息
+        "hide_input_in_errors": True,
     }
 
     # ==================== 应用配置 ====================
@@ -86,7 +88,7 @@ class Settings(BaseSettings):
     DATABASE_HOST: str = Field(default="localhost", description="数据库主机地址")
     DATABASE_PORT: int = Field(default=5432, description="数据库端口")
     DATABASE_USER: str = Field(default="postgres", description="数据库用户名")
-    DATABASE_PASSWORD: str = Field(default="Yidatec@2026!", description="数据库密码")
+    DATABASE_PASSWORD: str = Field(default="", description="数据库密码（**只从 env 读取**，源码不留默认值）")
     DATABASE_NAME: str = Field(default="service_brain", description="数据库名称")
     DATABASE_ECHO: bool = Field(default=False, description="是否输出 SQL 日志")
 
@@ -113,6 +115,8 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL: str = Field(default="bge-m3", description="向量化模型名称，输出维度须与 VECTOR_DIM 一致")
     EMBEDDING_BATCH_SIZE: int = Field(default=16, description="单次向量化条数（过大易触发服务端 413/超时）")
     EMBEDDING_TIMEOUT: float = Field(default=60.0, description="向量化请求超时（秒）")
+    EMBEDDING_CONCURRENCY: int = Field(default=3, description="向量化分批并发数（同一批文档的分片并行提交，过大易打爆模型服务）")
+    EMBEDDING_MAX_RETRIES: int = Field(default=2, description="向量化单批失败重试次数（指数退避，4xx 也会重试，代价可控）")
 
     RERANK_BASE_URL: str = Field(default="", description="重排序服务地址（llama.cpp --rerank，如 http://service-brain-rerank:8001）")
     RERANK_PATH: str = Field(default="/v1/rerank", description="重排序接口路径")
@@ -193,8 +197,7 @@ class Settings(BaseSettings):
 
     # 会话配置
     AUTOCOMMIT: bool = Field(default=False, description="是否自动提交")
-    AUTOFLUSH: bool = Field(default=False, description="是否自动刷新")
-    AUTOFETCH: bool | None = Field(default=None, description="是否自动获取（优先级高于 AUTOFLUSH）")
+    AUTOFLUSH: bool = Field(default=False, description="是否自动刷新（每次查询前把挂起变更刷入事务）")
     EXPIRE_ON_COMMIT: bool = Field(default=False, description="提交后是否过期实例")
 
     # ==================== 日志配置 ====================
@@ -245,12 +248,20 @@ class Settings(BaseSettings):
     CONTRACT_IDEMPOTENCY_TTL_DAYS: int = Field(default=90, description="幂等台账保留天数（墓碑不清理）；契约同步查询窗口 30 分钟")
     CONTRACT_TENANT_ID: str = Field(default="gsi-default", description="契约固定租户（v2.1 口径）")
 
-    # 数据库驱动映射（数据库类型 -> 异步驱动）
-    _DB_DRIVERS: dict = {
-        DatabaseTypeEnum.MYSQL.value: DatabaseTypeEnum.MYSQL.async_driver,
-        DatabaseTypeEnum.POSTGRES.value: DatabaseTypeEnum.POSTGRES.async_driver,
-        DatabaseTypeEnum.SQLITE.value: DatabaseTypeEnum.SQLITE.async_driver,
-    }
+    @model_validator(mode="after")
+    def _require_database_password(self) -> "Settings":
+        """必填校验：非 sqlite 时口令不能为空。
+
+        口令曾经写死在源码里当默认值，等于把生产凭据随代码仓库分发；现在默认空串，
+        配错/漏配必须在启动期就失败——否则报错会延后到第一次建连，且容易被当成网络问题。
+        """
+        if self.DATABASE_TYPE != DatabaseTypeEnum.SQLITE.value and not self.DATABASE_PASSWORD:
+            raise ValueError(
+                "DATABASE_PASSWORD 未配置：请在 env/.env.{0} 中设置 DATABASE_PASSWORD（源码不再内置默认口令）".format(
+                    self.ENVIRONMENT
+                )
+            )
+        return self
 
     @computed_field
     @property
@@ -260,7 +271,7 @@ class Settings(BaseSettings):
         口令按 URL 规则编码，避免密码含 @ / : / # 等字符时连接串被截断；
         charset 仅 MySQL 需要——asyncpg 遇到未知 query 参数会在建连阶段直接报错。
         """
-        driver = self._DB_DRIVERS.get(self.DATABASE_TYPE, DatabaseTypeEnum.POSTGRES.async_driver)
+        driver = DatabaseTypeEnum.async_driver_for(self.DATABASE_TYPE)
         if self.DATABASE_TYPE == DatabaseTypeEnum.SQLITE.value:
             return f"{driver}:///{self.DATABASE_NAME}"
         credential = f"{quote_plus(self.DATABASE_USER)}:{quote_plus(self.DATABASE_PASSWORD)}"

@@ -1,4 +1,4 @@
-from sqlalchemy import Index, Integer, String, Text
+from sqlalchemy import Index, Integer, String, text, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -29,20 +29,25 @@ class SystemApiLogModel(ModelMixin):
     """
 
     __tablename__: str = "sbp_ai_system_api_log"
-    # 注意：子类一旦定义 __table_args__，Mixin 里基于 status/created_time 的复合索引会被整体覆盖，
-    # 因此这里显式声明本表需要的索引（审计查询高频按时间、路径、客户端、追踪 ID 过滤）。
+    # 注意：子类一旦定义 __table_args__，就整体覆盖 Mixin 的表级索引，因此这里显式声明本表需要的索引
+    # （审计查询高频按时间、路径、客户端、追踪 ID 过滤）。created_time 自带单列索引，不再重复建复合索引。
     __table_args__: tuple = (
-        Index("ix_sbp_ai_system_api_log_created", "created_time", "is_deleted"),
         # 单列 path 索引替换为 (path, created_time)：联调期按路径看最近 N 条是最高频查询
         Index("ix_sbp_ai_system_api_log_path_created", "request_path", "created_time"),
         Index("ix_sbp_ai_system_api_log_username", "username"),
         Index("ix_sbp_ai_system_api_log_client_created", "client_id", "created_time"),
         Index("ix_sbp_ai_system_api_log_request_id", "request_id"),
+        # JSONB 子字段的等值过滤（`security_check->>'signature_result' = 'failed'`）：
+        # `->>` 返回 text，GIN(jsonb_ops) 只服务 `@>` 包含查询，这里要的必须是**表达式 B-tree**。
+        # 表达式整体加一层括号，少这层 PG 会报 `syntax error at or near "->>"`。
+        # 写在模型里（而非初始化脚本）是本表索引的唯一事实源：重建库时由 create_all 一并建出。
+        Index("ix_sbp_ai_system_api_log_sig_result", text("((security_check ->> 'signature_result'))")),
+        Index("ix_sbp_ai_system_api_log_nonce_state", text("((security_check ->> 'nonce_state'))")),
         {"comment": "接口审计日志表"},
     )
 
     username: Mapped[str] = mapped_column(String(64), nullable=False, default="anonymous", comment="操作人")
-    status: Mapped[int] = mapped_column(Integer, default=0, nullable=False, index=True, comment="操作状态(0:成功 1:失败)")
+    status: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"), nullable=False, index=True, comment="操作状态(0:成功 1:失败)")
     description: Mapped[str | None] = mapped_column(Text, default=None, nullable=True, comment="操作名称/异常摘要")
     request_path: Mapped[str] = mapped_column(String(255), nullable=False, comment="请求路径")
     request_method: Mapped[str] = mapped_column(String(10), nullable=False, comment="请求方式")

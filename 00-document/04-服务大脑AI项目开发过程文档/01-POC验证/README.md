@@ -37,6 +37,9 @@
 6 张 `poc_v1_*` 临时表已 `DROP`（`pg_tables like 'poc_v1_%'` 实测为空）。
 对外能力零变化：`/v1` 本来就只有 `app/contract/` 的 20 条 501 骨架。
 
+> **注（2026-11-02）**：下表是本阶段的处置记录，文件名保持当时状态。测试已按被测对象重组为
+> `core/` / `contract/` / `modules/` / `stages/` 四个包，新旧对照见 `backend/tests/README.md`。
+
 | 位置 | 现状 |
 | --- | --- |
 | tag `poc-m0-frozen` | POC 原实现的冻结基线；需要对照时 `git show poc-m0-frozen:backend/app/poc/xxx.py`（`service.py` 等未跟踪文件不在 tag 内） |

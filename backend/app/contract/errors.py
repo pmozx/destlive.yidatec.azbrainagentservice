@@ -26,6 +26,7 @@ from starlette.exceptions import HTTPException
 
 from app.core.exceptions import CustomException
 from app.core.logger import logger
+from app.core.request_body import peek_json_body
 from app.core.router_class import ApiLogRoute
 
 from .audit import mark_failure
@@ -45,6 +46,8 @@ PAYLOAD_TOO_LARGE = "PAYLOAD_TOO_LARGE"
 RATE_LIMITED = "RATE_LIMITED"
 AUTHORIZATION_UNAVAILABLE = "AUTHORIZATION_UNAVAILABLE"
 INTERNAL_ERROR = "INTERNAL_ERROR"
+# #14 非流式承诺：stream=true 明确拒绝（手册 FR-RAG-04 / 参数手册 #14 stream 说明）
+UNSUPPORTED_STREAM = "UNSUPPORTED_STREAM"
 # 任务态失败码（`#02` 的 `error_code`，HTTP 仍是 200）——不是请求级错误体，但同属错误码表
 PARSE_FAILED = "PARSE_FAILED"
 
@@ -64,6 +67,7 @@ ERROR_CODE_STATUS: dict[str, int] = {
     RATE_LIMITED: status.HTTP_429_TOO_MANY_REQUESTS,
     AUTHORIZATION_UNAVAILABLE: status.HTTP_503_SERVICE_UNAVAILABLE,
     INTERNAL_ERROR: status.HTTP_500_INTERNAL_SERVER_ERROR,
+    UNSUPPORTED_STREAM: status.HTTP_400_BAD_REQUEST,
     PARSE_FAILED: status.HTTP_200_OK,
 }
 
@@ -99,6 +103,7 @@ DEFAULT_MESSAGES: dict[str, str] = {
     RATE_LIMITED: "请求过于频繁，请稍后使用原请求重试。",
     AUTHORIZATION_UNAVAILABLE: "权限数据暂不可用，请稍后重试。",
     INTERNAL_ERROR: "服务内部处理失败，请按 retryable 判断是否重试。",
+    UNSUPPORTED_STREAM: "本期仅支持非流式生成，请将 stream 置为 false。",
     PARSE_FAILED: "无法解析文件。",
 }
 
@@ -220,17 +225,18 @@ def _from_http_exception(exc: HTTPException) -> ContractApiError:
     return ContractApiError(code_for_status(exc.status_code), message, status_code=exc.status_code)
 
 
-def _extract_request_id(body: bytes) -> str | None:
-    """从原始正文里尽力取 request_id（错误响应回带用；解析失败不影响主流程）。"""
-    try:
-        data = json.loads(body) if body else {}
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        return None
+def _request_id_of(request: Request) -> str | None:
+    """从**已缓存的**正文里取 request_id（错误响应回带用）。
+
+    正文由验签依赖经 ``get_json_body`` 解析并缓存，这里只读缓存、不再反序列化；
+    依赖没跑到的场景（路由级 404 等）拿不到正文，直接不回带。
+    """
+    data = peek_json_body(request)
     value = data.get("request_id") if isinstance(data, dict) else None
     return str(value) if isinstance(value, str) and value else None
 
 
-def _failed(request: Request, error: ContractApiError, body: bytes = b"") -> Response:
+def _failed(request: Request, error: ContractApiError) -> Response:
     """错误响应：先标记本次请求失败，供幂等依赖与请求级事务回滚判别。
 
     FastAPI 的依赖退出代码在响应发出之后才执行，错误体又已经被本路由类接住（异常不再上抛），
@@ -243,7 +249,7 @@ def _failed(request: Request, error: ContractApiError, body: bytes = b"") -> Res
     mark_failure(request, error.code)
     # 能识别请求就原样带回 request_id（手册 §七）；验签/授权阶段起的异常自身看不到正文
     if not error.request_id:
-        error.request_id = _extract_request_id(body)
+        error.request_id = _request_id_of(request)
     logger.warning("[contract /v1] {} {} | {} | {}", request.method, request.url.path, error.code, error.message)
     return _response(error)
 
@@ -256,24 +262,23 @@ class ContractApiRoute(ApiLogRoute):
         original_route_handler = super().get_route_handler()
 
         async def custom_route_handler(request: Request) -> Response:
-            # 审计/幂等/错误回带都要原始正文；Starlette 会缓存 body，下游依赖可再次读取
-            body = await request.body()
+            # 正文由验签依赖统一解析并缓存（见 app.core.request_body），这里不再重复读、重复解析
             try:
                 return await original_route_handler(request)
             except ContractApiError as exc:
-                return _failed(request, exc, body)
+                return _failed(request, exc)
             except RequestValidationError as exc:
-                return _failed(request, _from_validation_error(exc, _extract_request_id(body)), body)
+                return _failed(request, _from_validation_error(exc, _request_id_of(request)))
             except CustomException as exc:
-                return _failed(request, _from_custom_exception(exc), body)
+                return _failed(request, _from_custom_exception(exc))
             except HTTPException as exc:
-                return _failed(request, _from_http_exception(exc), body)
+                return _failed(request, _from_http_exception(exc))
             except SQLAlchemyError as exc:
                 # 数据库不可用/约束冲突等：不把驱动细节回给调用方
                 logger.exception("[contract /v1] {} {} 数据库异常: {}", request.method, request.url.path, exc)
-                return _failed(request, ContractApiError(INTERNAL_ERROR), body)
+                return _failed(request, ContractApiError(INTERNAL_ERROR))
             except Exception as exc:
                 logger.exception("[contract /v1] {} {} 未捕获异常: {}", request.method, request.url.path, exc)
-                return _failed(request, ContractApiError(INTERNAL_ERROR, retryable=True), body)
+                return _failed(request, ContractApiError(INTERNAL_ERROR, retryable=True))
 
         return custom_route_handler

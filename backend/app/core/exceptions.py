@@ -1,4 +1,3 @@
-from functools import wraps
 from typing import Any
 
 from fastapi import FastAPI, Request, status
@@ -13,37 +12,19 @@ from app.config.setting import settings
 from app.core.logger import logger
 
 
-def require_superadmin(func):
-    """装饰器：仅超级管理员可调用 Service 方法。
+class CustomException(Exception):
+    """业务异常：**默认 400**（业务拒绝），不要拿它表达 5xx。
 
-    自动校验 ``self.auth.user.is_superuser`` 属性，非超管直接抛出 403。
-    适用于实例方法（``Service(auth).xxx(...)``），由 ``self.auth`` 取认证上下文。
-
-    用法:
-        class XxxService:
-            def __init__(self, auth: AuthSchema) -> None:
-                self.auth = auth
-
-            @require_superadmin
-            async def create(self, data: ...) -> ...:
-                ...
+    默认值曾是 500，导致「数据不存在」这类可预期拒绝与真实故障混在一起，
+    监控无法区分；需要 401/403/404/409 时显式传状态码（``get_or_404`` 已固定 404）。
+    真 5xx 请交给 ``SQLAlchemyError`` / 未捕获异常的统一出口。
     """
 
-    @wraps(func)
-    async def wrapper(self, *args, **kwargs):
-        if not self.auth.user or not self.auth.user.is_superuser:
-            raise CustomException(msg="仅平台管理员可操作")
-        return await func(self, *args, **kwargs)
-
-    return wrapper
-
-
-class CustomException(Exception):
     def __init__(
         self,
         msg: str = RET.EXCEPTION.msg,
         code: int = RET.EXCEPTION.code,
-        status_code: int = status.HTTP_500_INTERNAL_SERVER_ERROR,
+        status_code: int = status.HTTP_400_BAD_REQUEST,
         data: Any | None = None,
         success: bool = False,
     ) -> None:
@@ -62,16 +43,22 @@ def handle_exception(app: FastAPI) -> None:
     @app.exception_handler(CustomException)
     async def custom_exception_handler(request: Request, exc: CustomException) -> JSONResponse:
         logger.error(
-            "[自定义异常] {} {} | code={} | msg={} | data={}",
+            "[自定义异常] {} {} | status={} | code={} | msg={} | data={}",
             request.method,
             request.url.path,
+            exc.status_code,
             exc.code,
             exc.msg,
             exc.data,
         )
-        # 生产环境不外泄 data（可能含 SQL 字段、约束名等内部细节）
-        expose_data = exc.data if settings.ENVIRONMENT != EnvironmentEnum.PROD else None
-        return ErrorResponse(msg=exc.msg, code=exc.code, status_code=exc.status_code, data=expose_data)
+        # 生产环境不外泄 data（可能含 SQL 字段、约束名等内部细节）；
+        # 5xx 的 msg 同样常常是拼进去的底层报错，只回固定话术
+        is_prod = settings.ENVIRONMENT == EnvironmentEnum.PROD
+        expose_data = None if is_prod else exc.data
+        msg = exc.msg
+        if is_prod and exc.status_code >= status.HTTP_500_INTERNAL_SERVER_ERROR:
+            msg = "服务器内部错误"
+        return ErrorResponse(msg=msg, code=exc.code, status_code=exc.status_code, data=expose_data)
 
     @app.exception_handler(HTTPException)
     async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
@@ -116,7 +103,9 @@ def handle_exception(app: FastAPI) -> None:
             detail = str(exc.orig) if exc.orig else str(exc)
             expose_detail = detail if settings.ENVIRONMENT != EnvironmentEnum.PROD else None
             if "connect" in detail or "connection" in detail:
-                return ErrorResponse(msg="数据库连接失败", status_code=status.HTTP_403_SERVICE_UNAVAILABLE, data=expose_detail)
+                # 注意：Starlette 没有 HTTP_403_SERVICE_UNAVAILABLE，此处曾写成该常量，
+                # 一进这个分支就 AttributeError，最终反而变成 500
+                return ErrorResponse(msg="数据库连接失败", status_code=status.HTTP_503_SERVICE_UNAVAILABLE, data=expose_detail)
             if "Duplicate entry" in detail:
                 return ErrorResponse(msg="数据重复，请检查唯一字段", status_code=status.HTTP_409_CONFLICT, data=expose_detail)
             if "foreign key constraint" in detail:

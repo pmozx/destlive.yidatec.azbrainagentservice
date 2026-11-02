@@ -5,9 +5,15 @@
 2. 维度不一致只告警不阻断：本层是通用客户端，真正落库前的强校验在 ``app.core.rag.vector_store``；
 3. 空文本直接拒绝——Ollama 对空输入返回 400，静默过滤会让向量与分片错位；
 4. 内网/回环目标不读代理环境变量（见 :func:`app.core.clients.base.trust_env_for_url`），
-   自建 bge-m3 在局域网里，走代理只会变成 502。
+   自建 bge-m3 在局域网里，走代理只会变成 502；
+5. 分批**并发**提交（``EMBEDDING_CONCURRENCY`` 控制并发数）并带指数退避重试——
+   300 个分片按 batch=16 串行要 19 次往返，同步等完再写下一条纯属浪费；
+   并发只影响吞吐，不影响顺序：结果按批次下标回填；
+6. 实例应当长期复用（见 :func:`app.core.clients.get_embedding_client`）：
+   每次请求 new 一个会把底层 httpx 连接池一起丢掉，既不复用连接也永不关闭。
 """
 
+import asyncio
 from collections.abc import Sequence
 
 import httpx
@@ -39,6 +45,8 @@ class EmbeddingClient:
         model: str | None = None,
         timeout: float | None = None,
         batch_size: int | None = None,
+        concurrency: int | None = None,
+        max_retries: int | None = None,
     ) -> None:
         self.base_url = (settings.EMBEDDING_BASE_URL if base_url is None else base_url).rstrip("/")
         self.protocol = (protocol or settings.EMBEDDING_PROTOCOL or "openai").strip().lower()
@@ -51,7 +59,10 @@ class EmbeddingClient:
         self.model = model or settings.EMBEDDING_MODEL
         self.timeout = settings.EMBEDDING_TIMEOUT if timeout is None else timeout
         self.batch_size = max(1, batch_size or settings.EMBEDDING_BATCH_SIZE)
+        self.concurrency = max(1, concurrency or settings.EMBEDDING_CONCURRENCY)
+        self.max_retries = max(0, settings.EMBEDDING_MAX_RETRIES if max_retries is None else max_retries)
         self._model_client: Embeddings | None = None
+        self._http: httpx.AsyncClient | None = None
 
     # ── 内部辅助 ──────────────────────────────────────────────────────
 
@@ -87,7 +98,7 @@ class EmbeddingClient:
                 # 不按 tiktoken 切 token：自建服务不保证兼容 tokenizer，整段文本直传更稳
                 check_embedding_ctx_length=False,
                 chunk_size=self.batch_size,
-                http_async_client=_async_http_client(trust_env, self.timeout),
+                http_async_client=self._async_http_client(trust_env),
             )
         self._model_client = client
         return client
@@ -109,8 +120,45 @@ class EmbeddingClient:
 
     # ── 对外能力 ──────────────────────────────────────────────────────
 
+    def _async_http_client(self, trust_env: bool) -> httpx.AsyncClient:
+        """自己的 httpx 客户端：连接池可复用、关停时能显式关闭（内网服务必须直连）。"""
+        if self._http is None:
+            self._http = httpx.AsyncClient(timeout=self.timeout, trust_env=trust_env)
+        return self._http
+
+    async def _embed_batch(
+        self, client: Embeddings, batch: list[str], semaphore: asyncio.Semaphore
+    ) -> list[list[float]]:
+        """单批向量化：并发受信号量约束，失败按指数退避重试。"""
+        last_exc: Exception | None = None
+        async with semaphore:
+            for attempt in range(self.max_retries + 1):
+                try:
+                    batch_vectors = await client.aembed_documents(batch)
+                except Exception as exc:  # noqa: BLE001 客户端异常统一收敛成可读的 502
+                    last_exc = exc
+                    if attempt < self.max_retries:
+                        # 0.5s / 1s / 2s…：模型服务偶发 502/超时时，重试比整单失败便宜得多
+                        await asyncio.sleep(min(2**attempt, 8) * 0.5)
+                        continue
+                    raise CustomException(
+                        msg=(
+                            f"{self.service_name} 调用失败（已重试 {self.max_retries} 次）："
+                            f"{type(exc).__name__}: {str(exc)[:200]}"
+                        ),
+                        status_code=status.HTTP_502_BAD_GATEWAY,
+                    ) from exc
+                if len(batch_vectors) != len(batch):
+                    raise CustomException(
+                        msg=f"向量化返回条数与请求不一致：请求 {len(batch)}，返回 {len(batch_vectors)}",
+                        status_code=status.HTTP_502_BAD_GATEWAY,
+                    )
+                return [[float(value) for value in vector] for vector in batch_vectors]
+        # 理论不可达：循环内要么 return 要么 raise
+        raise CustomException(msg=f"{self.service_name} 调用失败：{last_exc!r}", status_code=status.HTTP_502_BAD_GATEWAY)
+
     async def embed_texts(self, texts: Sequence[str], *, batch_size: int | None = None) -> list[list[float]]:
-        """批量向量化，返回顺序与入参一致。"""
+        """批量向量化，返回顺序与入参一致（分批并发提交，结果按批次顺序回填）。"""
         items = [str(text) for text in texts]
         if not items:
             return []
@@ -119,22 +167,11 @@ class EmbeddingClient:
 
         client = self._client()
         size = max(1, batch_size or self.batch_size)
-        vectors: list[list[float]] = []
-        for start in range(0, len(items), size):
-            batch = items[start : start + size]
-            try:
-                batch_vectors = await client.aembed_documents(batch)
-            except Exception as exc:  # noqa: BLE001 客户端异常统一成可读的 502
-                raise CustomException(
-                    msg=f"{self.service_name} 调用失败：{type(exc).__name__}: {str(exc)[:200]}",
-                    status_code=status.HTTP_502_BAD_GATEWAY,
-                ) from exc
-            if len(batch_vectors) != len(batch):
-                raise CustomException(
-                    msg=f"向量化返回条数与请求不一致：请求 {len(batch)}，返回 {len(batch_vectors)}",
-                    status_code=status.HTTP_502_BAD_GATEWAY,
-                )
-            vectors.extend([[float(value) for value in vector] for vector in batch_vectors])
+        batches = [items[start : start + size] for start in range(0, len(items), size)]
+        semaphore = asyncio.Semaphore(self.concurrency)
+        # gather 保序：结果下标与 batches 一一对应，所以并发不会打乱“向量 ↔ 分片”的对应关系
+        results = await asyncio.gather(*(self._embed_batch(client, batch, semaphore) for batch in batches))
+        vectors = [vector for batch_vectors in results for vector in batch_vectors]
 
         self._warn_dimension(vectors)
         return vectors
@@ -144,7 +181,9 @@ class EmbeddingClient:
         vectors = await self.embed_texts([text])
         return vectors[0]
 
-
-def _async_http_client(trust_env: bool, timeout: float) -> httpx.AsyncClient:
-    """按目标地址决定是否读取代理环境变量（内网服务必须直连）。"""
-    return httpx.AsyncClient(timeout=timeout, trust_env=trust_env)
+    async def aclose(self) -> None:
+        """关闭自有 httpx 连接池（应用关停时由 :func:`app.core.clients.close_clients` 统一调用）。"""
+        if self._http is not None:
+            await self._http.aclose()
+            self._http = None
+        self._model_client = None

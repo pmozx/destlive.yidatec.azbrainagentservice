@@ -28,6 +28,18 @@ class DatabaseTypeEnum(str, Enum):
         """返回对应的异步数据库驱动。"""
         return _ASYNC_DRIVER_MAP[self]
 
+    @classmethod
+    def async_driver_for(cls, value: str) -> str:
+        """按配置里的字符串类型取异步驱动（env 读出来的都是字符串）。
+
+        未知值回落 ``postgres``：与 ``database_url`` 的历史兜底口径一致，
+        让配置写错时表现成「连不上库」而不是启动期 KeyError。
+        """
+        try:
+            return cls(value).async_driver
+        except ValueError:
+            return cls.POSTGRES.async_driver
+
     @property
     def is_sqlite(self) -> bool:
         return self == DatabaseTypeEnum.SQLITE
@@ -57,130 +69,6 @@ _ASYNC_DRIVER_MAP: dict[str, str] = {
     DatabaseTypeEnum.POSTGRES: "postgresql+asyncpg",
     DatabaseTypeEnum.SQLITE: "sqlite+aiosqlite",
 }
-
-
-@unique
-class BusinessType(Enum):
-    """业务操作类型
-
-    OTHER: 其它
-    INSERT: 新增
-    UPDATE: 修改
-    DELETE: 删除
-    GRANT: 授权
-    EXPORT: 导出
-    IMPORT: 导入
-    FORCE: 强退
-    GENCODE: 生成代码
-    CLEAN: 清空数据
-    """
-
-    OTHER = 0
-    INSERT = 1
-    UPDATE = 2
-    DELETE = 3
-    GRANT = 4
-    EXPORT = 5
-    IMPORT = 6
-    FORCE = 7
-    GENCODE = 8
-    CLEAN = 9
-
-
-@unique
-class RedisInitKeyConfig(Enum):
-    """系统内置Redis键名枚举"""
-
-    ACCESS_TOKEN = {"key": "access_token", "remark": "登录令牌信息"}
-    REFRESH_TOKEN = {"key": "refresh_token", "remark": "刷新令牌信息"}
-    USER_SESSION = {"key": "user_session", "remark": "用户会话信息"}
-    CAPTCHA_CODES = {"key": "captcha_codes", "remark": "图片验证码"}
-    SYSTEM_CONFIG = {"key": "system_config", "remark": "系统配置"}
-    SYSTEM_DICT = {"key": "system_dict", "remark": "数据字典"}
-    APSCHEDULER_LOCK_KEY = {"key": "scheduler_job_lock", "remark": "定时任务初始化锁"}
-    AI_MODEL_CONFIG = {"key": "ai_model_config", "remark": "用户AI模型配置"}
-
-    @property
-    def key(self) -> str:
-        """获取 Redis 键名。"""
-        return self.value.get("key", "")
-
-    @property
-    def remark(self) -> str:
-        """获取 Redis 键说明。"""
-        return self.value.get("remark", "")
-
-
-class SysParamKey(str, Enum):
-    """系统参数 config_key 常量定义
-
-    所有 sys_param 表的 config_key 值统一在此定义，避免前端/后端各处写死字符串导致拼写错误。
-    """
-
-    SYS_NAME = "sys_name"
-    LOGO_URL = "logo_url"
-    FAVICON = "favicon"
-    LOGIN_BG = "login_bg"
-    VERSION = "version"
-    HELP_DOC = "help_doc"
-    GIT_CODE = "git_code"
-    COPYRIGHT = "copyright"
-    KEEP_RECORD = "keep_record"
-    PRIVACY = "privacy"
-    CLAUSE = "clause"
-    DEMO_ENABLE = "demo_enable"
-    IP_WHITE_LIST = "ip_white_list"
-    IP_BLACK_LIST = "ip_black_list"
-    LOGIN_TITLE = "login_title"
-    LOGIN_SUBTITLE = "login_subtitle"
-    IP_LOCATION_ENABLE = "ip_location_enable"
-
-
-@unique
-class QueueEnum(str, Enum):
-    """队列枚举"""
-
-    none = "None"
-    not_none = "not None"
-    date = "date"
-    month = "month"
-    like = "like"
-    eq = "eq"
-    in_ = "in"
-    between = "between"
-    ne = "!="
-    gt = ">"
-    ge = ">="
-    lt = "<"
-    le = "<="
-
-
-@unique
-class OrderTypeEnum(str, Enum):
-    """订单类型"""
-
-    NEW = "new"
-    RENEW = "renew"
-    UPGRADE = "upgrade"
-    DOWNGRADE = "downgrade"
-
-
-@unique
-class InvoiceTypeEnum(str, Enum):
-    """发票类型"""
-
-    VAT_NORMAL = "vat_normal"
-    VAT_SPECIAL = "vat_special"
-
-
-@unique
-class TicketTypeEnum(str, Enum):
-    """工单类型"""
-
-    SUGGESTION = "suggestion"
-    BUG = "bug"
-    OPTIMIZE = "optimize"
-    OTHER = "other"
 
 
 # ==================== 系统返回码 ====================

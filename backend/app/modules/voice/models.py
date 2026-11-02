@@ -1,14 +1,15 @@
 """voice 模块表模型（P1 / T1.0）：规则与版本、质检任务与结果、报告、发现、复核、评估集。
 
-语音质检本期**暂缓实现**（接口文档未提供），但 T1.0 要求 23 张表一次建模到位：
-表结构先落库，后续实现只写业务代码，不再动 schema。命名 `sbp_ai_voice_*`。
+语音质检本期**暂缓实现**（接口文档未提供），但 T1.0 要求表结构一次建模到位
+（全库 22 张业务表，其中 voice 域 8 张）：表结构先落库，后续实现只写业务代码，不再动 schema。
+命名 `sbp_ai_voice_*`。
 """
 
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Index, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, DateTime, Index, Integer, Numeric, String, text, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -21,8 +22,7 @@ class VoiceRuleModel(ModelMixin):
     __tablename__: str = "sbp_ai_voice_rule"
     __table_args__: tuple = (
         UniqueConstraint("rule_code", name="uq_sbp_ai_voice_rule_code"),
-        Index("ix_sbp_ai_voice_rule_status_deleted", "status", "is_deleted"),
-        Index("ix_sbp_ai_voice_rule_created_deleted", "created_time", "is_deleted"),
+        Index("ix_sbp_ai_voice_rule_status_created", "status", "created_time"),
         Index("ix_sbp_ai_voice_rule_type_status", "rule_type", "status"),
         {"comment": "语音质检规则"},
     )
@@ -34,14 +34,14 @@ class VoiceRuleModel(ModelMixin):
     scope: Mapped[dict[str, Any] | None] = mapped_column(JSONB, default=None, nullable=True, comment="适用范围")
     method: Mapped[str | None] = mapped_column(String(20), default=None, nullable=True, comment="keyword/regex/enum/field/threshold")
     params: Mapped[dict[str, Any] | None] = mapped_column(JSONB, default=None, nullable=True, comment="判定参数")
-    score: Mapped[int] = mapped_column(Integer, default=0, nullable=False, comment="分值（正扣分/负加分）")
-    priority: Mapped[int] = mapped_column(Integer, default=100, nullable=False, comment="优先级（小者先判）")
+    score: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"), nullable=False, comment="分值（正扣分/负加分）")
+    priority: Mapped[int] = mapped_column(Integer, default=100, server_default=text("100"), nullable=False, comment="优先级（小者先判）")
     knowledge_ref: Mapped[dict[str, Any] | None] = mapped_column(JSONB, default=None, nullable=True, comment="知识依据")
     examples: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list, nullable=False, comment="正反例")
     effective_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None, nullable=True, comment="生效开始")
     effective_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None, nullable=True, comment="生效结束")
-    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False, comment="当前版本")
-    status: Mapped[str] = mapped_column(String(20), default="draft", nullable=False, comment="draft/active/retired")
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default=text("1"), nullable=False, comment="当前版本")
+    status: Mapped[str] = mapped_column(String(20), default="draft", server_default=text("'draft'"), nullable=False, comment="draft/active/retired")
 
 
 class VoiceRuleVersionModel(ModelMixin):
@@ -50,7 +50,6 @@ class VoiceRuleVersionModel(ModelMixin):
     __tablename__: str = "sbp_ai_voice_rule_version"
     __table_args__: tuple = (
         UniqueConstraint("rule_id", "version", name="uq_sbp_ai_voice_rule_version_rule_ver"),
-        Index("ix_sbp_ai_voice_rule_version_created_deleted", "created_time", "is_deleted"),
         {"comment": "规则版本快照"},
     )
 
@@ -67,8 +66,6 @@ class VoiceQcJobModel(ModelMixin):
     __tablename__: str = "sbp_ai_voice_qc_job"
     __table_args__: tuple = (
         UniqueConstraint("call_id", name="uq_sbp_ai_voice_qc_job_call"),
-        Index("ix_sbp_ai_voice_qc_job_status_deleted", "status", "is_deleted"),
-        Index("ix_sbp_ai_voice_qc_job_created_deleted", "created_time", "is_deleted"),
         Index("ix_sbp_ai_voice_qc_job_status_created", "status", "created_time"),
         {"comment": "质检任务（四类判定并行执行）"},
     )
@@ -79,7 +76,7 @@ class VoiceQcJobModel(ModelMixin):
     rule_set_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSONB, default=None, nullable=True, comment="本次规则集快照")
     error_code: Mapped[str | None] = mapped_column(String(64), default=None, nullable=True, comment="失败码")
     error_message: Mapped[str | None] = mapped_column(Text, default=None, nullable=True, comment="失败说明")
-    status: Mapped[str] = mapped_column(String(20), default="queued", nullable=False, comment="queued/running/succeeded/failed/partial")
+    status: Mapped[str] = mapped_column(String(20), default="queued", server_default=text("'queued'"), nullable=False, comment="queued/running/succeeded/failed/partial")
 
 
 class VoiceQcResultModel(ModelMixin):
@@ -88,8 +85,7 @@ class VoiceQcResultModel(ModelMixin):
     __tablename__: str = "sbp_ai_voice_qc_result"
     __table_args__: tuple = (
         UniqueConstraint("job_id", name="uq_sbp_ai_voice_qc_result_job"),
-        Index("ix_sbp_ai_voice_qc_result_status_deleted", "status", "is_deleted"),
-        Index("ix_sbp_ai_voice_qc_result_created_deleted", "created_time", "is_deleted"),
+        Index("ix_sbp_ai_voice_qc_result_status_created", "status", "created_time"),
         Index("ix_sbp_ai_voice_qc_result_call", "call_id"),
         Index("ix_sbp_ai_voice_qc_result_review", "review_status"),
         {"comment": "单通质检结果（证据与判定强绑定 JSONB）"},
@@ -105,7 +101,7 @@ class VoiceQcResultModel(ModelMixin):
     undetermined: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list, nullable=False, comment="未判定清单")
     model_versions: Mapped[dict[str, Any] | None] = mapped_column(JSONB, default=None, nullable=True, comment="模型与提示词版本")
     review_status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False, comment="pending/passed/corrected")
-    status: Mapped[str] = mapped_column(String(20), default="active", nullable=False, comment="active 等（复核态见 review_status）")
+    status: Mapped[str] = mapped_column(String(20), default="active", server_default=text("'active'"), nullable=False, comment="active 等（复核态见 review_status）")
 
 
 class VoiceReportSnapshotModel(ModelMixin):
@@ -114,8 +110,7 @@ class VoiceReportSnapshotModel(ModelMixin):
     __tablename__: str = "sbp_ai_voice_report_snapshot"
     __table_args__: tuple = (
         UniqueConstraint("report_level", "period", "dimension", name="uq_sbp_ai_voice_report_snapshot_level_period_dim"),
-        Index("ix_sbp_ai_voice_report_snapshot_status_deleted", "status", "is_deleted"),
-        Index("ix_sbp_ai_voice_report_snapshot_created_deleted", "created_time", "is_deleted"),
+        Index("ix_sbp_ai_voice_report_snapshot_status_created", "status", "created_time"),
         Index("ix_sbp_ai_voice_report_snapshot_level_created", "report_level", "created_time"),
         {"comment": "四层报告快照（数字与文字分离）"},
     )
@@ -127,7 +122,7 @@ class VoiceReportSnapshotModel(ModelMixin):
     interpretation: Mapped[str | None] = mapped_column(Text, default=None, nullable=True, comment="模型文字解读")
     checksum: Mapped[str | None] = mapped_column(String(64), default=None, nullable=True, comment="payload 哈希")
     generated_by: Mapped[dict[str, Any] | None] = mapped_column(JSONB, default=None, nullable=True, comment="生成参数")
-    status: Mapped[str] = mapped_column(String(20), default="active", nullable=False, comment="active 等")
+    status: Mapped[str] = mapped_column(String(20), default="active", server_default=text("'active'"), nullable=False, comment="active 等")
 
 
 class VoiceFindingModel(ModelMixin):
@@ -135,8 +130,7 @@ class VoiceFindingModel(ModelMixin):
 
     __tablename__: str = "sbp_ai_voice_finding"
     __table_args__: tuple = (
-        Index("ix_sbp_ai_voice_finding_status_deleted", "status", "is_deleted"),
-        Index("ix_sbp_ai_voice_finding_created_deleted", "created_time", "is_deleted"),
+        Index("ix_sbp_ai_voice_finding_status_created", "status", "created_time"),
         Index("ix_sbp_ai_voice_finding_risk_status", "risk_level", "status"),
         {"comment": "管理发现（聚类 → 建议动作 → 跟踪）"},
     )
@@ -150,7 +144,7 @@ class VoiceFindingModel(ModelMixin):
     suggestion: Mapped[str | None] = mapped_column(Text, default=None, nullable=True, comment="建议动作")
     owner: Mapped[str | None] = mapped_column(String(50), default=None, nullable=True, comment="责任人")
     track_status: Mapped[str] = mapped_column(String(20), default="open", nullable=False, comment="跟踪状态")
-    status: Mapped[str] = mapped_column(String(20), default="open", nullable=False, comment="open/tracking/closed")
+    status: Mapped[str] = mapped_column(String(20), default="open", server_default=text("'open'"), nullable=False, comment="open/tracking/closed")
 
 
 class VoiceReviewModel(ModelMixin):
@@ -158,8 +152,7 @@ class VoiceReviewModel(ModelMixin):
 
     __tablename__: str = "sbp_ai_voice_review"
     __table_args__: tuple = (
-        Index("ix_sbp_ai_voice_review_status_deleted", "status", "is_deleted"),
-        Index("ix_sbp_ai_voice_review_created_deleted", "created_time", "is_deleted"),
+        Index("ix_sbp_ai_voice_review_status_created", "status", "created_time"),
         Index("ix_sbp_ai_voice_review_result", "result_id"),
         {"comment": "复核与申诉记录"},
     )
@@ -171,7 +164,7 @@ class VoiceReviewModel(ModelMixin):
     corrected_verdict: Mapped[dict[str, Any] | None] = mapped_column(JSONB, default=None, nullable=True, comment="修正后判定")
     reason: Mapped[str | None] = mapped_column(Text, default=None, nullable=True, comment="理由")
     handled_by: Mapped[str | None] = mapped_column(String(50), default=None, nullable=True, comment="处理人")
-    status: Mapped[str] = mapped_column(String(20), default="submitted", nullable=False, comment="submitted/accepted/rejected")
+    status: Mapped[str] = mapped_column(String(20), default="submitted", server_default=text("'submitted'"), nullable=False, comment="submitted/accepted/rejected")
 
 
 class VoiceEvalCaseModel(MappedBase):
@@ -191,5 +184,5 @@ class VoiceEvalCaseModel(MappedBase):
     passed: Mapped[bool | None] = mapped_column(Boolean, default=None, nullable=True, comment="是否通过")
     source: Mapped[str] = mapped_column(String(20), default="manual", nullable=False, comment="manual/sample/review")
     created_time: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False, comment="创建时间"
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), server_default=text("now()"), nullable=False, comment="创建时间"
     )

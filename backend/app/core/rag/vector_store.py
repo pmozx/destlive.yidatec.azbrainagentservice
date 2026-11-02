@@ -27,6 +27,7 @@
 """
 
 import asyncio
+import threading
 import json
 import re
 from collections.abc import Mapping, Sequence
@@ -64,23 +65,31 @@ _VECTOR_ENGINE: Engine | None = None
 # 本进程内表结构是否已就绪：读写入口先过一遍懒建，避免调用方忘调 ensure_vector_store
 _SCHEMA_READY: bool = False
 
+# 引擎与懒建都在 asyncio.to_thread 里执行：多个请求同时首访时，没有这把锁会建出两个连接池
+# （前一个被覆盖后永不 dispose），也会让幂等 DDL 被并行执行多次
+_INIT_LOCK: Final[threading.Lock] = threading.Lock()
+
 
 def _vector_engine() -> Engine:
     """惰性创建 psycopg v3 同步连接池（会话在线程池里跑，不占用事件循环）。"""
     global _VECTOR_ENGINE
-    if _VECTOR_ENGINE is None:
-        url = settings.psycopg_url
-        if not url:
-            raise CustomException(
-                msg="向量存储需要 PostgreSQL 连接串（当前 DATABASE_TYPE 不支持）",
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+    if _VECTOR_ENGINE is not None:
+        return _VECTOR_ENGINE
+    with _INIT_LOCK:
+        # 双重检查：等锁期间可能已被别的线程建好
+        if _VECTOR_ENGINE is None:
+            url = settings.psycopg_url
+            if not url:
+                raise CustomException(
+                    msg="向量存储需要 PostgreSQL 连接串（当前 DATABASE_TYPE 不支持）",
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
+            _VECTOR_ENGINE = create_engine(
+                url.replace("postgresql://", "postgresql+psycopg://", 1),
+                pool_pre_ping=True,
+                pool_size=5,
+                max_overflow=10,
             )
-        _VECTOR_ENGINE = create_engine(
-            url.replace("postgresql://", "postgresql+psycopg://", 1),
-            pool_pre_ping=True,
-            pool_size=5,
-            max_overflow=10,
-        )
     return _VECTOR_ENGINE
 
 
@@ -237,9 +246,12 @@ def _ensure_schema_once() -> None:
     global _SCHEMA_READY
     if _SCHEMA_READY or not settings.VECTOR_AUTO_CREATE:
         return
-    with _vector_engine().begin() as conn:
-        _create_schema(conn)
-    _SCHEMA_READY = True
+    with _INIT_LOCK:
+        if _SCHEMA_READY:
+            return
+        with _vector_engine().begin() as conn:
+            _create_schema(conn)
+        _SCHEMA_READY = True
 
 
 def _ensure_vector_store(collection: str, index_name: str | None) -> None:

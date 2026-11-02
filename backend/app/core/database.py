@@ -51,7 +51,7 @@ def create_async_engine_and_session(db_url: str = settings.async_db_url) -> tupl
         async_session_maker = async_sessionmaker[AsyncSession](
             bind=async_engine,
             autocommit=settings.AUTOCOMMIT,
-            autoflush=settings.AUTOFLUSH if settings.AUTOFETCH is None else settings.AUTOFETCH,
+            autoflush=settings.AUTOFLUSH,
             expire_on_commit=settings.EXPIRE_ON_COMMIT,
             class_=AsyncSession,
         )
