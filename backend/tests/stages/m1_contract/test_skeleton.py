@@ -13,9 +13,9 @@
 """
 
 from app import create_app
-from app.contract import errors as contract_errors
-from app.contract.signature import build_signed_headers
 from app.config.setting import settings
+from app.core.security_signature import build_signed_headers
+from app.modules_api.contract import errors as contract_errors
 
 from tests.support import BODY, call, requires_db
 

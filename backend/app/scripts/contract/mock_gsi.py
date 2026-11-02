@@ -3,13 +3,13 @@
 用法（在 `backend/` 目录、服务已启动后执行）：
 
     rem 单跑：只打用例结果
-    .venv\\Scripts\\python.exe -m app.contract.mock_gsi --base-url http://127.0.0.1:8003
+    .venv\\Scripts\\python.exe -m app.scripts.contract.mock_gsi --base-url http://127.0.0.1:8003
 
     rem 骨架期：业务接口还是 501 占位，用 --allow-skeleton 把 501 记为「未实现」而不是失败
-    .venv\\Scripts\\python.exe -m app.contract.mock_gsi --base-url http://127.0.0.1:8003 --allow-skeleton
+    .venv\\Scripts\\python.exe -m app.scripts.contract.mock_gsi --base-url http://127.0.0.1:8003 --allow-skeleton
 
     rem 输出冒烟记录
-    .venv\\Scripts\\python.exe -m app.contract.mock_gsi --base-url http://127.0.0.1:8003 --allow-skeleton ^
+    .venv\\Scripts\\python.exe -m app.scripts.contract.mock_gsi --base-url http://127.0.0.1:8003 --allow-skeleton ^
         --record "..\\00-document\\04-服务大脑AI项目开发过程文档\\01-POC验证\\01-POC冒烟记录.md"
 
 它做的事：
@@ -44,10 +44,16 @@ from typing import Any, Final
 import httpx
 
 from app.config.setting import settings
+from app.core.security_signature import build_signed_headers
+from app.modules_api.contract.errors import (
+    INVALID_REQUEST,
+    NOT_FOUND,
+    STALE_REVISION,
+    UNAUTHORIZED,
+    UNSUPPORTED_STREAM,
+)
+from app.modules_api.contract.knowledge.schema import canonical_content_hash
 
-from .entries import canonical_content_hash
-from .errors import INVALID_REQUEST, NOT_FOUND, STALE_REVISION, UNAUTHORIZED, UNSUPPORTED_STREAM
-from .signature import build_signed_headers
 from .testing import SKELETON_STATUS, error_code, json_dict
 
 SAMPLE_DOC: Final[str] = """# VPN 申请操作手册

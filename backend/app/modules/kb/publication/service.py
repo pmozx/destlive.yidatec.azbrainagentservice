@@ -1,7 +1,7 @@
 """知识写入服务（#03 / #05 / #06 的业务实现）：发布单元、版本快照与切片的原子落库。
 
 分工与口径：
-1. 契约校验（切片集合 / content_hash / 字段）在 ``app/contract/entries.py``；本层只做业务状态机与落库；
+1. 契约校验（切片集合 / content_hash / 字段）在 ``app/modules_api/contract/knowledge/service.py``；本层只做业务状态机与落库；
 2. **向量化先于事务**：embedding 失败时不产生任何半成品行，避免「有正文没向量、检索永远召回不到」；
 3. 写入是「全量替换 + 指针切换」：新快照整体写入，旧快照保留（#04 需按 record_id 精读），
    检索只认 ``publication.current_record_id/current_revision``；

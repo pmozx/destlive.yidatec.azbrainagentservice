@@ -35,7 +35,7 @@
 **POC 代码已于 2026-10-30 按 `03-POC下线与契约迁移方案.md` 阶段 0 下线**：`app/poc/` 整目录删除，
 `app/__init__.py` 不再调用 `ensure_poc_store()` / `register_poc()`，`setting.py` 的 5 项 `POC_*` 配置删除，
 6 张 `poc_v1_*` 临时表已 `DROP`（`pg_tables like 'poc_v1_%'` 实测为空）。
-对外能力零变化：`/v1` 本来就只有 `app/contract/` 的 20 条 501 骨架。
+对外能力零变化：`/v1` 本来就只有 `app/modules_api/contract/` 的 20 条 501 骨架。
 
 > **注（2026-11-02）**：下表是本阶段的处置记录，文件名保持当时状态。测试已按被测对象重组为
 > `core/` / `contract/` / `modules/` / `stages/` 四个包，新旧对照见 `backend/tests/README.md`。
@@ -43,7 +43,7 @@
 | 位置 | 现状 |
 | --- | --- |
 | tag `poc-m0-frozen` | POC 原实现的冻结基线；需要对照时 `git show poc-m0-frozen:backend/app/poc/xxx.py`（`service.py` 等未跟踪文件不在 tag 内） |
-| `app/contract/mock_gsi.py` | 由 `mock_client.py` 迁来：本地托管样例文档给 `#01` 真实 `file_url`、逐条打契约用例、`--record` 输出 Markdown；新增 `--allow-skeleton` 把 501 记为「未实现」 |
+| `app/scripts/contract/mock_gsi.py` | 由 `mock_client.py` 迁来：本地托管样例文档给 `#01` 真实 `file_url`、逐条打契约用例、`--record` 输出 Markdown；新增 `--allow-skeleton` 把 501 记为「未实现」 |
 | `app/core/security_signature.py` | **保留**：验签 / nonce 防重放时序 / `authorization` 时效的唯一算法实现 |
 | `setting.py` 的 `CONTRACT_*` 5 项 | **保留**：唯一一组签名参数（调用方标识 / 共享密钥 / 时钟窗口 / nonce TTL / 授权跨度），POC 专属配置已删 |
 | `tests/test_chat_cite.py` | 由 POC citation 用例迁来，断言生产侧 `integration_chat.cite` 的 cites 顺序、snippet 窗口与越界编号摘除 |
@@ -58,13 +58,13 @@ POC 与正式接入层曾各持一份验签实现（原文拼装、时间窗、n
 | --- | --- | --- |
 | `app/core/security_signature.py` | **唯一算法实现**：五头常量、7 行签名原文、HMAC 计算、时间窗、nonce 格式与防重放时序、`authorization` 跨度判定；失败抛中性的 `SignatureCheckError` / `AuthorizationCheckError`（按 `reason` 枚举区分原因），不认识任何错误体 | contract |
 | `setting.py` 的 `CONTRACT_*` 5 项 | **唯一一套**签名参数：调用方标识、共享密钥、时钟窗口 300s、`authorization` 跨度 120s、nonce TTL 600s；密钥留空＝失败关闭，不另设值对象层 | contract |
-| `app/contract/signature.py` | **适配层**：翻译成大写码（`UNAUTHORIZED` / `SCOPE_REQUIRED` / `AUTHORIZATION_UNAVAILABLE`），nonce 用落库台账 | contract |
+| `app/modules_api/contract/signature.py` | **适配层**：翻译成大写码（`UNAUTHORIZED` / `SCOPE_REQUIRED` / `AUTHORIZATION_UNAVAILABLE`），nonce 用落库台账 | contract |
 
-依赖方向：`app/contract` → `app/core/security_signature.py`，公共层**不反向依赖**任何接入层。验证：`pytest tests/test_security_signature.py -q`（12 条，锁定“算法只在公共层、同一失败原因按契约错误码归口、nonce 先验签再登记”）。
+依赖方向：`app/modules_api/contract` → `app/core/security_signature.py`，公共层**不反向依赖**任何接入层。验证：`pytest tests/test_security_signature.py -q`（12 条，锁定“算法只在公共层、同一失败原因按契约错误码归口、nonce 先验签再登记”）。
 
 **接口文档口径**：`/docs` 上每个 `/v1` 操作都会列出五个签名头（`X-AI-Signature-Version` / `-Client-Id` / `-Timestamp` / `-Nonce` / `-Signature`），`X-AI-Signature` 的说明里写全了 7 行签名原文与 LF 规则；响应侧固定展示 400 / 401（+ 端点相关的 403 / 404 / 409 / 413 / 429 / 501 / 503）的契约错误体；FastAPI 默认追加的 422 被改写成「校验失败归一为 400」。
 
-> 签名头在 OpenAPI 里**声明为可选**，这是刻意为之：声明成必填会让 FastAPI 先抛参数校验错误，把契约要求的 401 `UNAUTHORIZED` 变成 400 `INVALID_REQUEST`。真实校验在 `app/contract/deps.py` 验签依赖里做（算法在 `app/core/security_signature.py`），交互式调试请按 `app/contract/mock_gsi.py` 的方式现算签名头。
+> 签名头在 OpenAPI 里**声明为可选**，这是刻意为之：声明成必填会让 FastAPI 先抛参数校验错误，把契约要求的 401 `UNAUTHORIZED` 变成 400 `INVALID_REQUEST`。真实校验在 `app/modules_api/contract/deps.py` 验签依赖里做（算法在 `app/core/security_signature.py`），交互式调试请按 `app/scripts/contract/mock_gsi.py` 的方式现算签名头。
 
 ---
 
@@ -80,11 +80,11 @@ rem 1) 启动服务（/v1 只挂 contract 的 20 条骨架）
 .venv\Scripts\python.exe -m uvicorn app:create_app --factory --host 127.0.0.1 --port 8002
 
 rem 2) M1 门禁（签名 + 台账 + 审计，证据由 02-4 保管）
-.venv\Scripts\python.exe -m app.contract.verify_m1 --base-url http://127.0.0.1:8002 ^
+.venv\Scripts\python.exe -m app.scripts.contract.verify_m1 --base-url http://127.0.0.1:8002 ^
     --record "..\00-document\04-服务大脑AI项目开发过程文档\02-P1接入层与审计验收\01-M1验收记录.md"
 
 rem 3) GSI 侧冒烟（骨架期加 --allow-skeleton，501 记为未实现；留档时再加 --record 另存新文件）
-.venv\Scripts\python.exe -m app.contract.mock_gsi --base-url http://127.0.0.1:8002 --allow-skeleton
+.venv\Scripts\python.exe -m app.scripts.contract.mock_gsi --base-url http://127.0.0.1:8002 --allow-skeleton
 
 rem 4) 单测与静态检查（不需要服务）
 .venv\Scripts\python.exe -m pytest -q

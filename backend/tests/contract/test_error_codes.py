@@ -5,7 +5,7 @@
 错误体形状固定且不回显内部细节。
 """
 
-from app.contract import errors as contract_errors
+from app.modules_api.contract import errors as contract_errors
 
 
 def test_error_code_table_covers_every_status_class() -> None:

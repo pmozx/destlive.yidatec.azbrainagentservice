@@ -1,4 +1,4 @@
-"""接口安全头公共层回归（`app/core/security_signature.py` + `app/contract/signature.py`）。
+"""接口安全头公共层回归（`app/core/security_signature.py` + `app/modules_api/contract/signature.py`）。
 
 覆盖口径：
 1. **算法只有一份**：原文拼装、时间窗、nonce 格式、`authorization` 跨度都在公共层，
@@ -14,23 +14,26 @@ import pytest
 
 from app import create_app
 from app.config.setting import Settings, settings
-from app.contract import errors as contract_errors
-from app.contract.signature import HEADER_TIMESTAMP, SIGNATURE_HEADERS, SIGNATURE_VERSION, canonical_string
-from app.contract.signature import verify_authorization as contract_verify_authorization
-from app.contract.signature import verify_signature as contract_verify_signature
 from app.core.security_signature import (
     HEADER_CLIENT_ID,
     HEADER_NONCE,
     HEADER_SIGNATURE,
+    HEADER_TIMESTAMP,
     HEADER_VERSION,
     InMemoryNonceLedger,
+    SIGNATURE_HEADERS,
+    SIGNATURE_VERSION,
     SignatureFailure,
     build_signed_headers,
+    canonical_string,
     check_authorization_window,
     check_signature,
     signature_rule_doc,
     verify_request_signature,
 )
+from app.modules_api.contract import errors as contract_errors
+from app.modules_api.contract.signature import verify_authorization as contract_verify_authorization
+from app.modules_api.contract.signature import verify_signature as contract_verify_signature
 
 SECRET = "shared-rule-test-secret"
 CLIENT_ID = "gsi-service"
@@ -69,7 +72,7 @@ def test_shared_headers_verify_through_contract_adapter() -> None:
 
 def test_canonical_algorithm_is_shared_not_copied() -> None:
     """契约适配层不再自持算法：模块里没有同名私有实现，公共层只此一份。"""
-    import app.contract.signature as contract_signature
+    import app.modules_api.contract.signature as contract_signature
     import app.core.security_signature as security_signature
 
     assert not hasattr(contract_signature, "NONCE_PATTERN"), "contract 仍在维护自己的 nonce 正则"

@@ -3,10 +3,10 @@
 用法（在 `backend/` 目录、服务已启动后执行）：
 
     rem 只打印结果
-    .venv\\Scripts\\python.exe -m app.contract.verify_m1 --base-url http://127.0.0.1:8002
+    .venv\\Scripts\\python.exe -m app.scripts.contract.verify_m1 --base-url http://127.0.0.1:8002
 
     rem 同时把验收记录写成 Markdown（M1 交付物）
-    .venv\\Scripts\\python.exe -m app.contract.verify_m1 --base-url http://127.0.0.1:8002 ^
+    .venv\\Scripts\\python.exe -m app.scripts.contract.verify_m1 --base-url http://127.0.0.1:8002 ^
         --record "..\\00-document\\04-服务大脑AI项目开发过程文档\\02-P1接入层与审计验收\\01-M1验收记录.md"
 
 复查的正是 M1 的三条验收标志：
@@ -40,19 +40,25 @@ from typing import Any, Final
 import httpx
 
 from app.config.setting import settings
-
-from .errors import IDEMPOTENCY_CONFLICT, INTERNAL_ERROR, INVALID_REQUEST, UNAUTHORIZED, ContractApiError
-from .idempotency import (
+from app.core.security_signature import build_signed_headers, now_ms
+from app.modules_api.contract.errors import (
+    IDEMPOTENCY_CONFLICT,
+    INTERNAL_ERROR,
+    INVALID_REQUEST,
+    UNAUTHORIZED,
+    ContractApiError,
+)
+from app.modules_api.contract.idempotency import (
     SCOPE_EVENT,
     SCOPE_ID_KEYS,
     SCOPE_JOB,
     SCOPE_REQUEST,
     complete,
-    payload_digest,
     release,
     reserve,
 )
-from .signature import build_signed_headers, now_ms
+from app.utils.common_util import canonical_json_sha256
+
 from .testing import SKELETON_STATUS, json_dict
 
 # (编号, 方法, 路径, 幂等域)。幂等域为 None 的接口不接幂等依赖；编号与手册 §五 一致
@@ -464,8 +470,8 @@ async def ledger_cases(run: str) -> list[Case]:
 
     biz_id = f"ledger-{run}-request"
     other_biz = f"ledger-{run}-released"
-    first_hash = payload_digest({"request_id": biz_id, "value": 1})
-    second_hash = payload_digest({"request_id": biz_id, "value": 2})
+    first_hash = canonical_json_sha256({"request_id": biz_id, "value": 1})
+    second_hash = canonical_json_sha256({"request_id": biz_id, "value": 2})
     cases: list[Case] = []
 
     reservation = await reserve(scope=SCOPE_REQUEST, biz_id=biz_id, body_hash=first_hash)
@@ -567,7 +573,7 @@ def render(cases: list[Case], *, base_url: str, client_id: str) -> str:
     lines = [
         f"# M1 验收记录（{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}）",
         "",
-        "> 由 `python -m app.contract.verify_m1 --record` 生成；表格即本次运行的原始输出，手写补充见 README。",
+        "> 由 `python -m app.scripts.contract.verify_m1 --record` 生成；表格即本次运行的原始输出，手写补充见 README。",
         "",
         f"- 服务地址：`{base_url}`",
         f"- client_id：`{client_id}`（自签测试密钥 `CONTRACT_V1_SHARED_SECRET`）",

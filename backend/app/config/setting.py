@@ -228,7 +228,7 @@ class Settings(BaseSettings):
 
     # ==================== /v1 接口安全请求头（契约接入层） ====================
     # 验签参数只有这一组：调用方标识、HMAC 共享密钥、时间戳窗口、nonce 保留时长、authorization 跨度。
-    # 算法在 app/core/security_signature.py，错误码口径在 app/contract/errors.py。
+    # 算法在 app/core/security_signature.py，错误码口径在 app/modules_api/contract/errors.py。
     # 密钥只写在 env：留空＝未配置，验签失败关闭（契约 503 AUTHORIZATION_UNAVAILABLE）——
     # 宁可服务不可用，也不能因为缺密钥就把签名校验放过。
     CONTRACT_V1_CLIENT_ID: str = Field(default="gsi-service", description="认可的调用方标识（X-AI-Client-Id）")
@@ -241,7 +241,7 @@ class Settings(BaseSettings):
         default=120_000, description="authorization 签发-过期最大跨度（毫秒）"
     )
 
-    # ==================== 正式接入层（/v1，T1.1–T1.5，app/contract） ====================
+    # ==================== 正式接入层（/v1，T1.1–T1.5，app/modules_api/contract） ====================
     CONTRACT_V1_ENABLE: bool = Field(
         default=True, description="是否挂载正式 /v1 契约路由；关闭后 /v1 完全不挂载（404）"
     )

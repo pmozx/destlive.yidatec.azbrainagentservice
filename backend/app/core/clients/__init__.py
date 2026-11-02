@@ -70,9 +70,10 @@ async def close_clients() -> int:
 
     关闭失败只记日志：关停阶段不该因为某个外部服务不可达而抛出异常打断后续清理。
     """
+    from app.core.clients.download import close_download_clients
     from app.core.logger import logger
 
-    closed = 0
+    closed = await close_download_clients()
     for name, client in list(_registry.items()):
         aclose = getattr(client, "aclose", None)
         if aclose is None:

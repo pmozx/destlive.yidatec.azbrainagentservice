@@ -12,7 +12,7 @@ async def db_getter(request: Request) -> AsyncGenerator[AsyncSession, None]:
 
     1. FastAPI（>=0.106）的依赖退出代码在**响应发出之后**才执行，且路由处理函数抛出的异常
        **不会**抛进挂起在 yield 处的依赖生成器——异常直接向上传给路由类/全局异常处理器；
-    2. 因此 ``ContractApiRoute``（app/contract/errors.py）把异常换成错误响应后，依赖栈看到的
+    2. 因此 ``ContractApiRoute``（app/modules_api/contract/errors.py）把异常换成错误响应后，依赖栈看到的
        是一次"正常"退出：若用 ``session.begin()`` 上下文，事务会被当成成功而**提交**，
        失败请求的半成品数据就会落库（优化报告 P0-1）；
     3. 所以此处显式管理事务：成功 → commit；异常抛进生成器 → rollback 后原样上抛；

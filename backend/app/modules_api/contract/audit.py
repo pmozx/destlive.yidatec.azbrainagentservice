@@ -22,10 +22,6 @@ from dataclasses import dataclass, field
 
 from starlette.requests import Request
 
-# 时间戳解析与时钟偏差计算与 POC 共用一份（`app/core/security_signature.py`），
-# 这里 re-export 供 `deps.py` 与单测直接从 audit 取用。
-from app.core.security_signature import timestamp_deviation_ms
-
 __all__ = [
     "AUTH_MODE_HMAC",
     "NONCE_FIRST_USE",
@@ -36,7 +32,6 @@ __all__ = [
     "SIGNATURE_SKIPPED",
     "SecurityRecord",
     "mark_failure",
-    "timestamp_deviation_ms",
 ]
 
 # 审计口径的固定取值（与设计文档 §5.2 一一对应，指标看板按这些值分组）

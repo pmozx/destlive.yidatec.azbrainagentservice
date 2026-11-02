@@ -1,6 +1,6 @@
 """知识写入的业务输入 / 回执结构（跨 publication / revision / chunk 三表）。
 
-这些是「服务层入参」，不是 HTTP 契约模型：契约字段校验在 ``app/contract/entries.py``，
+这些是「服务层入参」，不是 HTTP 契约模型：契约字段校验在 ``app/modules_api/contract/knowledge/service.py``，
 这里只承载已经校验过的数据，方便 service 保持纯业务、可单测。
 """
 

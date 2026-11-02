@@ -11,10 +11,10 @@ from typing import Any
 import pytest
 
 from app.config.setting import settings
-from app.contract import errors as contract_errors
-from app.contract.mock_gsi import FileServer
-from app.contract.parse import MAX_FILE_BYTES, fetch_file
-from app.contract.signature import build_signed_headers
+from app.core.security_signature import build_signed_headers
+from app.modules_api.contract import errors as contract_errors
+from app.modules_api.contract.parse.service import MAX_FILE_BYTES, fetch_file
+from app.scripts.contract.mock_gsi import FileServer
 
 from tests.support import call, requires_db
 

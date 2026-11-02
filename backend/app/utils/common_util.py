@@ -1,4 +1,6 @@
+import hashlib
 import importlib
+import json
 import re
 import uuid
 from collections.abc import Generator, Sequence
@@ -81,6 +83,22 @@ def uuid4_str() -> str:
     - str: UUID 字符串。
     """
     return str(uuid.uuid4())
+
+
+def canonical_json_sha256(payload: Any) -> str:
+    """键序无关的规范化 JSON 摘要（SHA-256 十六进制）。
+
+    用途：幂等判重比较的是「语义同一份正文」，同一份 JSON 仅键序不同不应被判定为不同正文。
+    与签名摘要（对原始字节求值，防篡改）口径不同，两者各自正确。
+
+    参数:
+    - payload (Any): 可 JSON 序列化的对象。
+
+    返回:
+    - str: 64 位小写十六进制摘要。
+    """
+    canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def search_to_dict(search: Any, default: Any = None) -> dict | None:

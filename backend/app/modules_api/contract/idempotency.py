@@ -9,16 +9,14 @@
 4. 台账与业务同库不同事务：登记/完成都用独立会话立即提交，**业务失败必须显式 release**，
    否则一次失败会把该 ID 永久锁在 `processing`（重试全变 409）。
 
-正文摘要用**键序无关**的规范化 JSON（`sort_keys` + 紧凑分隔符）求 SHA-256：
+正文摘要用**键序无关**的规范化 JSON（``app.utils.common_util.canonical_json_sha256``）：
 契约要求「同正文」，而同一份 JSON 因键序不同被判定成「不同正文」会把正常重试逼成 409。
 （签名原文用**原始字节**摘要，两者口径不同，各自都对：签名防篡改，幂等判语义同一。）
 
 数据访问与状态机已迁入 ``app.modules.system.idempotency.service.SystemIdempotencyService``；
-本文件只保留契约层适配：业务 ID 提取、摘要、错误码映射与 ``Reservation`` 结构。
+本文件只保留契约层适配：业务 ID 提取、错误码映射与 ``Reservation`` 结构。
 """
 
-import hashlib
-import json
 from dataclasses import dataclass
 from typing import Any
 
@@ -57,12 +55,6 @@ class Reservation:
     @property
     def is_replay(self) -> bool:
         return self.state == STATE_REPLAY
-
-
-def payload_digest(payload: Any) -> str:
-    """正文摘要：键序无关的规范化 JSON（中文不转义，保证跨语言可比）。"""
-    canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def extract_biz_id(scope: str, payload: Any) -> str | None:

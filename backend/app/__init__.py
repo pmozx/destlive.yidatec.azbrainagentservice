@@ -40,7 +40,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.error(f"❌ 接口审计日志过期清理失败（不影响业务）: {e!s}")
 
     # 上次进程中断留下的 queued/running 解析任务改判 failed，否则 #02 永远 running
-    from app.contract.errors import PARSE_FAILED
+    from app.modules_api.contract.errors import PARSE_FAILED
     from app.modules.kb.parse_job.service import KbParseJobService
 
     try:
@@ -64,7 +64,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # 契约 /v1 台账（T1.1 / T1.3）：清理过期 nonce 与过期幂等记录。台账不可用只告警，
     # 真正校验时会以 503 AUTHORIZATION_UNAVAILABLE 明确拒绝，不会放行
-    from app.contract import ensure_contract_store
+    from app.modules_api.contract import ensure_contract_store
 
     try:
         await ensure_contract_store()
@@ -145,10 +145,10 @@ def create_app() -> FastAPI:
     # 前端才能拿到可读的 msg（否则一律是 500 Internal Server Error）
     handle_exception(app)
     register_routers(app)
-    # 契约 `/v1`（P1 正式接入层）：四头签名 + 幂等 + 审计；POC 验证骨架已按阶段 0 下线
-    from app.contract import register_contract
+    # 契约 `/v1`（P1 正式接入层）：四头签名 + 幂等 + 审计；路由总表见 app/modules_api/router.py
+    from app.modules_api import register_api
 
-    register_contract(app)
+    register_api(app)
     base_url = _access_base_url()
     logger.info('==== fastapi 项目启动中 ====')
     logger.info('==== swagger 地址：{}/docs ====', base_url)

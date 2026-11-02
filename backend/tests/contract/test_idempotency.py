@@ -1,4 +1,4 @@
-"""幂等与防重放：守卫状态机、台账语义、nonce 判重。
+﻿"""幂等与防重放：守卫状态机、台账语义、nonce 判重。
 
 覆盖三层：
 
@@ -9,7 +9,7 @@
 3. **nonce 判重**（T1.1）：首用通过、窗口内重放拒绝、过 TTL 可接管。
 
 台账服务用 PostgreSQL 方言（pg_insert），sqlite 起不来，所以守卫部分 monkeypatch
-`app.contract.deps` 的 reserve/release/complete 为记录桩；台账部分打 `@requires_db`。
+`app.modules_api.contract.deps` 的 reserve/release/complete 为记录桩；台账部分打 `@requires_db`。
 """
 
 import asyncio
@@ -18,22 +18,23 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.contract import deps as contract_deps
-from app.contract import errors as contract_errors
-from app.contract.deps import _idempotent_guard, load_json_body
-from app.contract.idempotency import (
+from app.core.request_body import parse_json_bytes
+from app.modules_api.contract import deps as contract_deps
+from app.modules_api.contract import errors as contract_errors
+from app.modules_api.contract.deps import _idempotent_guard
+from app.modules_api.contract.idempotency import (
     SCOPE_EVENT,
     SCOPE_JOB,
     SCOPE_REQUEST,
     Reservation,
     complete,
     extract_biz_id,
-    payload_digest,
     purge_expired,
     release,
     reserve,
 )
-from app.contract.nonce import NonceStore
+from app.modules_api.contract.nonce import NonceStore
+from app.utils.common_util import canonical_json_sha256
 
 from tests.support import CLIENT_ID, NOW_MS, requires_db
 
@@ -87,7 +88,7 @@ async def test_disconnect_releases_reservation(calls, monkeypatch):
     """客户端断连：生成器被 aclose()（GeneratorExit 抛进 yield）→ 必须释放预约。"""
     request = _make_request()
     monkeypatch.setattr(
-        contract_deps, "payload_digest", lambda _p: "hash-disconnect"
+        contract_deps, "canonical_json_sha256", lambda _p: "hash-disconnect"
     )
     gen, reservation = await _drive_guard(request)
 
@@ -101,7 +102,7 @@ async def test_disconnect_releases_reservation(calls, monkeypatch):
 async def test_cancellation_releases_reservation(calls, monkeypatch):
     """请求任务被取消：CancelledError 抛进生成器 → 必须释放预约且异常继续上抛。"""
     request = _make_request()
-    monkeypatch.setattr(contract_deps, "payload_digest", lambda _p: "hash-cancel")
+    monkeypatch.setattr(contract_deps, "canonical_json_sha256", lambda _p: "hash-cancel")
     gen, _reservation = await _drive_guard(request)
 
     with pytest.raises(asyncio.CancelledError):
@@ -114,7 +115,7 @@ async def test_cancellation_releases_reservation(calls, monkeypatch):
 async def test_uncaught_exception_releases_and_reraises(calls, monkeypatch):
     """路由类没接住的异常（如响应序列化失败）抛进生成器 → 释放并原样上抛。"""
     request = _make_request()
-    monkeypatch.setattr(contract_deps, "payload_digest", lambda _p: "hash-error")
+    monkeypatch.setattr(contract_deps, "canonical_json_sha256", lambda _p: "hash-error")
     gen, _reservation = await _drive_guard(request)
 
     class Boom(RuntimeError):
@@ -130,7 +131,7 @@ async def test_uncaught_exception_releases_and_reraises(calls, monkeypatch):
 async def test_normal_success_completes_not_releases(calls, monkeypatch):
     """成功路径：路由调用了 record_receipt（settled）→ complete 兜底不重复、不释放。"""
     request = _make_request()
-    monkeypatch.setattr(contract_deps, "payload_digest", lambda _p: "hash-ok")
+    monkeypatch.setattr(contract_deps, "canonical_json_sha256", lambda _p: "hash-ok")
     gen, _reservation = await _drive_guard(request, settle="result")
     request.state.idempotency_settled = True  # record_receipt 的行为
 
@@ -144,7 +145,7 @@ async def test_normal_success_completes_not_releases(calls, monkeypatch):
 async def test_normal_failure_still_releases(calls, monkeypatch):
     """出口 1 回归保护：正常退出 + contract_failed 标记 → 释放（原修复行为不变）。"""
     request = _make_request()
-    monkeypatch.setattr(contract_deps, "payload_digest", lambda _p: "hash-failed")
+    monkeypatch.setattr(contract_deps, "canonical_json_sha256", lambda _p: "hash-failed")
     gen, _reservation = await _drive_guard(request, settle="failed")
 
     with pytest.raises(StopAsyncIteration):
@@ -161,7 +162,7 @@ async def test_replay_never_releases(calls, monkeypatch):
     async def fake_reserve_replay(*, scope, biz_id, body_hash, **_kw):
         return Reservation(scope=scope, biz_id=biz_id, body_hash=body_hash, state=STATE_REPLAY)
 
-    import app.contract.deps as d
+    import app.modules_api.contract.deps as d
 
     original = d.reserve
     d.reserve = fake_reserve_replay
@@ -181,12 +182,12 @@ async def test_replay_never_releases(calls, monkeypatch):
 # ── 纯函数口径（T1.3）：正文摘要与业务键提取 ────────────────────────
 
 
-def test_payload_digest_is_key_order_insensitive() -> None:
+def test_canonical_hash_is_key_order_insensitive() -> None:
     """键序不同但语义相同的正文必须同 hash，否则正常重试会被误判成「异正文」409。"""
-    first = load_json_body(b'{"a":1,"b":{"c":2}}')
-    second = load_json_body(b'{"b":{"c":2},"a":1}')
-    assert payload_digest(first) == payload_digest(second)
-    assert payload_digest({"a": 1}) != payload_digest({"a": 2})
+    first = parse_json_bytes(b'{"a":1,"b":{"c":2}}')
+    second = parse_json_bytes(b'{"b":{"c":2},"a":1}')
+    assert canonical_json_sha256(first) == canonical_json_sha256(second)
+    assert canonical_json_sha256({"a": 1}) != canonical_json_sha256({"a": 2})
 
 
 def test_extract_biz_id_per_scope() -> None:
@@ -226,7 +227,7 @@ async def test_idempotency_replay_conflict_and_tombstone() -> None:
     from app.modules.system.models import SystemIdempotencyModel
 
     biz_id = f"idem-{uuid.uuid4().hex[:12]}"
-    digest = payload_digest({"request_id": biz_id, "v": 1})
+    digest = canonical_json_sha256({"request_id": biz_id, "v": 1})
 
     first = await reserve(scope=SCOPE_REQUEST, biz_id=biz_id, body_hash=digest)
     assert first.state == "new"
@@ -237,13 +238,13 @@ async def test_idempotency_replay_conflict_and_tombstone() -> None:
     assert replay.result == {"status_code": 201, "body": {"ok": 1}}
 
     with pytest.raises(contract_errors.ContractApiError) as exc:
-        await reserve(scope=SCOPE_REQUEST, biz_id=biz_id, body_hash=payload_digest({"request_id": biz_id, "v": 2}))
+        await reserve(scope=SCOPE_REQUEST, biz_id=biz_id, body_hash=canonical_json_sha256({"request_id": biz_id, "v": 2}))
     assert (exc.value.code, exc.value.status_code) == (contract_errors.IDEMPOTENCY_CONFLICT, 409)
 
     # 墓碑：删除类记录 expires_at 为 NULL，永不被清理
     tomb = f"tomb-{uuid.uuid4().hex[:12]}"
-    await reserve(scope=SCOPE_REQUEST, biz_id=tomb, body_hash=payload_digest({"request_id": tomb}))
-    await complete(scope=SCOPE_REQUEST, biz_id=tomb, body_hash=payload_digest({"request_id": tomb}), tombstone=True)
+    await reserve(scope=SCOPE_REQUEST, biz_id=tomb, body_hash=canonical_json_sha256({"request_id": tomb}))
+    await complete(scope=SCOPE_REQUEST, biz_id=tomb, body_hash=canonical_json_sha256({"request_id": tomb}), tombstone=True)
     async with async_session_factory() as session:
         row = (
             await session.execute(select(SystemIdempotencyModel).where(SystemIdempotencyModel.biz_id == tomb))
@@ -257,7 +258,7 @@ async def test_idempotency_replay_conflict_and_tombstone() -> None:
 
     # 失败释放：同一 ID 可重新进入处理
     retry_id = f"retry-{uuid.uuid4().hex[:12]}"
-    retry_hash = payload_digest({"request_id": retry_id})
+    retry_hash = canonical_json_sha256({"request_id": retry_id})
     assert (await reserve(scope=SCOPE_EVENT, biz_id=retry_id, body_hash=retry_hash)).state == "new"
     await release(scope=SCOPE_EVENT, biz_id=retry_id, body_hash=retry_hash)
     assert (await reserve(scope=SCOPE_EVENT, biz_id=retry_id, body_hash=retry_hash)).state == "new"

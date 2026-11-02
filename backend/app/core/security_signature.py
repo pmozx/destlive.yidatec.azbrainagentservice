@@ -12,11 +12,11 @@
 
 签名 = ``HMAC-SHA256(共享密钥, 原文)`` 的 64 位小写十六进制。
 
-为什么抽成公共模块（`app/poc` 与 `app/contract` 同源）：
+为什么抽成公共模块（`app/poc` 与 `app/modules_api/contract` 同源）：
 1. **算法只有一份**：原文拼装、时间窗、nonce 格式、`authorization` 跨度这四处任一处写歪，
    联调时都会以「签名失败」的形式暴露却很难定位；两份拷贝迟早会漂移，改一处忘一处。
 2. 本模块**不认识任何错误体**：失败一律抛 `SignatureCheckError` / `AuthorizationCheckError`，
-   由 `app/poc/signature.py`（小写码，401/400）与 `app/contract/signature.py`（大写码，
+   由 `app/poc/signature.py`（小写码，401/400）与 `app/modules_api/contract/signature.py`（大写码，
    密钥缺失 503 失败关闭）各自翻译。算法共享，对外口径互不污染。
 3. nonce 的**时序**（先验签再登记，否则伪造请求可以抢占合法 nonce）在这里固定；**存储**由
    调用方注入：POC 用进程内 `InMemoryNonceLedger`，契约层用落库的 `contract.nonce.NonceStore`

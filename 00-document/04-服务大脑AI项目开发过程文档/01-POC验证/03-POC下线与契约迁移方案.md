@@ -86,11 +86,11 @@
 
 | 项 | 内容 |
 | --- | --- |
-| 数据落点 | `sbp_ai_kb_chunk`（向量）+ 7 张 GSI 共享表（只读） |
+| 数据落点 | `sbp_ai_kb_chunk`（向量）+ 8 张 GSI 共享表（只读） |
 | 可复用 | `integration_kb.retrieval.search_knowledge`（关键词 + 向量）、`integration_kb/clients/{embedding,rerank}`；POC `retrieval.py` 的 RRF 融合与结果投影（`public_hit` 不回 `content`） |
 | 必须新增 | rerank 精排；**检索期权限下推**（`CONTEXT_OUT_OF_SCOPE` 403 与越权 0 命中）；`score` 归一口径（Q5：仅同轮排序可比） |
 | 验收断言 | `returned_count == len(hits)`、`no_evidence` 与 `hits` 空否一致；越权切片 0 命中；共享表不可用 → 503 `AUTHORIZATION_UNAVAILABLE`（**禁止降级全库检索**） |
-| 依赖疑点 | Q5；**T4.3 是本期最高风险（依赖 GSI 7 张表授权，W10）** |
+| 依赖疑点 | Q5；**T4.3 是本期最高风险（依赖 GSI 8 张表授权，W10）** |
 
 ### 3.5 #14 `POST /chat/completions` → T5.1 + T5.3 + T5.4 + T5.5（1.0 + 1.5 + 2.0 + 2.5 人日）
 

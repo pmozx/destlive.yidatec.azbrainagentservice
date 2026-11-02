@@ -10,10 +10,10 @@ import json
 import uuid
 
 from app.config.setting import settings
-from app.contract import errors as contract_errors
-from app.contract.audit import AUTH_MODE_HMAC, SIGNATURE_PASSED, SecurityRecord
-from app.contract.signature import SIGNATURE_HEADERS, build_signed_headers
 from app.core.router_class import set_audit_security
+from app.core.security_signature import SIGNATURE_HEADERS, build_signed_headers
+from app.modules_api.contract import errors as contract_errors
+from app.modules_api.contract.audit import AUTH_MODE_HMAC, SIGNATURE_PASSED, SecurityRecord
 
 from tests.support import BODY, CLIENT_ID, call, make_request, requires_db
 

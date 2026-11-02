@@ -35,7 +35,7 @@
 
 - **契约基线**：v2.1.0，**20 接口 / 18 路径**（#01–#20 顺序编号，含重复治理 #16–#20）；HMAC 四头 `X-AI-Client/Timestamp/Nonce/Signature`
 - **数据归属**：与 GSI **共用 `service_brain` 库、public schema**；AI 表一律 `sbp_ai_[模块名]_[业务名]`（模块码：`system` / `kb` / `voice`）；AI 侧不使用迁移工具（启动期各域 bootstrap 幂等建表），与 GSI Flyway 分治
-- **权限**：按签名身份实时只读查询 **7 张 GSI 共享表**计算授权，SQL 下推，禁止降级为全库检索
+- **权限**：按签名身份实时只读查询 **8 张 GSI 共享表**计算授权，SQL 下推，禁止降级为全库检索
 - **审计**：20 个 `/v1/*` 接口全部纳入统一日志审计 `sbp_ai_system_api_log`，并**扩展 HTTP 安全头校验留痕**（`auth_mode` / `client_id` / `request_id` / `security_check`），被拒请求同样落审计
 - **模型**：对话 **ChatGPT 5.6**（OpenAI 兼容端点、配置化）；向量化 bge-m3（1024 维）与重排 bge-reranker-v2-m3 私有化部署；向量存储 pgvector（HNSW 余弦）
 - **编排**：LangChain 1.3 + LangGraph StateGraph（工程已集成）

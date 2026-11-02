@@ -7,10 +7,10 @@
 
 import uuid
 
-from app.contract import errors as contract_errors
-from app.contract.audit import AUTH_MODE_HMAC, SIGNATURE_FAILED, SIGNATURE_PASSED, SecurityRecord
-from app.contract.signature import SIGNATURE_HEADERS
 from app.core.router_class import _build_log_data, _should_record, set_audit_security, set_audit_username
+from app.core.security_signature import SIGNATURE_HEADERS
+from app.modules_api.contract import errors as contract_errors
+from app.modules_api.contract.audit import AUTH_MODE_HMAC, SIGNATURE_FAILED, SIGNATURE_PASSED, SecurityRecord
 
 from tests.support import BODY, CLIENT_ID, make_request, requires_db
 

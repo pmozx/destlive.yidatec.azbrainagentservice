@@ -1,8 +1,7 @@
-"""Pydantic 自定义类型：日期时间字符串（``DateTimeStr``）。
+"""Pydantic 自定义类型与通用字段校验。
 
-只保留实际被 schema 使用的类型。原文件另有 ``DateStr`` / ``TimeStr`` / ``Telephone`` / ``Email``
-四个零引用别名，以及 ``menu_request_validator`` / ``role_permission_request_validator``
-（本项目没有菜单与角色模块），已随死代码清理删除；需要时按同一写法再加。
+``DateTimeStr`` 供各域 schema 复用；``ensure_non_blank`` 是「非空且非纯空白」的统一口径，
+接入层（``/v1``）与业务域的 ``field_validator`` 都直接引用，避免每个模块各写一份。
 """
 
 from datetime import datetime
@@ -13,6 +12,13 @@ from pydantic import AfterValidator, PlainSerializer, WithJsonSchema
 from app.common.constant import DATETIME_DISPLAY_FMT
 from app.common.enums import RET
 from app.core.exceptions import CustomException
+
+
+def ensure_non_blank(value: str) -> str:
+    """校验字符串非空且至少含一个非空白字符，返回原值供 ``field_validator`` 直接使用。"""
+    if not value or not value.strip():
+        raise ValueError("不能为空或仅包含空白字符")
+    return value
 
 
 def datetime_validator(value: str | datetime) -> datetime:

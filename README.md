@@ -1,12 +1,12 @@
 # 服务大脑（service_brain_agent）
 
-基于 **FastAPI + Vue 3** 的前后端一体化应用工程：后端提供 `/v1` 契约接入面（解析任务与知识条目写入已实现，检索/会话为骨架）与 `/api/v1` 管理面（日志审计、接入调用追踪），前端为与之同源部署的监控台，构建产物由 FastAPI 的 `/ui` 直接托管。
+基于 **FastAPI + Vue 3** 的前后端一体化应用工程：后端提供 `/v1` 契约接入面（解析任务与知识条目写入已实现，检索/会话为骨架）与 `/api/v1` 管理面（日志审计、接入调用追踪、GSI 业务只读查询），前端为与之同源部署的监控台，构建产物由 FastAPI 的 `/ui` 直接托管。
 
-- 后端：FastAPI 工厂模式 + 异步 SQLAlchemy 2.0 + APScheduler + loguru，业务模块集中在 `app/modules`，由路由总表显式注册，同时提供 Swagger / ReDoc 接口文档
+- 后端：FastAPI 工厂模式 + 异步 SQLAlchemy 2.0 + APScheduler + loguru，业务模块集中在 `app/modules`，GSI 业务只读访问集中在 `app/modules_gsi`，由路由总表显式注册，同时提供 Swagger / ReDoc 接口文档
 - 前端：Vue 3 + Vite 7 + Element Plus，顶部横向导航 + 白色大圆角卡片布局，酒红紫主题，支持深色模式与主题色切换
 - 工程化：uv 管理 Python 依赖、npm 管理前端依赖；pytest + ruff；SCSS（BEM + mixins）
 
-> **能力边界（务必先读）**：知识库域（`kb`）与语音质检域（`voice`）当前**只有数据模型与表结构，没有 controller**，即无 HTTP 出口。对外能力 = `/v1` 契约面（**20 条中 5 条已实现业务逻辑，其余 15 条为骨架，返回 501**）+ `/api/v1` 管理面（日志审计、接入调用追踪）。原 `integration` 过渡域（知识空间、分片 CRUD、对象存储、集成自检端点）已整体删除，删除决策与能力回退清单见 [`00-document/04-.../03-代码评审与优化/01-backend代码优化建议报告.md`](00-document/04-服务大脑AI项目开发过程文档/03-代码评审与优化/01-backend代码优化建议报告.md) 的 〇-A 章。
+> **能力边界（务必先读）**：知识库域（`kb`）与语音质检域（`voice`）当前**只有数据模型与表结构，没有 controller**，即无 HTTP 出口。对外能力 = `/v1` 契约面（**20 条中 5 条已实现业务逻辑，其余 15 条为骨架，返回 501**）+ `/api/v1` 管理面（日志审计、接入调用追踪）+ `/api/v1/gsi` 只读查询面（8 张 GSI 共享表、13 条 GET，无写入）。原 `integration` 过渡域（知识空间、分片 CRUD、对象存储、集成自检端点）已整体删除，删除决策与能力回退清单见 [`00-document/04-.../03-代码评审与优化/01-backend代码优化建议报告.md`](00-document/04-服务大脑AI项目开发过程文档/03-代码评审与优化/01-backend代码优化建议报告.md) 的 〇-A 章。
 
 ## 技术栈
 
@@ -39,6 +39,9 @@ service_brain_agent/                # 仓库根：前后端一体化工程
 │   │   │   ├── kb/             # 知识库域：8 个功能目录，模型与 CRUD 已就绪，**暂无 controller**
 │   │   │   │   └── (chunk / publication / revision / parse_job / parse_result / dup_group / chat_session / chat_message)
 │   │   │   └── voice/          # 语音质检域：8 张表模型已就绪，**暂无 controller**（二期）
+│   │   ├── modules_gsi/         # GSI 业务只读：模块/业务两级，独立 metadata，不参与启动建表
+│   │   │   ├── sys/            # org / org_member / audience_team / audience_team_member / user
+│   │   │   └── km/             # doc / doc_publication / doc_record
 │   │   ├── core/                # 数据库、依赖、异常、日志、审计路由类、校验器
 │   │   │   ├── rag/            # 解析/分片/向量存储/流水线/MinerU（契约 #01 与 #03 使用）
 │   │   │   ├── chat/           # 引用构造、重排、流式工具（纯函数，解耦业务模型）
@@ -144,9 +147,19 @@ kb 域 8 张表（`sbp_ai_kb_*`）由 `app/modules/kb/bootstrap.py` 在启动时
 
 进程重启后的中断恢复改为 `KbParseJobService.reset_unfinished()`（`KbParseJobCRUD.fail_unfinished()` 一条 UPDATE 批量改判 failed），不再有「解析中→待解析」的回退语义。
 
+### GSI 业务只读访问（modules_gsi）
+
+GSI 业务表以 `sbp_` 开头（无 `ai` 段），由 GSI 侧 Flyway 创建与维护，AI 侧只读：
+
+- 代码：`app/modules_gsi/<模块名>/<业务名>/`，按 `model / crud / schema / service / controller` 五层组织，类名统一 **Sbp** 前缀（如 `SbpSysOrgModel` / `SbpSysOrgCRUD` / `SbpSysOrgService` / `SbpSysOrgRouter`）；
+- 范围：`sys`（`org` / `org_member` / `audience_team` / `audience_team_member` / `user`）与 `km`（`doc` / `doc_publication` / `doc_record`），共 8 张表；
+- 接口：`/api/v1/gsi/*` 共 13 条 GET 只读查询（列表 8 条 + 详情 5 条），登记在 `DOMAIN_CONTROLLERS` 的 `/gsi` 域；
+- **不建表**：模型使用独立 `SbpBase.metadata`，`app/bootstrap.py` 不登记该包，启动期不会创建或修改任何 GSI 表；表结构以 `02-服务大脑GSI业务系统表结构.sql` 为准；
+- **只读**：CRUD 仅 `get / get_list / count / exists / page`，无 create / update / delete；`sbp_sys_user` 只映射契约允许字段，不映射 `password_hash`、邮箱、手机号等敏感列。
+
 ### 契约接入面 `/v1`
 
-由 `app/contract/` 提供，`CONTRACT_V1_ENABLE=true` 时经 `register_contract(app)` 挂载（独立于 `/api/v1` 管理面）。所有端点统一走签名 + nonce + 幂等 + 审计链路（`ContractApiRoute`），即使骨架端点也已具备这三层保护；签名与错误码口径见 `00-document/01-.../05-接口契约与数据基线/`。
+由 `app/modules_api/contract/` 提供，`CONTRACT_V1_ENABLE=true` 时经 `register_api(app)` 挂载（独立于 `/api/v1` 管理面）。所有端点统一走签名 + nonce + 幂等 + 审计链路（`ContractApiRoute`），即使骨架端点也已具备这三层保护；签名与错误码口径见 `00-document/01-.../05-接口契约与数据基线/`。
 
 | 端点 | 状态 | 说明 |
 | --- | --- | --- |
@@ -219,11 +232,11 @@ MinerU 返回的 `content_list` 会转成「文本 → 页码」映射，分片�
 
 解析产物当前**不落对象存储**（S3 客户端已删除），`full.md` / `content_list.json` / 图片仅作为契约 #01/#02 的返回载荷存在；解析结果的正本落在 `sbp_ai_kb_parse_result` 与 `sbp_ai_kb_chunk`。原「解析产物预览」弹窗与 `/document/asset/...` 图片接口已随前端页面一起删除。
 
-联调验收用 `app/contract/verify_m1.py`（服务已启动后执行，退出码非 0 即验收不达标）：
+联调验收用 `app/scripts/contract/verify_m1.py`（服务已启动后执行，退出码非 0 即验收不达标）：
 
 ```bash
 # 在 backend/ 下执行
-.venv/Scripts/python.exe -m app.contract.verify_m1 --base-url http://127.0.0.1:8002
+.venv/Scripts/python.exe -m app.scripts.contract.verify_m1 --base-url http://127.0.0.1:8002
 # 需要把验收记录写成 Markdown 时追加：--record <输出路径>
 ```
 
@@ -272,12 +285,12 @@ MinerU 返回的 `content_list` 会转成「文本 → 页码」映射，分片�
 
 ## 后端要点
 
-- 路由注册：`register_routers()` 只挂载 `backend/app/api/v1/routers.py` 的 `api_v1`；新增业务模块时在 `backend/app/modules/<域>/<功能>/controller.py` 定义 Router，再到 `DOMAIN_CONTROLLERS` 登记，不做包扫描自动注册
-- 命名口径：表名 `sbp_ai_[域缩写]_[业务名]`（`system` / `kb` / `voice`），与目录、模型类一一对应，详见 `backend/app/modules/__init__.py`。当前共 **24 张**：kb 8（`chunk`/`publication`/`revision`/`parse_job`/`parse_result`/`dup_group`/`chat_session`/`chat_message`）、system 6（`api_log`/`nonce`/`idempotency`/`request_log`/`auth_cache`/`prompt_template`）、voice 8、通用向量层 2（`kb_vector_collection`/`kb_vector_embedding`，由 `core/rag/vector_store.py` 懒建，非 ORM 模型）
-- 域收敛：`app/modules/` 只有 `kb` / `system` / `voice` 三个正式域，无过渡域。`bootstrap.py` 按 `kb → system → voice` 顺序建表（kb 在前，因分片表含 pgvector 列，须待 vector 扩展就绪）
-- 表结构初始化：启动期 `create_missing_tables` 按「**缺表才建，已存在的表一律跳过**」——不补列、不加索引、不补默认值、不改类型。因此：**新建库**由模型定义一切（含 `__table_args__` 里的表达式索引）；**存量库**的加列/加索引/改类型必须由提交者写出 `ALTER` 并随 PR 交付、在目标环境执行。删列属破坏性变更，人工确认 + 备份后手动做，没有任何脚本会自动删。规则见 `00-document/03-.../01-团队开发规范.md` **D17**（早期曾有 `upgrade_schema` 对齐脚本，v2.2 已移除）
+- 路由注册：`register_routers()` 只挂载 `backend/app/api/v1/routers.py` 的 `api_v1`；新增业务模块时在 `backend/app/modules/<域>/<功能>/controller.py` 定义 Router，GSI 只读模块在 `backend/app/modules_gsi/<模块>/<业务>/controller.py` 定义 Router，再到 `DOMAIN_CONTROLLERS` 登记（GSI 统一挂 `/gsi` 域），不做包扫描自动注册
+- 命名口径：AI 表名 `sbp_ai_[域缩写]_[业务名]`（`system` / `kb` / `voice`），与目录、模型类一一对应，详见 `backend/app/modules/__init__.py`。当前共 **24 张**：kb 8（`chunk`/`publication`/`revision`/`parse_job`/`parse_result`/`dup_group`/`chat_session`/`chat_message`）、system 6（`api_log`/`nonce`/`idempotency`/`request_log`/`auth_cache`/`prompt_template`）、voice 8、通用向量层 2（`kb_vector_collection`/`kb_vector_embedding`，由 `core/rag/vector_store.py` 懒建，非 ORM 模型）。GSI 侧 `sbp_*` 表为外部只读表，不占 AI 模块码，按「模块名/业务名」放在 `app/modules_gsi/`，类名统一 `Sbp` 前缀（如 `SbpSysOrgModel`），共 8 张且**不计入**上述 24 张
+- 域收敛：`app/modules/` 只有 `kb` / `system` / `voice` 三个正式域，无过渡域；`app/modules_gsi/` 是 GSI 外部只读包，不属于正式域、不参与 `bootstrap.py` 建表。`bootstrap.py` 按 `kb → system → voice` 顺序建表（kb 在前，因分片表含 pgvector 列，须待 vector 扩展就绪）
+- 表结构初始化：启动期 `create_missing_tables` 按「**缺表才建，已存在的表一律跳过**」——不补列、不加索引、不补默认值、不改类型。因此：**新建库**由模型定义一切（含 `__table_args__` 里的表达式索引）；**存量库**的加列/加索引/改类型必须由提交者写出 `ALTER` 并随 PR 交付、在目标环境执行。删列属破坏性变更，人工确认 + 备份后手动做，没有任何脚本会自动删。规则见 `00-document/03-.../01-团队开发规范.md` **D17**（早期曾有 `upgrade_schema` 对齐脚本，v2.2 已移除）。`modules_gsi` 的模型使用独立 metadata，**完全不进入**这条建表链路；GSI 表结构由 GSI 侧 Flyway 维护
 - 删除语义：基座**不做软删**（`ModelMixin` 无 `is_deleted`/`deleted_time`，`CRUDBase.delete()` 一律物理删，无 `restore()`）。需要留痕迹由领域自己用 `status` 表达（`kb_revision` 留 `archived` 墓碑、`kb_chunk` 必须物理删否则向量仍会被召回）——细节见 `00-document/03-.../01-团队开发规范.md` 规则 D19
-- 契约链路：`app/contract/` 自成一套接入层——`ContractApiRoute` 负责请求级审计，`deps.py` 的幂等守卫按 `reserve → processing → complete/release` 状态机推进，异常路径用 `asyncio.shield` 保证释放动作不被取消吞掉
+- 契约链路：`app/modules_api/contract/` 自成一套接入层——`ContractApiRoute` 负责请求级审计，`deps.py` 的幂等守卫按 `reserve → processing → complete/release` 状态机推进，异常路径用 `asyncio.shield` 保证释放动作不被取消吞掉
 - 解析生命周期：解析任务跑在请求之外，用 `async_session_factory` 自开短事务回写状态；进程重启后由 `KbParseJobService.reset_unfinished()` 把残留「解析中」批量改判 `failed`（不再有「回退待解析」语义）
 - 事务出口：`db_getter` 显式三分支——正常 commit / 契约失败标记命中则 rollback / 异常 rollback 后上抛，避免契约路由吞异常导致请求级事务「错误提交」
 - 异常出口：`create_app` 内注册 `handle_exception`，`CustomException` 统一转成 `{code, success, msg, data}`；`ENVIRONMENT=prod` 时不回显异常细节。未注册时所有异常都会退化成 500，前端拿不到 409/503 等可读提示

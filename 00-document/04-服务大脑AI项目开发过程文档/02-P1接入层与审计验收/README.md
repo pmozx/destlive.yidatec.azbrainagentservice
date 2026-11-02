@@ -26,20 +26,20 @@
 
 | 文件 | 用途 |
 | --- | --- |
-| `01-M1验收记录.md` | **M1 证据**：由 `python -m app.contract.verify_m1 --record` 生成，38 条验收项的期望/实际/结论 |
+| `01-M1验收记录.md` | **M1 证据**：由 `python -m app.scripts.contract.verify_m1 --record` 生成，38 条验收项的期望/实际/结论 |
 | `README.md` | 本文：产物说明、复跑方式、口径差异、遗留项 |
 
 ---
 
 ## 三、代码与迁移（`backend/`）
 
-### 3.1 接入层：`app/contract/`
+### 3.1 接入层：`app/modules_api/contract/`
 
 正式 `/v1` 与 `/api/v1`（管理台 JWT）分离；POC 验证骨架已按 `../01-POC验证/03-POC下线与契约迁移方案.md` 阶段 0 下线（2026-10-30），`/v1` 只有本模块一份实现。`CONTRACT_V1_ENABLE=false` 表示 `/v1` 完全不挂载（404），不再提供 POC 回退。
 
 | 文件 | 职责 | 任务 |
 | --- | --- | --- |
-| `__init__.py` | 唯一入口 `register_contract(app)` / `ensure_contract_store()`；密钥缺失只告警不阻断启动 | T1.5 |
+| `__init__.py` | 唯一入口 `register_api(app)` / `ensure_contract_store()`；密钥缺失只告警不阻断启动 | T1.5 |
 | `errors.py` | 错误码全量表 + `ContractApiError` + `ContractApiRoute`（**继承审计路由类**：内层落审计、外层换错误体） | T1.2 |
 | `signature.py` | **验签适配层**：算法在 `app/core/security_signature.py`（唯一实现），本模块只把失败翻成大写的契约码（`UNAUTHORIZED` / `SCOPE_REQUIRED` / `AUTHORIZATION_UNAVAILABLE`），并保留 `authorization` 形态检查 | T1.1 |
 | `nonce.py` | nonce 原子登记：单条 `INSERT ... ON CONFLICT DO UPDATE ... WHERE expires_at < now`，无返回行即重放（与公共层 `NonceLedger` 同一语义，只是异步 + 落库） | T1.1 |
@@ -58,7 +58,7 @@ POC 与 contract 曾各持一份验签实现：7 行原文拼装、±5 分钟窗
 | --- | --- | --- |
 | `app/core/security_signature.py` | **唯一算法实现**：五头常量与 `SIGNATURE_HEADERS` 清单、7 行原文与 HMAC 计算、时间窗、nonce 格式与防重放**时序**（先验签再登记）、`authorization` 跨度判定、OpenAPI 签名说明文案（`signature_rule_doc`）；失败抛中性的 `SignatureCheckError` / `AuthorizationCheckError`（带 `reason` 枚举），**不认识任何错误体** | 被 contract 依赖，不反向依赖接入层 |
 | `setting.py` 的 `CONTRACT_*` 一组（5 项） | **唯一配置口径**：调用方标识、HMAC 共享密钥、时钟窗口、nonce TTL、`authorization` 跨度；contract 与 `mock_gsi` 都直读这一组，不再有第二份自签密钥/窗口；不另设值对象层 | 读 `Settings` |
-| `app/contract/signature.py` | 适配层：`SignatureCheckError.reason` → 大写契约码；nonce 落库仍由 `nonce.py` 在 `deps.py` 里编排（同一时序） | → 公共层 |
+| `app/modules_api/contract/signature.py` | 适配层：`SignatureCheckError.reason` → 大写契约码；nonce 落库仍由 `nonce.py` 在 `deps.py` 里编排（同一时序） | → 公共层 |
 
 口径边界（刻意不合并）：
 
@@ -79,8 +79,8 @@ POC 与 contract 曾各持一份验签实现：7 行原文拼装、±5 分钟窗
 | 位置 | 改动 |
 | --- | --- |
 | `app/core/router_class.py` | `set_audit_security()` 回填四字段；`ApiLogRecord` / `_build_log_data` 增四字段；`_should_record` 支持 `API_LOG_FORCE_PATHS`；`status` 口径改为 `>=400` 记失败；`RequestValidationError` 记 400 |
-| `app/__init__.py` | lifespan 调 `ensure_contract_store()`（清理过期 nonce 与台账）；`create_app` 只调 `register_contract`（`register_poc` 已随 POC 下线删除） |
-| `app/contract/mock_gsi.py` | **新增（阶段 0）**：POC 冒烟驱动器迁入契约侧，新增 `--allow-skeleton`；`--reset` 与 `poc_v1_metric` 耗时统计随临时表一并移除 |
+| `app/__init__.py` | lifespan 调 `ensure_contract_store()`（清理过期 nonce 与台账）；`create_app` 只调 `register_api`（`register_poc` 已随 POC 下线删除） |
+| `app/scripts/contract/mock_gsi.py` | **新增（阶段 0）**：POC 冒烟驱动器迁入契约侧，新增 `--allow-skeleton`；`--reset` 与 `poc_v1_metric` 耗时统计随临时表一并移除 |
 | `app/core/security_signature.py` | **新增（2026-10-30 重构）**：验签 / nonce 防重放时序 / `authorization` 时效的唯一实现；contract 唯一消费者 |
 | `app/config/setting.py` | `CONTRACT_*` 签名 5 项是**唯一一组**签名参数；`POC_*` 5 项已随下线删除；新增 `API_LOG_FORCE_PATHS` |
 | `env/.env.*` | 四个环境文件均已加 CONTRACT 段：dev 填自签测试值 `dev-self-signed-secret`，test/uat/prod 的 `CONTRACT_V1_SHARED_SECRET` 留空待填（GSI 下发后由部署机填写）；`mock_gsi` 读取同一组值，无独立密钥项 |
@@ -104,7 +104,7 @@ POC 与 contract 曾各持一份验签实现：7 行原文拼装、±5 分钟窗
 | `CONTRACT_IDEMPOTENCY_TTL_DAYS` | `90` | 幂等台账 TTL（墓碑不受限） |
 | `CONTRACT_TENANT_ID` | `gsi-default` | 契约 `tenant_id` 兜底 |
 
-> **待填项**：仅 `CONTRACT_V1_SHARED_SECRET` 一项需要人工填（与 GSI 约定的 HMAC 共享密钥，连同 `CONTRACT_V1_CLIENT_ID` 属 GSI 下发物，计划 W10 到位）。口径：只写部署机上的 `backend/env/.env.<env>`，不入库、不进代码、不提交实值；填完重启进程生效。留空期间 `/v1` 全部 503 `AUTHORIZATION_UNAVAILABLE`（失败关闭），审计照常留痕。验证填对了没有：`python -m app.contract.verify_m1 --base-url http://<host>:<port> --secret <填的值>`。
+> **待填项**：仅 `CONTRACT_V1_SHARED_SECRET` 一项需要人工填（与 GSI 约定的 HMAC 共享密钥，连同 `CONTRACT_V1_CLIENT_ID` 属 GSI 下发物，计划 W10 到位）。口径：只写部署机上的 `backend/env/.env.<env>`，不入库、不进代码、不提交实值；填完重启进程生效。留空期间 `/v1` 全部 503 `AUTHORIZATION_UNAVAILABLE`（失败关闭），审计照常留痕。验证填对了没有：`python -m app.scripts.contract.verify_m1 --base-url http://<host>:<port> --secret <填的值>`。
 
 ### 3.4 运维视图：接入调用追踪
 
@@ -145,7 +145,7 @@ rem 1) 启动服务（/v1 契约路由随应用挂载）
 .venv\Scripts\python.exe -m uvicorn app:create_app --factory --host 127.0.0.1 --port 8002
 
 rem 2) 另开终端跑 M1 验收（需服务 + 数据库；--record 覆盖证据文件）
-.venv\Scripts\python.exe -m app.contract.verify_m1 --base-url http://127.0.0.1:8002 ^
+.venv\Scripts\python.exe -m app.scripts.contract.verify_m1 --base-url http://127.0.0.1:8002 ^
     --record "..\00-document\04-服务大脑AI项目开发过程文档\02-P1接入层与审计验收\01-M1验收记录.md"
 
 rem 3) 单测与静态检查
@@ -172,7 +172,7 @@ rem 3) 单测与静态检查
 5. **`security_check.failure_code` 在出口补记**：验签依赖只能记签名阶段的失败；`authorization` 超时效、幂等异正文、参数校验这些「签名已通过才失败」的请求，由 `ContractApiRoute` 出口统一补 `failure_code`，否则审计里只有 4xx 没有原因。
 6. **幂等回放的 HTTP 演示要等业务落地**：骨架期 501 属失败，依赖退出会 `release` 预约（否则 ID 被永久锁在 `processing`），所以 HTTP 层无法演示「同 ID 回放」。M1 用**台账直连校验**（`reserve → complete → replay → 冲突 → 墓碑 → 释放`）钉住口径，M2 起在 #01 真实受理链路上补 HTTP 级回放用例。
 7. **POC 测试已随下线处置（2026-10-30）**：`tests/test_poc_docs.py` 删除，其断言（签名头可选、7 行说明、错误体模型）已由 `tests/test_v1_contract.py` 完整覆盖；`tests/test_poc_signature.py` 删除，citation 用例迁为 `tests/test_chat_cite.py`，验签用例由 `tests/test_v1_contract.py` + `tests/test_security_signature.py` 覆盖。
-8. **签名实现已收口为一份（2026-10-30）**：不要再往 `app/contract/signature.py` 里加算法（原文拼装、时间窗、nonce 格式、`authorization` 跨度），改口径只改 `app/core/security_signature.py`；适配层只允许改“失败原因 → 错误码”的映射。签名参数也只有一组（`CONTRACT_*` 5 项），新增接入方复用同一组配置，而不是复制一套验签代码或另起一份密钥。
+8. **签名实现已收口为一份（2026-10-30）**：不要再往 `app/modules_api/contract/signature.py` 里加算法（原文拼装、时间窗、nonce 格式、`authorization` 跨度），改口径只改 `app/core/security_signature.py`；适配层只允许改“失败原因 → 错误码”的映射。签名参数也只有一组（`CONTRACT_*` 5 项），新增接入方复用同一组配置，而不是复制一套验签代码或另起一份密钥。
 
 ---
 
@@ -183,5 +183,5 @@ rem 3) 单测与静态检查
 | 20 条接口业务 | 501 骨架 | T2.1 起按 Tx 逐个替换 `_skeleton()`，签名/审计/幂等依赖不再改 |
 | 限流 429 | 只有错误码与声明 | T7.5 性能与限流阶段落地（`Retry-After` 已在错误体出口预留） |
 | 请求级超时查询 #15 | 只有骨架 | 与 #14 一并做 `request_log`，覆盖 completion / mutation / delete 三类 |
-| POC 代码 | **已下线（2026-10-30）**：`app/poc/` 删除、启动不再建 `poc_v1_*`、6 张临时表与 `POC_*` 配置已清理；验签算法保留在 `app/core/security_signature.py`，冒烟驱动器迁为 `app/contract/mock_gsi.py` | 5 条接口向 contract 的迁移落点与验收断言见 `../01-POC验证/03-POC下线与契约迁移方案.md`；原实现见 tag `poc-m0-frozen` |
+| POC 代码 | **已下线（2026-10-30）**：`app/poc/` 删除、启动不再建 `poc_v1_*`、6 张临时表与 `POC_*` 配置已清理；验签算法保留在 `app/core/security_signature.py`，冒烟驱动器迁为 `app/scripts/contract/mock_gsi.py` | 5 条接口向 contract 的迁移落点与验收断言见 `../01-POC验证/03-POC下线与契约迁移方案.md`；原实现见 tag `poc-m0-frozen` |
 | 生产密钥 | dev 用自签密钥 | 部署时经环境变量注入，轮换流程写进 T8.2 上线检查单 |

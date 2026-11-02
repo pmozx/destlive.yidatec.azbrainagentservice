@@ -11,7 +11,7 @@ tests/
 ├── conftest.py               # 模块级连接池隔离（全包共用）
 ├── support.py                # 共享装置：常量、签名头、进程内调用、requires_db
 ├── core/                     # 基座能力：与业务语义无关
-├── contract/                 # 契约接入层（app/contract + 对外 API 行为）
+├── contract/                 # 契约接入层（app/modules_api/contract + 对外 API 行为）
 ├── modules/
 │   ├── kb/                   # 业务域：知识库
 │   └── system/               # 业务域：系统管理

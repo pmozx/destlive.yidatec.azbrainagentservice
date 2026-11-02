@@ -24,6 +24,7 @@ from fastapi.responses import JSONResponse
 from app.config.setting import settings
 from app.core.logger import logger
 from app.core.request_body import get_json_body
+from app.core.rich_print import pretty_log
 from app.core.router_class import set_audit_security, set_audit_username
 from app.core.security_signature import (
     HEADER_CLIENT_ID,
@@ -36,7 +37,9 @@ from app.core.security_signature import (
     headers_present,
     now_ms,
     signature_rule_doc,
+    timestamp_deviation_ms,
 )
+from app.utils.common_util import canonical_json_sha256
 
 from .audit import (
     AUTH_MODE_HMAC,
@@ -45,7 +48,6 @@ from .audit import (
     SIGNATURE_FAILED,
     SIGNATURE_PASSED,
     SecurityRecord,
-    timestamp_deviation_ms,
 )
 from .errors import AUTHORIZATION_UNAVAILABLE, INVALID_REQUEST, UNAUTHORIZED, ContractApiError
 from .idempotency import (
@@ -56,30 +58,17 @@ from .idempotency import (
     Reservation,
     complete,
     extract_biz_id,
-    payload_digest,
     purge_expired as purge_idempotency,
     release,
     reserve,
 )
 from .nonce import nonce_store
-from .signature import SignatureMaterial, verify_signature
-from ..core.rich_print import pretty_log
+from .signature import SignatureMaterial, verify_signature, verify_authorization
 
 # 签名原文口径写在 `X-AI-Signature` 的说明里：Swagger 上看不到模块 docstring，
 # 而签名最常被问的就是「这个 hex 怎么算」。文字本身与 POC 共用一份（`security_signature`），
 # 只有失败码的大小写口径不同。
 _SIGNATURE_RULE = signature_rule_doc(unauthorized_code="UNAUTHORIZED")
-
-
-def load_json_body(body: bytes) -> Any:
-    """把原始字节解析成 JSON（解析失败返回 None）；只给手上已有字节的调用方用。
-
-    依赖/路由里请用 :func:`app.core.request_body.get_json_body`——它会缓存解析结果，
-    同一次请求多处读取只反序列化一次。
-    """
-    from app.core.request_body import parse_json_bytes
-
-    return parse_json_bytes(body)
 
 
 def _body_meta(payload: Any) -> tuple[str | None, str | None]:
@@ -227,6 +216,18 @@ async def verified_signature(
     return material
 
 
+async def enforced_authorization(request: Request) -> None:
+    """校验正文里到达的 `authorization` / `scope` 块：跨度 ≤120s、且未过期（T1.1）。
+
+    骨架期用「到达即校验」而不是「必填校验」：字段必填性随各 Tx 按手册逐字段落地，
+    这里先把最容易被误用的时效口径钉住（POC 疑点 Q1/Q2）。
+    """
+    payload = await get_json_body(request)
+    if not isinstance(payload, dict):
+        return
+    verify_authorization(payload.get("authorization") or payload.get("scope"))
+
+
 def _idempotent_guard(scope: str):
     """按幂等域生成依赖：预约 → 交给路由 → 成功登记结果 / 失败释放。
 
@@ -249,7 +250,7 @@ def _idempotent_guard(scope: str):
                 f"缺少幂等键 {SCOPE_ID_KEYS[scope]}，写操作必须携带。",
             )
 
-        digest = payload_digest(payload)
+        digest = canonical_json_sha256(payload)
         reservation = await reserve(scope=scope, biz_id=biz_id, body_hash=digest)
         request.state.idempotency_reservation = reservation
 
