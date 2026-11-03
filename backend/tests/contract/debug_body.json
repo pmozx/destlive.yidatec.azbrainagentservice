@@ -1,3 +1,17 @@
 {
-    "laboris_f0": true
+  "job_id": "parse-2856c9b763d4",
+  "doc_id": "doc-001",
+  "version_id": "v1",
+  "file_url": "https://cdn-mineru.openxlab.org.cn/demo/example.pdf",
+  "file_name": "vpn-guide.md",
+  "options": {
+    "chunk": true,
+    "language": "zh"
+  },
+  "tenant_id": "gsi-default",
+  "resource_type": "document",
+  "file_size": 1024,
+  "metadata": {
+    "title": "VPN 申请操作手册"
+  }
 }

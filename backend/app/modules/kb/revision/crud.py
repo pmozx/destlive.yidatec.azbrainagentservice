@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 
 from pydantic import BaseModel
-from sqlalchemy import update
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.base_crud import CRUDBase
@@ -16,6 +16,31 @@ class KbRevisionCRUD(CRUDBase[KbRevisionModel, BaseModel, BaseModel]):
 
     def __init__(self, db: AsyncSession) -> None:
         super().__init__(model=KbRevisionModel, db=db)
+
+    async def get_by_record(self, *, publication_id: str, record_id: str) -> KbRevisionModel | None:
+        """按快照 ID 读取最新一条版本行（03.2 精读；删除墓碑同 record_id，取 version 最大者）。"""
+        result = await self.db.execute(
+            select(KbRevisionModel)
+            .where(
+                KbRevisionModel.publication_id == publication_id,
+                KbRevisionModel.record_id == record_id,
+            )
+            .order_by(KbRevisionModel.revision.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    async def record_exists(self, *, publication_id: str, record_id: str) -> bool:
+        """该快照 ID 是否已在该发布单元使用过（03.3 禁止复用历史 record_id）。"""
+        result = await self.db.execute(
+            select(KbRevisionModel.id)
+            .where(
+                KbRevisionModel.publication_id == publication_id,
+                KbRevisionModel.record_id == record_id,
+            )
+            .limit(1)
+        )
+        return result.scalar_one_or_none() is not None
 
     async def archive_by_record(self, *, publication_id: str, record_id: str) -> int:
         """把某快照的历史版本置为归档：行保留，作为防旧请求复活的墓碑。

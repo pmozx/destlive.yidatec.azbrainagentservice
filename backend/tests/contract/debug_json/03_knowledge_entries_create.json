@@ -1,0 +1,42 @@
+{
+  "request_id": "req-kb-create-001",
+  "tenant_id": "gsi-default",
+  "user_id": "user-demo-001",
+  "resource_type": "document",
+  "resource_id": "doc-demo-10001",
+  "publication_id": "pub-demo-001",
+  "record_id": "rec-demo-001",
+  "version_id": "v1",
+  "revision": 1,
+  "knowledge_no": "KB-2026-001",
+  "content_hash": "__COMPUTED_AT_RUNTIME__",
+  "metadata": {
+    "title": "造林对流量历时曲线的影响",
+    "doc_type": "document",
+    "owner": "kali03",
+    "language": "zh"
+  },
+  "chunks": [
+    {
+      "seq": 1,
+      "heading": "研究目的",
+      "content": "本研究旨在开发一种评估造林对流量持续时间曲线（FDC）影响的方法。",
+      "page_from": 1,
+      "page_to": 1
+    },
+    {
+      "seq": 2,
+      "heading": "研究方法",
+      "content": "使用来自澳大利亚、南非和新西兰的10个流域的每日流量数据进行分析。",
+      "page_from": 2,
+      "page_to": 3
+    },
+    {
+      "seq": 3,
+      "heading": "主要结论",
+      "content": "所开发的方法能有效去除降雨变异性，为理解造林对流量持续时间曲线的影响提供了洞察。",
+      "page_from": 10,
+      "page_to": 11
+    }
+  ]
+}

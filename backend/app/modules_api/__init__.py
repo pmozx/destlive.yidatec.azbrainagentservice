@@ -1,4 +1,4 @@
-"""对外 API 接入域：``/v1`` 契约接口（HMAC 四头签名），与管理台 ``/api/v1``（JWT）分离。
+"""对外 API 接入域：``/v1`` 契约接口（HMAC 五头签名），与管理台 ``/api/v1``（JWT）分离。
 
 目录约定：
 
@@ -56,6 +56,13 @@ def register_api(app: FastAPI) -> None:
             settings.CONTRACT_NONCE_TTL_SECONDS,
             settings.CONTRACT_CLOCK_SKEW_MS * 2 // 1000,
         )
+
+    # 测试辅助路由（签名头生成等）：CONTRACT_TEST_ENABLE=true 时挂载
+    if settings.CONTRACT_TEST_ENABLE:
+        from app.modules_api.contract.test_utils.controller import TestRouter
+
+        api_router.include_router(TestRouter)
+        logger.info("==== 测试辅助路由已挂载（/v1/test/*）：生产环境请关闭 CONTRACT_TEST_ENABLE ====")
 
 
 __all__ = ["DOMAIN_CONTROLLERS", "api_router", "register_api"]

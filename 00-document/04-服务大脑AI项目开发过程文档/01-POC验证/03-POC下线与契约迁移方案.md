@@ -49,7 +49,7 @@
 
 ## 三、阶段 1–5：5 条接口按生产口径落进 contract
 
-> 共同前置（P1 已交付，无需再做）：四头签名与 nonce 台账、三类幂等依赖（`idempotent_job/request/event`）、契约错误码与错误体、`ContractApiRoute` 审计留痕。
+> 共同前置（P1 已交付，无需再做）：五头签名与 nonce 台账、三类幂等依赖（`idempotent_job/request/event`）、契约错误码与错误体、`ContractApiRoute` 审计留痕。
 > 因此每条接口只需实现「业务 + 回执」，在骨架函数体内替换 `_skeleton()`，**签名/审计/幂等依赖不动**。
 
 ### 3.1 #01 `POST /parse/jobs` → T2.1（1.5 人日）

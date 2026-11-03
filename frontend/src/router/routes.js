@@ -47,14 +47,14 @@ export const constantRoutes = [
     path: '/kb',
     name: 'KnowledgeBase',
     component: Layout,
-    redirect: '/kb/knowledge',
+    redirect: '/kb/publication',
     meta: { title: '知识平台', icon: 'Collection' },
     children: [
       {
-        path: 'knowledge',
-        name: 'KbKnowledge',
-        component: () => import('@/views/module_kb/knowledge/index.vue'),
-        meta: { title: '知识维护', icon: 'Document' },
+        path: 'publication',
+        name: 'KbPublication',
+        component: () => import('@/views/module_kb/publication/index.vue'),
+        meta: { title: '发布单元', icon: 'Document' },
       },
       {
         path: 'parse-job',

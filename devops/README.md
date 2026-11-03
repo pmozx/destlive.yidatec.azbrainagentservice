@@ -602,7 +602,7 @@ bash devops/scripts/manual/deploy.sh prod <image_tag>
 | `缺少应用配置文件` | 没放 `backend/env/.env.<env>`，或文件名与 `ENV` 不一致 | 按上面目录约定放置 |
 | `$'\r': command not found` | 从 Windows 上传带了 CRLF | 执行第 2 步的 `sed` |
 | `permission denied … docker.sock` | 当前用户不在 docker 组 | `sudo usermod -aG docker $USER` 后重新登录 |
-| 四头签名报时间戳越界 | 宿主机时钟漂移超出 ±5 分钟窗口 | 开启 chrony / ntpd 时间同步 |
+| 五头签名报时间戳越界 | 宿主机时钟漂移超出 ±5 分钟窗口 | 开启 chrony / ntpd 时间同步 |
 | 模型容器反复重启 | 无外网，`ollama-init` / `rerank-init` 拉不到模型 | 预置 `common-server/volumes/{ollama,rerank/models}` 后再启动 |
 | `no such host service-brain-postgres` | 中间件未起，或与应用不在同一网络 | 先起中间件，确认 `docker network inspect service-brain-agent` 内两个容器都在 |
 | `stop/down` 时报 `APP_IMAGE 未设置` | compose 解析清单也需要插值变量，即使不拉镜像 | 按「停止与重启」补 `APP_IMAGE=unused ENVIRONMENT=prod`，或直接 `docker stop service-brain-agent` |

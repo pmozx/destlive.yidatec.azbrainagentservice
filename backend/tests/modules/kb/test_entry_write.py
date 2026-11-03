@@ -104,6 +104,23 @@ def _payload(
     return payload
 
 
+def _query_payload(
+    *, request_id: str, record_id: str, cursor: str | None = None, limit: int | None = None
+) -> dict[str, Any]:
+    """构造 03.2 读取基线正文（publication_id 只走路径）。"""
+    payload: dict[str, Any] = {
+        "request_id": request_id,
+        "tenant_id": "gsi-default",
+        "user_id": "42",
+        "record_id": record_id,
+    }
+    if cursor is not None:
+        payload["cursor"] = cursor
+    if limit is not None:
+        payload["limit"] = limit
+    return payload
+
+
 def _delete_payload(*, request_id: str, publication_id: str, record_id: str, revision: int) -> dict[str, Any]:
     return {
         "request_id": request_id,
@@ -272,6 +289,54 @@ async def test_create_entry_conflicts_on_existing_publication() -> None:
         assert second.json()["error"]["code"] == contract_errors.STALE_REVISION
     finally:
         await _cleanup(publication_id, [first_id, second_id])
+
+
+@requires_db
+async def test_query_baseline_pages_approved_chunks() -> None:
+    """03.2 200：按已批准快照读取完整切片，`limit` 分页与 `next_cursor` 指向下一页。"""
+    publication_id = f"pub-{uuid.uuid4().hex[:12]}"
+    record_id = f"record-{uuid.uuid4().hex[:12]}"
+    create_id = f"req-{uuid.uuid4().hex[:12]}"
+    query_id = f"req-{uuid.uuid4().hex[:12]}"
+    try:
+        created = await _call(
+            "POST",
+            "/v1/knowledge/entries",
+            _payload(request_id=create_id, publication_id=publication_id, record_id=record_id, revision=101),
+        )
+        assert created.status_code == 201
+
+        first = await _call(
+            "POST",
+            f"/v1/knowledge/entries/{publication_id}/query",
+            _query_payload(request_id=query_id, record_id=record_id, limit=2),
+        )
+        assert first.status_code == 200, first.text
+        body = first.json()
+        assert (body["publication_id"], body["record_id"], body["revision"]) == (publication_id, record_id, 101)
+        assert body["content_hash"].startswith("sha256:")
+        assert [chunk["seq"] for chunk in body["chunks"]] == [1, 2]
+        assert body["chunks"][0]["chunk_id"] == f"{record_id}:1"
+        assert body["next_cursor"] == "2"
+
+        second = await _call(
+            "POST",
+            f"/v1/knowledge/entries/{publication_id}/query",
+            _query_payload(request_id=query_id, record_id=record_id, cursor=body["next_cursor"], limit=2),
+        )
+        assert second.status_code == 200, second.text
+        assert [chunk["seq"] for chunk in second.json()["chunks"]] == [3]
+        assert second.json()["next_cursor"] is None
+
+        missing = await _call(
+            "POST",
+            f"/v1/knowledge/entries/{publication_id}/query",
+            _query_payload(request_id=query_id, record_id=f"record-{uuid.uuid4().hex[:12]}"),
+        )
+        assert missing.status_code == 404
+        assert missing.json()["error"]["code"] == contract_errors.NOT_FOUND
+    finally:
+        await _cleanup(publication_id, [create_id, query_id])
 
 
 @requires_db
@@ -462,6 +527,15 @@ async def test_delete_entry_removes_chunks_and_blocks_revival() -> None:
         )
         assert revive.status_code == 409
         assert revive.json()["error"]["code"] == contract_errors.STALE_REVISION
+
+        # 删除墓碑：03.2 回读同一 record_id 必须是 404（正文与向量已物理删除）
+        gone = await _call(
+            "POST",
+            f"/v1/knowledge/entries/{publication_id}/query",
+            _query_payload(request_id=f"req-{uuid.uuid4().hex[:12]}", record_id=record_id),
+        )
+        assert gone.status_code == 404
+        assert gone.json()["error"]["code"] == contract_errors.NOT_FOUND
     finally:
         await _cleanup(publication_id, [create_id, delete_id])
 

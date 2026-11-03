@@ -22,6 +22,8 @@ from app.core.exceptions import CustomException
 
 # 连续 3 行以上换行压缩为 2 行
 _BLANK_LINES = re.compile(r"\n{3,}")
+# Markdown 标题：``#`` 1–6 级 + 标题正文（允许行尾闭合的 ``#``）
+_MARKDOWN_HEADING = re.compile(r"^#{1,6}\s+(.+?)\s*#*\s*$")
 
 # 递归分隔符：空行（段落）→ 换行 → 中英文句末标点 → 逗号 → 空格 → 逐字硬切。
 # 句末标点放前面能保证「一句完整的话」不会被逗号拆开，中文标点必须显式列出。
@@ -42,6 +44,28 @@ def normalize_text(raw: str) -> str:
     text = raw.replace("\r\n", "\n").replace("\r", "\n").lstrip("\ufeff")
     text = "\n".join(line.rstrip() for line in text.split("\n"))
     return _BLANK_LINES.sub("\n\n", text).strip()
+
+
+def _heading_positions(text: str) -> list[tuple[int, str]]:
+    """扫描 Markdown 标题，返回 ``(起始偏移, 标题文本)``（按文档顺序）。"""
+    positions: list[tuple[int, str]] = []
+    offset = 0
+    for line in text.splitlines(keepends=True):
+        match = _MARKDOWN_HEADING.match(line.rstrip("\n"))
+        if match:
+            positions.append((offset, match.group(1).strip()))
+        offset += len(line)
+    return positions
+
+
+def _heading_at(positions: list[tuple[int, str]], start: int) -> str | None:
+    """返回分片起点所属章节标题：最后一个「起始偏移 ≤ 分片起点」的标题。"""
+    current: str | None = None
+    for offset, title in positions:
+        if offset > start:
+            break
+        current = title
+    return current
 
 
 def split_text(
@@ -72,5 +96,20 @@ def split_text(
         length_function=len,
     )
     base_meta = dict(meta or {})
+    headings = _heading_positions(normalized)
     contents = [piece for piece in splitter.split_text(normalized) if piece.strip()]
-    return [TextChunk(index=index, content=content, meta=dict(base_meta)) for index, content in enumerate(contents)]
+    chunks: list[TextChunk] = []
+    search_from = 0
+    for content in contents:
+        # 分片按文档顺序生成，从上一个起点继续找即可；重叠不会把起点带回更早的位置
+        start = normalized.find(content, search_from)
+        if start < 0:
+            start = normalized.find(content)
+        heading = _heading_at(headings, max(0, start)) if start >= 0 else None
+        if start >= 0:
+            search_from = start
+        chunk_meta = dict(base_meta)
+        if heading:
+            chunk_meta["section_title"] = heading
+        chunks.append(TextChunk(index=len(chunks), content=content, meta=chunk_meta))
+    return chunks

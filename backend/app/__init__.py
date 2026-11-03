@@ -1,7 +1,8 @@
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
 
 from app.config.path_conf import STATIC_DIR
 from app.core.exceptions import handle_exception
@@ -145,7 +146,7 @@ def create_app() -> FastAPI:
     # 前端才能拿到可读的 msg（否则一律是 500 Internal Server Error）
     handle_exception(app)
     register_routers(app)
-    # 契约 `/v1`（P1 正式接入层）：四头签名 + 幂等 + 审计；路由总表见 app/modules_api/router.py
+    # 契约 `/v1`（P1 正式接入层）：五头签名 + 幂等 + 审计；路由总表见 app/modules_api/router.py
     from app.modules_api import register_api
 
     register_api(app)
@@ -159,6 +160,25 @@ def create_app() -> FastAPI:
     async def healthz():
         """容器健康检查探针：仅验证进程与 HTTP 栈可用，不探测数据库等外部依赖"""
         return {"status": "ok"}
+
+    @app.get("/previews/parse/{job_id}/{file_name}", include_in_schema=False)
+    async def parse_preview(job_id: str, file_name: str, expires: int = 0, sig: str = ""):
+        """解析页图预览（T2.4）：只放行带有效期且签名正确的 URL，其余一律 404。"""
+        from app.modules.kb.parse_result.preview import preview_file_path, verify_preview_request
+
+        if not verify_preview_request(job_id=job_id, file_name=file_name, expires=expires, signature=sig):
+            raise HTTPException(status_code=404, detail="预览图不存在或已过期")
+        path = preview_file_path(job_id, file_name)
+        if path is None or not path.is_file():
+            raise HTTPException(status_code=404, detail="预览图不存在或已过期")
+        # 文件名与 Content-Disposition 都保留 .png 后缀，便于浏览器/前端直接按图片内联预览
+        return FileResponse(
+            path,
+            media_type="image/png",
+            filename=file_name,
+            content_disposition_type="inline",
+            headers={"Cache-Control": "private, max-age=3600"},
+        )
 
     # 挂载前端构建产物：frontend 执行 npm run build 后输出到 backend/static 目录
     app.frontend("/ui", directory=STATIC_DIR, fallback="index.html")

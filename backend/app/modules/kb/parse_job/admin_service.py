@@ -3,10 +3,10 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.base_schema import PageResultSchema
-from app.core.exceptions import CustomException
 from app.utils.common_util import search_to_dict
 
 from ..parse_result.crud import KbParseResultCRUD
+from ..parse_result.preview import pages_with_public_base
 from .crud import KbParseJobCRUD
 from .schema import (
     KbParseJobDetailOutSchema,
@@ -44,6 +44,10 @@ class KbParseJobAdminService:
         """任务详情：任务行 + （若成功）解析产物。"""
         job = await self.crud.get_or_404(uuid=job_id, msg="解析任务不存在")
         result = await KbParseResultCRUD(self.db).get(job_id=job_id)
+        result_out = KbParseResultOutSchema.model_validate(result) if result else None
+        if result_out is not None:
+            # 管理端同样用当前对外基址，旧任务存的 127.0.0.1 地址也能直接预览
+            result_out.pages = pages_with_public_base(result_out.pages)
         out = KbParseJobDetailOutSchema(
             id=job.id,
             uuid=job.uuid,
@@ -55,6 +59,6 @@ class KbParseJobAdminService:
             error_code=job.error_code,
             error_message=job.error_message,
             file_meta=job.file_meta or {},
-            result=KbParseResultOutSchema.model_validate(result) if result else None,
+            result=result_out,
         )
         return out

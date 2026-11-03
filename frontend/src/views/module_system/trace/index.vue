@@ -4,7 +4,7 @@
       <div>
         <h2 class="page-header__title">接入调用追踪</h2>
         <p class="page-header__desc">
-          GSI 业务系统调用契约 /v1 的取证视图：调用明细（默认只看 /v1，含四头校验与被拒原因）、防重放台账、幂等台账、结果台账；
+          GSI 业务系统调用契约 /v1 的取证视图：调用明细（默认只看 /v1，含五头校验与被拒原因）、防重放台账、幂等台账、结果台账；
           填 request_id 可把四张表串成一条时间线
         </p>
       </div>
@@ -32,7 +32,7 @@
     <div v-loading="summaryLoading" class="trace-cards">
       <StatCard label="契约调用" :value="summary.call_total" icon="Connection" :tip="`近 ${summary.window_hours} 小时 · 仅 /v1`" />
       <StatCard label="失败调用" :value="summary.call_failed" icon="Warning" color="var(--el-color-danger)" :tip="failRateText" />
-      <StatCard label="签名校验失败" :value="summary.signature_failed" icon="Lock" color="var(--el-color-danger)" tip="四头签名比对不通过" />
+      <StatCard label="签名校验失败" :value="summary.signature_failed" icon="Lock" color="var(--el-color-danger)" tip="五头签名比对不通过" />
       <StatCard label="重放拦截" :value="summary.nonce_reused" icon="RefreshLeft" color="var(--el-color-warning)" tip="同 nonce 二次到达" />
       <StatCard label="幂等冲突" :value="summary.idempotency_conflict" icon="CopyDocument" color="var(--el-color-warning)" tip="同 ID 异正文返回 409" />
       <StatCard label="在途请求" :value="summary.request_running" icon="Timer" tip="结果台账中 running" />

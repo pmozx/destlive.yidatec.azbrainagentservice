@@ -130,7 +130,37 @@
                   <el-descriptions-item label="产物哈希">{{ detail.result.content_hash }}</el-descriptions-item>
                   <el-descriptions-item label="写入时间">{{ formatDateTime(detail.result.created_time) }}</el-descriptions-item>
                   <el-descriptions-item label="切片数量">{{ (detail.result.chunks || []).length }}</el-descriptions-item>
+                  <el-descriptions-item label="页图数量" :span="2">{{ pageItems.length }}</el-descriptions-item>
                 </el-descriptions>
+
+                <div class="kb-detail__block">
+                  <h3 class="kb-detail__subtitle">页图预览</h3>
+                  <div v-if="pageItems.length" class="kb-pages">
+                    <div v-for="(page, index) in pageItems" :key="page.page_no" class="kb-pages__item">
+                      <el-image
+                        :src="page.image_url"
+                        :preview-src-list="pageUrls"
+                        :initial-index="index"
+                        fit="contain"
+                        preview-teleported
+                        hide-on-click-modal
+                        class="kb-pages__img"
+                      >
+                        <template #error>
+                          <div class="kb-pages__error">加载失败或预览地址已过期</div>
+                        </template>
+                      </el-image>
+                      <div class="kb-pages__meta">第 {{ page.page_no }} 页 · {{ page.width }}×{{ page.height }}</div>
+                    </div>
+                  </div>
+                  <el-alert
+                    v-else
+                    type="info"
+                    :closable="false"
+                    show-icon
+                    title="无页图预览：仅 PDF 且服务启用页图能力时生成，其余文档返回空数组"
+                  />
+                </div>
                 <JsonViewer :data="detail.result.suggested" title="suggested（AI 建议元数据）" placeholder="无建议元数据" class="kb-detail__block" />
                 <JsonViewer :data="detail.result.warnings" title="warnings（解析告警）" placeholder="无解析告警" class="kb-detail__block" />
                 <JsonViewer :data="detail.result.chunks" title="chunks（切片数组）" placeholder="无切片产物" max-height="460px" class="kb-detail__block" />
@@ -146,7 +176,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 
 import { getParseJobDetail, getParseJobList } from '@/api/module_kb/parseJob'
 import JsonViewer from '@/components/common/JsonViewer.vue'
@@ -204,6 +234,10 @@ const detailLoading = ref(false)
 const detail = ref(null)
 const activeTab = ref('fileMeta')
 
+/** 页图预览数组：只保留带 image_url 的项，供缩略图与放大预览共用 */
+const pageItems = computed(() => (detail.value?.result?.pages || []).filter((page) => page?.image_url))
+const pageUrls = computed(() => pageItems.value.map((page) => page.image_url))
+
 async function openDetail(row) {
   detail.value = null
   detailVisible.value = true
@@ -235,5 +269,49 @@ async function openDetail(row) {
 
 .kb-detail__block {
   margin-top: 12px;
+}
+
+.kb-detail__subtitle {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--app-text-primary);
+}
+
+.kb-pages {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+
+  &__item {
+    padding: 8px;
+    border: 1px solid var(--app-border-color);
+    border-radius: 8px;
+    background: var(--app-bg);
+  }
+
+  &__img {
+    display: block;
+    width: 100%;
+    height: 180px;
+    cursor: zoom-in;
+    border-radius: 4px;
+  }
+
+  &__meta {
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--app-text-secondary);
+    text-align: center;
+  }
+
+  &__error {
+    @include flex($justify: center);
+    height: 100%;
+    padding: 0 8px;
+    font-size: 12px;
+    color: var(--app-text-secondary);
+    text-align: center;
+  }
 }
 </style>

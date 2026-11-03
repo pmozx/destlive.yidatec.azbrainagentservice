@@ -100,8 +100,8 @@
 | 术语 | 含义 |
 | --- | --- |
 | 审计行 | `sbp_ai_system_api_log` 的一条记录，一次 HTTP 请求对应一行（含被拒） |
-| 四头 | 契约 `/v1` 必带的 `X-AI-Signature-Version` / `-Client-Id` / `-Timestamp` / `-Nonce` + `X-AI-Signature`，共 5 个头部 |
-| `security_check` | 审计行里的 JSONB，记录四头校验过程：到达了哪些头、时钟偏差、nonce 状态、签名结果、签名摘要、失败码 |
+| 五头 | 契约 `/v1` 必带的 `X-AI-Signature-Version` / `-Client-Id` / `-Timestamp` / `-Nonce` + `X-AI-Signature`，共 5 个头部 |
+| `security_check` | 审计行里的 JSONB，记录五头校验过程：到达了哪些头、时钟偏差、nonce 状态、签名结果、签名摘要、失败码 |
 | `first_use` / `reused` / `not_checked` | nonce 三态：本次首用已登记 / 窗口内重复被拒 / 未走到 nonce 校验（签名就已失败） |
 | `passed` / `failed` / `skipped` | 签名三态：通过 / 不通过 / 未校验 |
 | 回放（replay） | 同一幂等键 + 完全相同正文的重试，直接返回首次结果 |

@@ -7,6 +7,8 @@ from typing import Annotated
 
 from fastapi import BackgroundTasks, Depends, Request, status
 
+from app.modules.kb.parse_result.preview import public_base_url
+
 from ..common import make_contract_router
 from ..deps import idempotent_job, record_receipt, replay_response
 from ..errors import NOT_FOUND, ContractApiError
@@ -54,6 +56,13 @@ async def create_parse_job(
             file_name=payload.file_name,
             data=content,
             chunk_enabled=payload.options.chunk,
+            resource_type=payload.resource_type,
+            prompt_text=payload.prompt_text,
+            model_key=payload.model_key,
+            metadata=payload.metadata,
+            language=payload.options.language,
+            # 页图 URL 必须指向服务自身可被外部访问的地址，不能跟随调用方 Host（可能是 127.0.0.1）
+            preview_base_url=public_base_url(),
         )
     receipt = accepted_response(payload, snapshot)
     await record_receipt(request, reservation, status_code=status.HTTP_202_ACCEPTED, body=receipt)

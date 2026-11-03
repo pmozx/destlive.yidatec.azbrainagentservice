@@ -1,7 +1,7 @@
 """知识维护管理端：CRUD 全流程 + 级联删除 + 唯一冲突。
 
-新表 ``sbp_ai_kb_entry_meta`` 带 JSONB，SQLite 建不出来，所以这组用例打 ``@requires_db``：
-先幂等补齐 kb 表，再走进程内 ASGI 调真实接口，最后按 publication_id 清理。
+合并 ``sbp_ai_kb_entry_meta`` 后，知识条目统一使用 ``sbp_ai_kb_publication`` 一张表。
+测试仍打 ``@requires_db``：先幂等补齐 kb 表，再走进程内 ASGI 调真实接口，最后按 publication_id 清理。
 """
 
 import json
@@ -13,7 +13,6 @@ from app.core.database import async_session_factory
 from app.core.table_bootstrap import ensure_pgvector_extension
 from app.modules.kb.bootstrap import ensure_tables
 from app.modules.kb.chunk.model import KbChunkModel
-from app.modules.kb.entry_meta.model import KbEntryMetaModel
 from app.modules.kb.publication.model import KbPublicationModel
 from app.modules.kb.revision.model import KbRevisionModel
 
@@ -37,14 +36,14 @@ def _body(**overrides) -> bytes:
 
 
 async def _prepare_tables() -> None:
-    """补齐 kb 域表（entry_meta 是本次新增，存量库没有）。"""
+    """补齐 kb 域表。"""
     await ensure_pgvector_extension()
     await ensure_tables()
 
 
 async def _cleanup(publication_id: str) -> None:
     async with async_session_factory() as session, session.begin():
-        for model in (KbChunkModel, KbRevisionModel, KbEntryMetaModel, KbPublicationModel):
+        for model in (KbChunkModel, KbRevisionModel, KbPublicationModel):
             await session.execute(delete(model).where(model.publication_id == publication_id))
 
 
@@ -54,7 +53,6 @@ async def _count(publication_id: str) -> dict[str, int]:
         for key, model in (
             ("chunks", KbChunkModel),
             ("revisions", KbRevisionModel),
-            ("metas", KbEntryMetaModel),
             ("publications", KbPublicationModel),
         ):
             counts[key] = int(
@@ -75,26 +73,27 @@ async def test_knowledge_admin_crud_flow() -> None:
     body = _body()
     publication_id = json.loads(body)["publication_id"]
     try:
-        created = await call("POST", "/api/v1/kb/knowledge/create", body=body)
+        created = await call("POST", "/api/v1/kb/publication/create", body=body)
         assert created.status_code == 200
         created_data = created.json()["data"]
         assert created_data["publication_id"] == publication_id
         assert created_data["status"] == "active"
         assert created_data["current_revision"] == 0
+        assert created_data["title"] == "VPN 申请操作手册"
 
-        listed = await call("GET", "/api/v1/kb/knowledge/list?title=VPN&status=active")
+        listed = await call("GET", "/api/v1/kb/publication/list?title=VPN&status=active")
         assert listed.status_code == 200
         page = listed.json()["data"]
         assert page["total"] == 1
         assert page["items"][0]["title"] == "VPN 申请操作手册"
 
-        detail = await call("GET", f"/api/v1/kb/knowledge/detail/{publication_id}")
+        detail = await call("GET", f"/api/v1/kb/publication/detail/{publication_id}")
         assert detail.status_code == 200
         assert detail.json()["data"]["category"] == "it"
 
         updated = await call(
             "PUT",
-            f"/api/v1/kb/knowledge/update/{publication_id}",
+            f"/api/v1/kb/publication/update/{publication_id}",
             body=json.dumps({"title": "VPN 手册（新版）", "summary": None}).encode(),
         )
         assert updated.status_code == 200
@@ -103,22 +102,22 @@ async def test_knowledge_admin_crud_flow() -> None:
 
         status_changed = await call(
             "PATCH",
-            f"/api/v1/kb/knowledge/status/{publication_id}",
+            f"/api/v1/kb/publication/status/{publication_id}",
             body=json.dumps({"status": "inactive"}).encode(),
         )
         assert status_changed.status_code == 200
         assert status_changed.json()["data"]["status"] == "inactive"
 
-        versions = await call("GET", f"/api/v1/kb/knowledge/versions/{publication_id}")
+        versions = await call("GET", f"/api/v1/kb/publication/versions/{publication_id}")
         assert versions.status_code == 200
         assert versions.json()["data"]["total"] == 0
 
-        deleted = await call("DELETE", f"/api/v1/kb/knowledge/delete/{publication_id}")
+        deleted = await call("DELETE", f"/api/v1/kb/publication/delete/{publication_id}")
         assert deleted.status_code == 200
 
-        missing = await call("GET", f"/api/v1/kb/knowledge/detail/{publication_id}")
+        missing = await call("GET", f"/api/v1/kb/publication/detail/{publication_id}")
         assert missing.status_code == 404
-        assert await _count(publication_id) == {"chunks": 0, "revisions": 0, "metas": 0, "publications": 0}
+        assert await _count(publication_id) == {"chunks": 0, "revisions": 0, "publications": 0}
     finally:
         await _cleanup(publication_id)
 
@@ -130,8 +129,8 @@ async def test_knowledge_create_rejects_duplicate_publication_id() -> None:
     body = _body()
     publication_id = json.loads(body)["publication_id"]
     try:
-        first = await call("POST", "/api/v1/kb/knowledge/create", body=body)
-        second = await call("POST", "/api/v1/kb/knowledge/create", body=body)
+        first = await call("POST", "/api/v1/kb/publication/create", body=body)
+        second = await call("POST", "/api/v1/kb/publication/create", body=body)
         assert first.status_code == 200
         assert second.status_code == 409
         assert "已存在" in second.json()["msg"]
@@ -145,7 +144,7 @@ async def test_knowledge_delete_cascades_versions_and_chunks() -> None:
     await _prepare_tables()
     publication_id = f"kb-admin-{uuid.uuid4().hex[:12]}"
     try:
-        created = await call("POST", "/api/v1/kb/knowledge/create", body=_body(publication_id=publication_id))
+        created = await call("POST", "/api/v1/kb/publication/create", body=_body(publication_id=publication_id))
         assert created.status_code == 200
 
         async with async_session_factory() as session, session.begin():
@@ -171,8 +170,8 @@ async def test_knowledge_delete_cascades_versions_and_chunks() -> None:
             )
         assert (await _count(publication_id))["chunks"] == 1
 
-        deleted = await call("DELETE", f"/api/v1/kb/knowledge/delete/{publication_id}")
+        deleted = await call("DELETE", f"/api/v1/kb/publication/delete/{publication_id}")
         assert deleted.status_code == 200
-        assert await _count(publication_id) == {"chunks": 0, "revisions": 0, "metas": 0, "publications": 0}
+        assert await _count(publication_id) == {"chunks": 0, "revisions": 0, "publications": 0}
     finally:
         await _cleanup(publication_id)

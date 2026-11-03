@@ -2,7 +2,7 @@
 
 四张表的分工，页面按标签页一一对应：
 
-- `sbp_ai_system_api_log` —— 每次调用一条（含被拒），`security_check` 存四头校验明细 → 「调用明细」；
+- `sbp_ai_system_api_log` —— 每次调用一条（含被拒），`security_check` 存五头校验明细 → 「调用明细」；
 - `sbp_ai_system_nonce` —— 防重放台账，只登记"首用"、重放不加行（重放证据在上一张表的 `nonce_state=reused`）→ 「防重放」；
 - `sbp_ai_system_idempotency` —— 三类幂等域台账，解释"重试拿回首次结果"与 409 → 「幂等台账」；
 - `sbp_ai_system_request_log` —— 超时后查询最终结果的台账，与幂等互补 → 「结果台账」。

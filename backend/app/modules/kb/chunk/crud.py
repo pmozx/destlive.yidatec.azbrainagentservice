@@ -46,3 +46,36 @@ class KbChunkCRUD(CRUDBase[KbChunkModel, BaseModel, BaseModel]):
             )
         )
         return int(result.scalar_one())
+
+    async def page_by_record(
+        self,
+        *,
+        publication_id: str,
+        record_id: str,
+        after_seq: int = 0,
+        limit: int = 100,
+    ) -> list[KbChunkModel]:
+        """按 ``seq`` 升序读取某快照的切片（03.2 基线分页：``seq > after_seq``）。"""
+        result = await self.db.execute(
+            select(KbChunkModel)
+            .where(
+                KbChunkModel.publication_id == publication_id,
+                KbChunkModel.record_id == record_id,
+                KbChunkModel.seq > after_seq,
+            )
+            .order_by(KbChunkModel.seq)
+            .limit(limit + 1)
+        )
+        return list(result.scalars().all())
+
+    async def fetch_foreign_ids(self, *, publication_id: str, chunk_ids: Sequence[str]) -> set[str]:
+        """返回属于其它发布单元的切片 ID（03.1 / 03.3 归属校验：不能引用别人的切片）。"""
+        if not chunk_ids:
+            return set()
+        result = await self.db.execute(
+            select(KbChunkModel.chunk_id).where(
+                KbChunkModel.publication_id != publication_id,
+                KbChunkModel.chunk_id.in_(list(chunk_ids)),
+            )
+        )
+        return {row[0] for row in result.all() if row[0]}

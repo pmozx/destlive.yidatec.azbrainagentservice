@@ -34,6 +34,7 @@ dependencies = [
     "uvicorn[standard]>=0.54,<1",
     "mineru-open-sdk>=0.2.5,<0.3",
     "boto3>=1.43.120,<2",                      # 补丁版交给 lock，不钉死 patch 以免每次发布都要改
+    "pypdfium2>=5,<6",
 ]
 
 [tool.uv]
@@ -43,7 +44,7 @@ python-install-mirror = "https://registry.npmmirror.com/-/binary/python-build-st
 
 [[tool.uv.index]]
 name = "aliyun"
-url = "https://mirrors.aliyun.com/pypi/simple"
+url = "https://uv.agentsmirror.com/pypi/simple"
 default = true
 #[[tool.uv.index]]
 #name = "uv-agentsmirror"

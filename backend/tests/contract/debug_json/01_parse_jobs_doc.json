@@ -1,0 +1,17 @@
+{
+  "job_id": "parse-doc-100001",
+  "doc_id": "doc-demo-10001",
+  "version_id": "v1",
+  "file_url": "https://cdn-mineru.openxlab.org.cn/demo/example.pdf",
+  "file_name": "Lane_2005_造林与流量历时曲线.pdf",
+  "options": {
+    "chunk": true,
+    "language": "zh"
+  },
+  "tenant_id": "gsi-default",
+  "resource_type": "document",
+  "file_size": 1024,
+  "metadata": {
+    "title": "造林对流量历时曲线的影响"
+  }
+}

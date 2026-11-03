@@ -24,10 +24,17 @@ from app.config.setting import settings
 from app.core.rich_print import pretty_log
 from app.core.security_signature import body_digest, build_signed_headers, now_ms
 
-DEBUG_PATH = "/v1/knowledge/search"
-DEBUG_BODY_FILE = Path(__file__).with_name("debug_body.json")
-DEBUG_BODY = DEBUG_BODY_FILE.read_bytes() if DEBUG_BODY_FILE.exists() else b'{"request_id":"req-shared-001"}'
+###### 01 提交文档 / FAQ 解析任务 ######
+DEBUG_PATH = "/v1/parse/jobs"
+DEBUG_METHOD = "POST"
+DEBUG_BODY_FILE = Path(__file__).parent / "debug_json" / "01_parse_jobs_doc.json"
+# DEBUG_BODY_FILE = Path(__file__).parent / "debug_json" / "01_parse_jobs_fqa.json"
+DEBUG_BODY = DEBUG_BODY_FILE.read_bytes()
 
+###### 02 查询解析进度与完整结果 ######
+# DEBUG_PATH = "/v1/parse/jobs/parse-faq-200001"
+# DEBUG_METHOD = "GET"
+# DEBUG_BODY = b''
 
 def main() -> None:
     secret = settings.CONTRACT_V1_SHARED_SECRET
@@ -38,7 +45,7 @@ def main() -> None:
     signed_headers = build_signed_headers(
         secret,
         client_id=settings.CONTRACT_V1_CLIENT_ID,
-        method="POST",
+        method=DEBUG_METHOD,
         path=DEBUG_PATH,
         body=DEBUG_BODY,
         timestamp_ms=now_ms(),  # 真实当前 Unix 毫秒，服务端只接受 ±5 分钟窗口内的时间戳
@@ -57,15 +64,15 @@ def main() -> None:
     print("== apifox 请求头 ==")
     # 逐行 `头名:值`（冒号后不留空格），Apifox 的「批量编辑 / 原始文本导入」可直接粘贴
     print("\n".join(f"{name}:{value}" for name, value in signed_headers.items()))
-    print("== curl 命令 ==")
+    # print("== curl 命令 ==")
     # 多行 body 的核对依据：客户端发完后用字节数与摘要确认发的是同一份数据
-    print(f"\n# body {len(DEBUG_BODY)} 字节 / SHA-256 {body_digest(DEBUG_BODY)}")
-    print(
-        f"curl --location --request POST 'http://localhost:{settings.PORT}{DEBUG_PATH}' \\\n"
-        + "".join(f"  --header '{name}:{value}' \\\n" for name, value in signed_headers.items())
-        + "  --header 'Content-Type: application/json' \\\n"
-        + f"  --data-binary @{DEBUG_BODY_FILE}"
-    )
+    # print(f"\n# body {len(DEBUG_BODY)} 字节 / SHA-256 {body_digest(DEBUG_BODY)}")
+    # print(
+    #     f"curl --location --request {DEBUG_METHOD} 'http://localhost:{settings.PORT}{DEBUG_PATH}' \\\n"
+    #     + "".join(f"  --header '{name}:{value}' \\\n" for name, value in signed_headers.items())
+    #     + "  --header 'Content-Type: application/json' \\\n"
+    #     + f"  --data-binary @{DEBUG_BODY_FILE}"
+    # )
 
 
 if __name__ == "__main__":

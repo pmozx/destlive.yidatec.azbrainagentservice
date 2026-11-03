@@ -251,7 +251,7 @@ def _should_record(request: Request) -> bool:
         return False
     if request.method in settings.API_LOG_RECORD_METHOD:
         return True
-    # 契约口径（T1.4）：/v1 的 20 个接口全量留痕，#02 这类 GET 轮询不能因为方法白名单被过滤掉
+    # 契约口径（T1.4）：/v1 的 21 个接口全量留痕，#02 这类 GET 轮询不能因为方法白名单被过滤掉
     return any(path.startswith(prefix) for prefix in settings.API_LOG_FORCE_PATHS)
 
 

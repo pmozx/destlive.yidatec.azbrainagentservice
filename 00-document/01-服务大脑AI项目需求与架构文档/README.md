@@ -11,10 +11,10 @@
 | 文档 | 内容 | 关键词 |
 | --- | --- | --- |
 | [01-项目背景与描述.md](01-项目背景与描述.md) | 项目由来、痛点、定位（对 GSI 做 AI 赋能）、目标、范围与边界、干系人、假设约束、成功判据 | 两核心模块、共库、ChatGPT 5.6 |
-| [02-项目需求.md](02-项目需求.md) | 功能需求（FR-INT / FR-AUD / FR-KB / FR-RAG / FR-DUP / FR-QC / FR-RPT / FR-AGT / FR-OPS）、模型需求、数据需求、非功能需求、追踪矩阵、待确认事项 | 20 接口契约、审计与安全头、`sbp_ai_` 命名 |
+| [02-项目需求.md](02-项目需求.md) | 功能需求（FR-INT / FR-AUD / FR-KB / FR-RAG / FR-DUP / FR-QC / FR-RPT / FR-AGT / FR-OPS）、模型需求、数据需求、非功能需求、追踪矩阵、待确认事项 | 21 接口契约、审计与安全头、`sbp_ai_` 命名 |
 | [03-项目架构设计.md](03-项目架构设计.md) | 六层分层、容器拓扑、14 条 ADR、接入层（签名流程）、审计架构（安全头校验扩展）、编排 / 能力 / 模型 / 数据架构、部署运维 | LangGraph、权限下推、public schema 共库 |
 | [04-项目模块说明与表结构设计.md](04-项目模块说明与表结构设计.md) | `sbp_ai_[模块名]_[业务名]` 命名强规范、共库治理（`sbp_ai_` 前缀隔离 / GSI Flyway 分治）、system / kb / voice 三域表逐表设计、GSI 共享表关联、生命周期、设计约束 12 条 | 表结构、审计扩展列、pgvector |
-| [05-接口契约与数据基线/](05-接口契约与数据基线/README.md) | **外部输入（只读）**：20 接口参数手册（v2.1.0）、93 张 GSI 业务表设计、账号组织与知识权限治理说明 | 契约基线、权限计算数据源 |
+| [05-接口契约与数据基线/](05-接口契约与数据基线/README.md) | **外部输入（只读）**：21 接口对接说明（v3）、93 张 GSI 业务表设计、账号组织与知识权限治理说明 | 契约基线、权限计算数据源 |
 
 ---
 
@@ -33,10 +33,10 @@
 
 ## 三、本期关键口径（速览）
 
-- **契约基线**：v2.1.0，**20 接口 / 18 路径**（#01–#20 顺序编号，含重复治理 #16–#20）；HMAC 四头 `X-AI-Client/Timestamp/Nonce/Signature`
+- **契约基线**：v3，**21 接口 / 19 路径**（#01–#13 + D01–D06，无 10 号）；HMAC 五头 `X-AI-Signature-Version / Client-Id / Timestamp / Nonce / Signature`（v3 页面 `info.version` 仍标 2.1.0）
 - **数据归属**：与 GSI **共用 `service_brain` 库、public schema**；AI 表一律 `sbp_ai_[模块名]_[业务名]`（模块码：`system` / `kb` / `voice`）；AI 侧不使用迁移工具（启动期各域 bootstrap 幂等建表），与 GSI Flyway 分治
 - **权限**：按签名身份实时只读查询 **8 张 GSI 共享表**计算授权，SQL 下推，禁止降级为全库检索
-- **审计**：20 个 `/v1/*` 接口全部纳入统一日志审计 `sbp_ai_system_api_log`，并**扩展 HTTP 安全头校验留痕**（`auth_mode` / `client_id` / `request_id` / `security_check`），被拒请求同样落审计
+- **审计**：21 个 `/v1/*` 接口全部纳入统一日志审计 `sbp_ai_system_api_log`，并**扩展 HTTP 安全头校验留痕**（`auth_mode` / `client_id` / `request_id` / `security_check`），被拒请求同样落审计
 - **模型**：对话 **ChatGPT 5.6**（OpenAI 兼容端点、配置化）；向量化 bge-m3（1024 维）与重排 bge-reranker-v2-m3 私有化部署；向量存储 pgvector（HNSW 余弦）
 - **编排**：LangChain 1.3 + LangGraph StateGraph（工程已集成）
 - **本期范围**：知识平台（POC 先行），语音质检暂缓；详见 [`02-…/02-接口交付范围与工时评估.md`](../02-服务大脑AI项目开发计划文档/02-接口交付范围与工时评估.md)

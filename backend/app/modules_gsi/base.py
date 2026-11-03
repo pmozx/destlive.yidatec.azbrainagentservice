@@ -5,7 +5,7 @@ GSI 表由 GSI 侧 Flyway 创建与维护，AI 侧只读取、不建表、不写
 - ``SbpBase`` 使用独立 ``metadata``，与 ``app.core.base_model.MappedBase`` 分离。
   ``app.bootstrap.ensure_all_tables()`` 只登记 AI 自有域（kb / system / voice），
   不会遍历到这里，因此项目启动时不会按模型初始化任何 GSI 表；
-- 模型只映射契约允许读取的列（见《01-知识平台与AI接口参数手册-v2》第三节），
+- 模型只映射契约允许读取的列（见《01-知识平台与AI接口对接说明-v3》第四、五节），
   不映射 ``password_hash`` 等无关敏感列，查询自然不会把它们带出来；
 - ``SbpReadCRUD`` 只提供查询与分页方法，没有 create / update / delete。
 """

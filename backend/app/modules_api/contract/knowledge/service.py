@@ -1,9 +1,12 @@
-"""知识写入服务层（#03 首发 / #05 修订 / #06 整单删除）：校验 → 领域服务 → 回执投影。
+"""知识发布服务层（03.1 新增 / 03.2 读取基线 / 03.3 修改 / 03.4 删除）：校验 → 领域服务 → 回执投影。
 
 本层只做契约相关的事：
 1. ``content_hash`` 校验：按本侧固定序列化规则重算（Q9 尚未与 GSI 对齐）；
-2. 路径 ``publication_id`` 与正文一致性（#05/#06）；
-3. 领域异常 → 契约错误码：冲突 409 `STALE_REVISION`、不存在 404、越权 403、依赖失败 500。
+2. 路径 ``publication_id`` 与正文一致性（03.3/03.4）；
+3. **切片 ID 分配**：新增切片未传 ``chunk_id`` 时按 ``record_id:seq`` 确定性生成，
+   既有切片沿用调用方传入的 ID（AI 校验归属由领域层完成）；
+4. ``cursor`` 解析：游标是不透明字符串，本侧按 ``seq`` 实现（``seq > cursor``）；
+5. 领域异常 → 契约错误码：冲突 409 `STALE_REVISION`、不存在 404、越权 403、依赖失败 500。
 
 字段与切片集合的结构校验（非空、chunk_id 唯一、seq 连续、页码合法）在 ``schema.py``。
 """
@@ -12,6 +15,7 @@ from typing import Any
 
 from app.core.logger import logger
 from app.modules.kb.publication.schema import (
+    BaselineQuery,
     EntryChunkData,
     EntryDeleteData,
     EntryWriteData,
@@ -32,7 +36,7 @@ from ..errors import (
     STALE_REVISION,
     ContractApiError,
 )
-from .schema import EntryDeleteRequest, EntryWriteRequest, canonical_content_hash
+from .schema import EntryDeleteRequest, EntryQueryRequest, EntryWriteRequest, canonical_content_hash
 
 _SERVICE = KbEntryService()
 
@@ -66,22 +70,43 @@ def _to_write_data(payload: EntryWriteRequest) -> EntryWriteData:
         knowledge_no=payload.knowledge_no,
         content_hash=payload.content_hash,
         metadata=payload.metadata,
-        chunks=tuple(
-            EntryChunkData(
-                chunk_id=chunk.chunk_id,
-                seq=chunk.seq,
-                content=chunk.content,
-                heading=chunk.heading,
-                page_from=chunk.page_from,
-                page_to=chunk.page_to,
-            )
-            for chunk in payload.chunks
-        ),
+        chunks=_entry_chunks(payload),
         base_record_id=payload.base_record_id,
     )
 
 
-def _map_write_error(exc: Exception) -> ContractApiError:
+def _entry_chunks(payload: EntryWriteRequest) -> tuple[EntryChunkData, ...]:
+    """切片投影：未传 ``chunk_id`` 的新增切片按 ``record_id:seq`` 分配，已有切片沿用原 ID。
+
+    规则必须确定性（同请求重试不能换 ID），与 03.2 示例 ``record-demo-001:1`` 一致。
+    """
+    return tuple(
+        EntryChunkData(
+            chunk_id=chunk.chunk_id or f"{payload.record_id}:{chunk.seq}",
+            seq=chunk.seq,
+            content=chunk.content,
+            heading=chunk.heading,
+            page_from=chunk.page_from,
+            page_to=chunk.page_to,
+        )
+        for chunk in payload.chunks
+    )
+
+
+def _after_seq(cursor: str | None) -> int:
+    """03.2 游标解析：游标由本侧签发（上一页最后一个切片的 ``seq``），非法游标 400。"""
+    if cursor is None:
+        return 0
+    try:
+        value = int(cursor)
+    except (TypeError, ValueError) as exc:
+        raise ContractApiError(INVALID_REQUEST, "cursor 无效：请原样回传上一页的 next_cursor。") from exc
+    if value < 0:
+        raise ContractApiError(INVALID_REQUEST, "cursor 无效：请原样回传上一页的 next_cursor。")
+    return value
+
+
+def _map_domain_error(exc: Exception) -> ContractApiError:
     """领域异常 → 契约错误：service 不感知 HTTP，映射只在这里做。"""
     if isinstance(exc, EntryConflictError):
         return ContractApiError(STALE_REVISION, str(exc))
@@ -92,17 +117,17 @@ def _map_write_error(exc: Exception) -> ContractApiError:
     if isinstance(exc, EntryEmbeddingError):
         logger.error("知识写入向量化失败：{}", exc)
         return ContractApiError(INTERNAL_ERROR, "向量化依赖暂不可用，请稍后重试。")
-    logger.exception("知识写入失败：{}", exc)
+    logger.exception("知识发布处理失败：{}", exc)
     return ContractApiError(INTERNAL_ERROR)
 
 
 async def create_entry(payload: EntryWriteRequest) -> dict[str, Any]:
-    """#03：首发 201；publication_id 已存在 → 409。"""
+    """03.1：首发 201；publication_id 已存在 → 409。"""
     verify_content_hash(payload)
     try:
         receipt = await _SERVICE.create(_to_write_data(payload))
     except Exception as exc:
-        raise _map_write_error(exc) from exc
+        raise _map_domain_error(exc) from exc
     return {
         "request_id": receipt.request_id,
         "resource_type": receipt.resource_type,
@@ -118,16 +143,58 @@ async def create_entry(payload: EntryWriteRequest) -> dict[str, Any]:
     }
 
 
+async def query_entry(path_publication_id: str, payload: EntryQueryRequest) -> dict[str, Any]:
+    """03.2：只读已批准快照，支持历史 ``record_id`` 与 ``seq`` 游标分页。"""
+    try:
+        baseline = await _SERVICE.read_baseline(
+            BaselineQuery(
+                publication_id=path_publication_id,
+                tenant_id=payload.tenant_id,
+                user_id=payload.user_id,
+                record_id=payload.record_id,
+                after_seq=_after_seq(payload.cursor),
+                limit=payload.limit,
+            )
+        )
+    except Exception as exc:
+        raise _map_domain_error(exc) from exc
+    return {
+        "request_id": payload.request_id,
+        "resource_type": baseline.resource_type,
+        "resource_id": baseline.resource_id,
+        "publication_id": baseline.publication_id,
+        "record_id": baseline.record_id,
+        "version_id": baseline.version_id,
+        "revision": baseline.revision,
+        "knowledge_no": baseline.knowledge_no,
+        "metadata": baseline.metadata,
+        "content_hash": baseline.content_hash,
+        "chunks": [
+            {
+                "chunk_id": chunk.chunk_id,
+                "seq": chunk.seq,
+                "heading": chunk.heading,
+                "content": chunk.content,
+                "page_from": chunk.page_from,
+                "page_to": chunk.page_to,
+            }
+            for chunk in baseline.chunks
+        ],
+        "searchable": baseline.searchable,
+        "next_cursor": baseline.next_cursor,
+    }
+
+
 async def revise_entry(path_publication_id: str, payload: EntryWriteRequest) -> dict[str, Any]:
-    """#05：路径/正文一致 + base_record_id 与 revision 单调校验，成功 200。"""
+    """03.3：路径/正文一致 + base_record_id 与 revision 单调校验，成功 200。"""
     _ensure_path_publication(path_publication_id, payload.publication_id)
     if payload.base_record_id is None:
-        raise ContractApiError(INVALID_REQUEST, "#05 base_record_id 必填：用于并发基线校验。")
+        raise ContractApiError(INVALID_REQUEST, "03.3 base_record_id 必填：用于并发基线校验。")
     verify_content_hash(payload)
     try:
         receipt = await _SERVICE.revise(_to_write_data(payload))
     except Exception as exc:
-        raise _map_write_error(exc) from exc
+        raise _map_domain_error(exc) from exc
     return {
         "request_id": receipt.request_id,
         "resource_type": receipt.resource_type,
@@ -144,7 +211,7 @@ async def revise_entry(path_publication_id: str, payload: EntryWriteRequest) -> 
 
 
 async def delete_entry(path_publication_id: str, payload: EntryDeleteRequest) -> dict[str, Any]:
-    """#06：删除当前生效快照，成功 200、`deleted=true`、`searchable=false`。"""
+    """03.4：删除指定 ``record_id`` 的正文与向量，成功 200、`deleted=true`、`searchable=false`。"""
     _ensure_path_publication(path_publication_id, payload.publication_id)
     data = EntryDeleteData(
         request_id=payload.request_id,
@@ -161,7 +228,7 @@ async def delete_entry(path_publication_id: str, payload: EntryDeleteRequest) ->
     try:
         receipt = await _SERVICE.delete(data)
     except Exception as exc:
-        raise _map_write_error(exc) from exc
+        raise _map_domain_error(exc) from exc
     return {
         "request_id": receipt.request_id,
         "resource_type": receipt.resource_type,

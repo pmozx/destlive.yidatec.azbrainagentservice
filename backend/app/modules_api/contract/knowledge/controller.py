@@ -1,4 +1,4 @@
-"""`/v1` 知识接口：写入/读取（#03–#07）与重复治理（#16–#20）。
+"""`/v1` 知识接口：发布（03.1–03.4）与重复治理（#16–#20）。
 
 已实现接口把编排交给 ``service.py``；骨架接口统一走 ``common.skeleton`` 的 501 出口。
 """
@@ -11,19 +11,26 @@ from ..common import make_contract_router, request_id_of, skeleton
 from ..deps import idempotent_request, record_receipt, replay_response
 from ..idempotency import Reservation
 from ..schema import ContractRequest
-from .schema import EntryDeleteReceipt, EntryDeleteRequest, EntryWriteReceipt, EntryWriteRequest
-from .service import create_entry, delete_entry, revise_entry
+from .schema import (
+    EntryDeleteReceipt,
+    EntryDeleteRequest,
+    EntryQueryRequest,
+    EntryQueryResponse,
+    EntryWriteReceipt,
+    EntryWriteRequest,
+)
+from .service import create_entry, delete_entry, query_entry, revise_entry
 
-KnowledgeRouter = make_contract_router(prefix="/knowledge", tags=["契约 /v1 知识（#03–#07 / #16–#20）"])
+KnowledgeRouter = make_contract_router(prefix="/knowledge", tags=["契约 /v1 知识（03.1–03.4 / #07 / #16–#20）"])
 
 
-# ── 知识写入与读取：#03 / #04 / #05 / #06 ──────────────────────────────
+# ── 知识发布：03.1 新增 / 03.2 读取基线 / 03.3 修改 / 03.4 删除 ─────────────
 
 
 @KnowledgeRouter.post(
     "/entries",
     status_code=status.HTTP_201_CREATED,
-    summary="#03 首次发布写入正式切片",
+    summary="03.1 新增已批准切片集合",
     response_model=EntryWriteReceipt,
 )
 async def create_knowledge_entry(
@@ -40,15 +47,22 @@ async def create_knowledge_entry(
     return receipt
 
 
-@KnowledgeRouter.post("/entries/{publication_id}/query", summary="#04 读取当前生效基线")
-async def query_knowledge_entry(publication_id: str, payload: ContractRequest | None = None):
-    """T3.1：返回 `current_record_id` / `current_revision` 与切片集合。"""
-    skeleton(f"#04 读取发布单元 {publication_id} 的基线", request_id_of(payload))
+@KnowledgeRouter.post(
+    "/entries/{publication_id}/query",
+    summary="03.2 读取知识修订基线",
+    response_model=EntryQueryResponse,
+)
+async def query_knowledge_entry(
+    publication_id: str,
+    payload: EntryQueryRequest,
+):
+    """T3.1：只读已批准快照，按历史 `record_id` 精确读取并游标分页。"""
+    return await query_entry(publication_id, payload)
 
 
 @KnowledgeRouter.put(
     "/entries/{publication_id}",
-    summary="#05 修订（版本切换 / 单片删除）",
+    summary="03.3 修改已批准切片集合",
     response_model=EntryWriteReceipt,
 )
 async def revise_knowledge_entry(
@@ -68,7 +82,7 @@ async def revise_knowledge_entry(
 
 @KnowledgeRouter.delete(
     "/entries/{publication_id}",
-    summary="#06 整单删除",
+    summary="03.4 删除已批准切片集合",
     response_model=EntryDeleteReceipt,
 )
 async def delete_knowledge_entry(

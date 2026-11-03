@@ -20,14 +20,18 @@ class KbParseResultModel(MappedBase):
     __tablename__: str = "sbp_ai_kb_parse_result"
     __table_args__: tuple = (
         UniqueConstraint("job_id", name="uq_sbp_ai_kb_parse_result_job"),
-        {"comment": "解析产物（chunks/suggested/warnings，无向量）"},
+        {"comment": "解析产物（chunks/pages/suggested/warnings，无向量）"},
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True, comment="主键ID")
     job_id: Mapped[str] = mapped_column(String(64), nullable=False, comment="parse_job.uuid")
     chunks: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list, nullable=False, comment="切片数组（无向量）")
+    pages: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list, nullable=False, comment="页图预览数组（无能力时为空）")
     suggested: Mapped[dict[str, Any] | None] = mapped_column(JSONB, default=None, nullable=True, comment="建议元数据")
-    warnings: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list, nullable=False, comment="解析告警")
+    suggested_doc_type: Mapped[str | None] = mapped_column(
+        String(64), default=None, nullable=True, comment="建议文档分类（仅建议，不改变业务状态）"
+    )
+    warnings: Mapped[list[str]] = mapped_column(JSONB, default=list, nullable=False, comment="非致命解析告警")
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False, comment="产物整体哈希（版本比对）")
     created_time: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), server_default=text("now()"), nullable=False, comment="创建时间"

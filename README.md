@@ -240,7 +240,7 @@ MinerU 返回的 `content_list` 会转成「文本 → 页码」映射，分片�
 # 需要把验收记录写成 Markdown 时追加：--record <输出路径>
 ```
 
-它用 Mock GSI 四头签名打通 20 条 `/v1` 路由，逐条断言签名/nonce/错误码，并直连核对审计与幂等台账。原 `GET /api/v1/integration/probe` 集成自检端点已随模块删除。
+它用 Mock GSI 五头签名打通 20 条 `/v1` 路由，逐条断言签名/nonce/错误码，并直连核对审计与幂等台账。原 `GET /api/v1/integration/probe` 集成自检端点已随模块删除。
 
 ### 前端环境
 

@@ -7,14 +7,19 @@
 import json
 import uuid
 from typing import Any
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
 from app.config.setting import settings
+from app.core.rag.page_render import render_pdf_pages
 from app.core.security_signature import build_signed_headers
+from app.modules.kb.parse_result import preview
 from app.modules_api.contract import errors as contract_errors
+from app.modules_api.contract.parse import service as parse_service
 from app.modules_api.contract.parse.service import MAX_FILE_BYTES, fetch_file
 from app.scripts.contract.mock_gsi import FileServer
+from app.utils.text_splitter import split_text
 
 from tests.support import call, requires_db
 
@@ -155,3 +160,193 @@ async def test_fetch_file_stops_at_limit() -> None:
         with pytest.raises(contract_errors.ContractApiError) as exc:
             await fetch_file(server.url, max_bytes=64)
         assert exc.value.code == contract_errors.PAYLOAD_TOO_LARGE
+
+
+def test_split_text_assigns_section_heading() -> None:
+    """分片按起始位置回填 Markdown 章节标题（#02 的 chunks[].heading 依赖它）。"""
+    chunks = split_text(
+        "# 一级标题\n\n" + "第一段正文内容。" * 5 + "\n\n## 申请流程\n\n" + "第二段正文内容。" * 5,
+        chunk_size=40,
+        overlap=10,
+    )
+    headings = [chunk.meta.get("section_title") for chunk in chunks]
+    assert "一级标题" in headings
+    assert "申请流程" in headings
+
+
+def test_render_pdf_pages_returns_png() -> None:
+    """PDF 页图渲染返回契约所需的页码/宽高，以及可解码的 PNG 字节。"""
+    import io
+
+    import pypdfium2 as pdfium
+
+    document = pdfium.PdfDocument.new()
+    page = document.new_page(120, 200)
+    page.gen_content()
+    buffer = io.BytesIO()
+    document.save(buffer)
+    page.close()
+    document.close()
+
+    rendered = render_pdf_pages(buffer.getvalue(), max_pages=1, scale=1)
+    assert rendered.total_pages == 1
+    assert len(rendered.pages) == 1
+    first = rendered.pages[0]
+    assert (first.page_no, first.width, first.height) == (1, 120, 200)
+    assert first.data.startswith(b"\x89PNG\r\n\x1a\n")
+
+
+async def test_build_pages_writes_signed_preview(monkeypatch, tmp_path) -> None:
+    """页图落盘后返回带有效期的签名 URL，签名正确可通过校验、过期则拒绝。"""
+    import io
+
+    import pypdfium2 as pdfium
+
+    monkeypatch.setattr(preview, "_PREVIEW_DIR", tmp_path)
+    monkeypatch.setattr(settings, "PARSE_PREVIEW_SCALE", 1.0)
+    document = pdfium.PdfDocument.new()
+    page = document.new_page(120, 200)
+    page.gen_content()
+    buffer = io.BytesIO()
+    document.save(buffer)
+    page.close()
+    document.close()
+
+    warnings: list[str] = []
+    pages = await parse_service._build_pages(
+        "job-preview",
+        "guide.pdf",
+        buffer.getvalue(),
+        warnings,
+        preview_base_url="https://ai.example.com",
+    )
+    assert warnings == []
+    assert pages and pages[0]["width"] == 120 and pages[0]["height"] == 200
+
+    parsed = urlsplit(pages[0]["image_url"])
+    query = parse_qs(parsed.query)
+    expires = int(query["expires"][0])
+    signature = query["sig"][0]
+    assert preview.verify_preview_request(
+        job_id="job-preview", file_name="page-1.png", expires=expires, signature=signature
+    )
+    assert not preview.verify_preview_request(
+        job_id="job-preview", file_name="page-1.png", expires=expires - 10_000, signature=signature
+    )
+
+
+def test_build_suggested_prefers_page_metadata() -> None:
+    """建议元数据优先复用页面已填值，缺失时从正文标题兜底。"""
+    suggested, doc_type = parse_service.build_suggested(
+        {"title": "VPN 申请操作手册", "summary": "开通说明", "tags": ["VPN", " "], "doc_type": "SOP"},
+        "# 正文标题\n\n正文内容",
+        "guide.md",
+    )
+    assert doc_type == "SOP"
+    assert suggested == {"title": "VPN 申请操作手册", "summary": "开通说明", "tags": ["VPN"]}
+
+
+@requires_db
+async def test_faq_parse_uses_prompt_and_returns_questions(monkeypatch) -> None:
+    """FAQ 分支：按 prompt_text 调模型，question 落 heading、answer 落 content。"""
+    async def fake_chat(self, messages, **kwargs) -> str:
+        return '[{"question": "如何申请 VPN？", "answer": "在服务台提交 VPN 申请，由负责人审核后开通账号。"}]'
+
+    monkeypatch.setattr("app.modules_api.contract.parse.service.LlmClient.chat", fake_chat)
+
+    job_id = f"parse-{uuid.uuid4().hex[:12]}"
+    try:
+        with FileServer() as server:
+            body = _parse_payload(
+                job_id,
+                server.url,
+                resource_type="faq",
+                prompt_text="从文档中提取常见问题及对应答案，答案必须有原文依据。",
+                model_key="default",
+            )
+            created = await call(
+                "POST", "/v1/parse/jobs", body=body, headers=_signed_headers("POST", "/v1/parse/jobs", body=body)
+            )
+            assert created.status_code == 202
+
+            detail = await call(
+                "GET", f"/v1/parse/jobs/{job_id}", headers=_signed_headers("GET", f"/v1/parse/jobs/{job_id}")
+            )
+            payload = detail.json()
+            assert payload["status"] == "succeeded"
+            chunk = payload["result"]["chunks"][0]
+            assert chunk["heading"] == "如何申请 VPN？"
+            assert "服务台" in chunk["content"]
+    finally:
+        await _cleanup_parse_job(job_id)
+
+
+@requires_db
+async def test_parse_failure_is_task_result(monkeypatch) -> None:
+    """解析失败属于任务结果：``#02`` 仍返回 HTTP 200，并带 error_code/error_message。"""
+    from app.core.exceptions import CustomException
+
+    async def boom(*args, **kwargs):
+        raise CustomException(msg="解析器不可用。", status_code=500)
+
+    monkeypatch.setattr(parse_service, "parse_and_chunk", boom)
+
+    job_id = f"parse-{uuid.uuid4().hex[:12]}"
+    try:
+        with FileServer() as server:
+            body = _parse_payload(job_id, server.url)
+            created = await call(
+                "POST", "/v1/parse/jobs", body=body, headers=_signed_headers("POST", "/v1/parse/jobs", body=body)
+            )
+            assert created.status_code == 202
+
+            detail = await call(
+                "GET", f"/v1/parse/jobs/{job_id}", headers=_signed_headers("GET", f"/v1/parse/jobs/{job_id}")
+            )
+            assert detail.status_code == 200
+            payload = detail.json()
+            assert payload["status"] == "failed"
+            assert payload["error_code"] == contract_errors.PARSE_FAILED
+            assert payload["error_message"] == "解析器不可用。"
+    finally:
+        await _cleanup_parse_job(job_id)
+
+
+@requires_db
+async def test_parse_result_persists_pages_and_suggested_doc_type() -> None:
+    """成功产物把 pages 与 suggested_doc_type 一并落库，并能从 #02 快照读回。"""
+    job_id = f"parse-{uuid.uuid4().hex[:12]}"
+    try:
+        service = parse_service.PARSE_JOB_SERVICE
+        await service.create_job(job_id=job_id, resource_type="document", file_meta={"file_name": "guide.pdf"})
+        await service.complete(
+            job_id,
+            chunks=[{"seq": 1, "content": "正文", "source_type": "text"}],
+            pages=[
+                {
+                    "page_no": 1,
+                    "width": 240,
+                    "height": 400,
+                    "image_url": "https://ai.example.com/previews/parse/job/page-1.png?expires=1&sig=x",
+                }
+            ],
+            suggested={"title": "VPN 手册", "tags": ["VPN"]},
+            suggested_doc_type="SOP",
+            warnings=["仅返回前 1 页预览图。"],
+            content_hash="hash",
+        )
+        snapshot = await service.get_snapshot(job_id)
+        assert snapshot is not None
+        assert snapshot.status == "succeeded"
+        assert snapshot.pages == [
+            {
+                "page_no": 1,
+                "width": 240,
+                "height": 400,
+                "image_url": "https://ai.example.com/previews/parse/job/page-1.png?expires=1&sig=x",
+            }
+        ]
+        assert snapshot.suggested_doc_type == "SOP"
+        assert snapshot.warnings == ["仅返回前 1 页预览图。"]
+    finally:
+        await _cleanup_parse_job(job_id)

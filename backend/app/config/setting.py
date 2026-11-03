@@ -127,6 +127,22 @@ class Settings(BaseSettings):
     PARSE_THREAD_POOL_SIZE: int = Field(default=4, description="文档解析线程池并发（CPU/IO 密集，建议不超过逻辑核数）")
     PARSE_CHUNK_SIZE: int = Field(default=800, description="默认分片长度（字符数）")
     PARSE_CHUNK_OVERLAP: int = Field(default=120, description="默认相邻分片重叠字符数，须小于分片长度")
+    PARSE_FAQ_MAX_CHARS: int = Field(default=30000, description="FAQ 提取时送给模型的文档正文上限（字符数），超出截断并告警")
+
+    # ---- 解析页图预览（#02 result.pages，T2.4）----
+    # 仅 PDF 能被本地光栅化；Office/图片等仍返回 []，不伪造图像 URL。
+    PARSE_PREVIEW_ENABLE: bool = Field(default=True, description="是否渲染 PDF 页图并返回预览 URL")
+    PARSE_PREVIEW_MAX_PAGES: int = Field(default=50, description="单个文档最多渲染的页数，超出只渲染前 N 页并告警")
+    PARSE_PREVIEW_SCALE: float = Field(default=2.0, description="页图缩放倍率（1.0≈72dpi，2.0≈144dpi）")
+    PARSE_PREVIEW_TTL_SECONDS: int = Field(default=604800, description="预览 URL 有效期（秒），默认 7 天，须覆盖编辑预览周期")
+    PARSE_PREVIEW_BASE_URL: str = Field(
+        default="",
+        description="预览 URL 的对外基址（如 https://ai.example.com）；留空时取发起 #01 请求的 base_url",
+    )
+    PARSE_PREVIEW_SECRET: str = Field(
+        default="",
+        description="预览 URL 签名密钥；留空回落到 CONTRACT_V1_SHARED_SECRET，两者都空则不生成页图 URL",
+    )
 
     # ==================== AI 问答检索生成配置（当前无消费方，待 #07/#14 在 kb 域重建） ====================
     # 原消费方 app/modules/integration_chat 已随模块删除；这些策略参数保留为重建时的口径基线，
@@ -166,12 +182,11 @@ class Settings(BaseSettings):
     MINERU_OCR: bool = Field(default=True, description="是否启用 OCR（扫描件必须开）")
     MINERU_LANGUAGE: str = Field(default="ch", description="文档语言代码（ch/en 等，影响 OCR 识别）")
 
-    # ---- S3 兼容对象存储（当前对接自建 MinIO）----
-    # 【当前无消费方】S3StorageClient 随 integration_kb 删除，契约 #01 走 file_url 直拉不落 S3；
-    # 配置保留供文件上传能力重建时复用，重建前改它们不产生任何效果。
-    # 走 S3 协议而不是 MinIO 私有 API：日后换云厂商只改 endpoint 与凭据；
+    # ---- S3 兼容对象存储（支持 MinIO / 华为云 OBS / 阿里云 OSS 等）----
+    # 走 S3 协议：换云厂商只改 endpoint 与凭据；provider 标识服务商类型（用于适配差异）
     # endpoint 留空 = 未接入，调用时抛可读 503。MinIO 必须 path-style 寻址。
     S3_ENABLE: bool = Field(default=False, description="是否启用对象存储（文档原件/解析产物）")
+    S3_PROVIDER: str = Field(default="minio", description="存储服务商类型：minio / huawei-obs / aliyun-oss / aws-s3")
     S3_ENDPOINT: str = Field(default="", description="S3 兼容服务地址；容器内填 http://service-brain-minio:9000，宿主进程填 http://<IP>:39900")
     S3_ACCESS_KEY: str = Field(default="", description="访问密钥（建议用最小权限子账号，不用 root）")
     S3_SECRET_KEY: str = Field(default="", description="访问密钥（敏感，仅写 env）")
@@ -244,6 +259,9 @@ class Settings(BaseSettings):
     # ==================== 正式接入层（/v1，T1.1–T1.5，app/modules_api/contract） ====================
     CONTRACT_V1_ENABLE: bool = Field(
         default=True, description="是否挂载正式 /v1 契约路由；关闭后 /v1 完全不挂载（404）"
+    )
+    CONTRACT_TEST_ENABLE: bool = Field(
+        default=False, description="是否挂载测试辅助路由（/v1/test/*）；生产环境必须关闭"
     )
     CONTRACT_IDEMPOTENCY_TTL_DAYS: int = Field(default=90, description="幂等台账保留天数（墓碑不清理）；契约同步查询窗口 30 分钟")
     CONTRACT_TENANT_ID: str = Field(default="gsi-default", description="契约固定租户（v2.1 口径）")

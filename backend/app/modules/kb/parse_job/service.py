@@ -22,7 +22,7 @@ STATUS_RUNNING = "running"
 STATUS_SUCCEEDED = "succeeded"
 STATUS_FAILED = "failed"
 
-# 进度口径：受理 0、开始解析 10、终态 100（#02 的 progress 只在 0–100 之间取值）
+# 进度口径：受理 0、开始解析 10、终态 100；中间阶段由解析服务按实际推进回写
 PROGRESS_QUEUED = 0
 PROGRESS_RUNNING = 10
 PROGRESS_DONE = 100
@@ -39,7 +39,9 @@ class ParseJobSnapshot:
     error_code: str | None = None
     error_message: str | None = None
     chunks: list[dict[str, Any]] | None = None
+    pages: list[dict[str, Any]] | None = None
     suggested: dict[str, Any] | None = None
+    suggested_doc_type: str | None = None
     warnings: list[str] | None = None
     content_hash: str | None = None
 
@@ -76,12 +78,18 @@ class KbParseJobService:
         """进入 running（progress=10），让 #02 轮询能看到执行中而不是一直 queued。"""
         await self._update(job_id, status=STATUS_RUNNING, progress=PROGRESS_RUNNING)
 
+    async def update_progress(self, job_id: str, progress: int) -> None:
+        """回写中间进度（0–100），让长文档解析期间的轮询有可见推进。"""
+        await self._update(job_id, progress=max(PROGRESS_QUEUED, min(PROGRESS_DONE, progress)))
+
     async def complete(
         self,
         job_id: str,
         *,
         chunks: list[dict[str, Any]],
+        pages: list[dict[str, Any]],
         suggested: dict[str, Any] | None,
+        suggested_doc_type: str | None,
         warnings: list[str],
         content_hash: str,
     ) -> None:
@@ -96,7 +104,9 @@ class KbParseJobService:
                 KbParseResultCreateSchema(
                     job_id=job_id,
                     chunks=chunks,
+                    pages=pages,
                     suggested=suggested,
+                    suggested_doc_type=suggested_doc_type,
                     warnings=warnings,
                     content_hash=content_hash,
                 ),
@@ -151,7 +161,9 @@ class KbParseJobService:
             return replace(
                 snapshot,
                 chunks=result.chunks,
+                pages=result.pages,
                 suggested=result.suggested,
+                suggested_doc_type=result.suggested_doc_type,
                 warnings=result.warnings,
                 content_hash=result.content_hash,
             )

@@ -32,7 +32,9 @@ class KbParseResultOutSchema(BaseModel):
 
     job_id: str = Field(..., description="parse_job.uuid")
     chunks: list[dict[str, Any]] = Field(default_factory=list, description="切片数组")
+    pages: list[dict[str, Any]] = Field(default_factory=list, description="页图预览")
     suggested: dict[str, Any] | None = Field(default=None, description="AI 建议元数据")
+    suggested_doc_type: str | None = Field(default=None, description="建议文档分类")
     warnings: list[Any] = Field(default_factory=list, description="解析告警")
     content_hash: str = Field(..., description="产物整体哈希")
     created_time: DateTimeStr | None = Field(default=None, description="产物写入时间")
