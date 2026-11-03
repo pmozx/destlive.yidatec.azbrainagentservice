@@ -23,6 +23,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     await ensure_pgvector_extension()
 
+    # pg_trgm 扩展：关键词检索（#07 keyword）的中文 GIN 索引依赖它，同样须先于补建索引；
+    # 失败只告警——缺扩展时检索仍正确，只是退化为顺序扫描
+    from app.core.table_bootstrap import ensure_pg_trgm_extension
+
+    await ensure_pg_trgm_extension()
+
     # 表结构与元数据：按模块统一初始化（kb / system / voice），
     # 各域在自己的 bootstrap.py 里声明表并按依赖顺序建出，缺表才建；单域失败只告警
     from app.bootstrap import ensure_all_tables
@@ -30,6 +36,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     created = await ensure_all_tables()
     if created:
         logger.info("==== 表结构初始化完成（本次新建 {} 张）====", len(created))
+
+    # 关键词索引必须在分片表存在之后补建（IF NOT EXISTS 幂等；失败只降级检索性能）
+    from app.core.table_bootstrap import ensure_keyword_index
+
+    await ensure_keyword_index()
 
     # 接口审计日志（表已由 system 域 bootstrap 建好）：启动期只做过期清理
     from app.modules.system.api_log.service import SystemApiLogService

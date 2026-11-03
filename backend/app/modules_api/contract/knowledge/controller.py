@@ -1,6 +1,7 @@
-"""`/v1` 知识接口：发布（03.1–03.4）与重复治理（#16–#20）。
+"""`/v1` 知识接口：发布（03.1–03.4）、检索（#07）与重复治理（#16–#20）。
 
 已实现接口把编排交给 ``service.py``；骨架接口统一走 ``common.skeleton`` 的 501 出口。
+#07 目前只有 ``mode=keyword`` 实现，``natural_language`` 由 T4.2 交付。
 """
 
 from typing import Annotated
@@ -18,8 +19,10 @@ from .schema import (
     EntryQueryResponse,
     EntryWriteReceipt,
     EntryWriteRequest,
+    SearchRequest,
+    SearchResponse,
 )
-from .service import create_entry, delete_entry, query_entry, revise_entry
+from .service import create_entry, delete_entry, query_entry, revise_entry, search_knowledge_base
 
 KnowledgeRouter = make_contract_router(prefix="/knowledge", tags=["契约 /v1 知识（03.1–03.4 / #07 / #16–#20）"])
 
@@ -103,10 +106,14 @@ async def delete_knowledge_entry(
 # ── 检索：#07 ────────────────────────────────────────────────────────
 
 
-@KnowledgeRouter.post("/search", summary="#07 关键词 / 自然语言检索")
-async def search_knowledge(payload: ContractRequest | None = None):
-    """T4.1–T4.3：keyword + 向量 + RRF + rerank，检索期实时权限下推（越权 0 命中）。"""
-    skeleton("#07 知识检索", request_id_of(payload))
+@KnowledgeRouter.post(
+    "/search",
+    summary="#07 关键词 / 自然语言检索",
+    response_model=SearchResponse,
+)
+async def search_knowledge(payload: SearchRequest):
+    """T4.1：keyword 模式（pg_trgm 命中）+ 授权下推 + snippet/score 对齐契约。"""
+    return await search_knowledge_base(payload)
 
 
 # ── 重复治理：#16 / #17 / #18 / #19 / #20 ────────────────────────────

@@ -5,7 +5,8 @@
 
 - 20 条路由清单：骨架期要逐条对上手册；等 #07/#14 真正实现后，清单应改为「与手册一致」
   而不是「恰好 20 条」；
-- 501 骨架占位：占位实现被真实链路取代后，这条必须删掉，否则会挡住正常返回；
+- 501 骨架占位：占位实现被真实链路取代后，这条必须删掉，否则会挡住正常返回。
+  #07 于 T4.1 上线时已按此删除，不留「改成断言 200」的变体；
 - 错误响应声明：骨架期统一指向 `ContractErrorResponse`，将来分接口细化后同样要改。
 
 放进 ``modules/`` 或 ``contract/`` 会让它们和不该过期的东西混在一起，最终没人敢删。
@@ -13,11 +14,6 @@
 """
 
 from app import create_app
-from app.config.setting import settings
-from app.core.security_signature import build_signed_headers
-from app.modules_api.contract import errors as contract_errors
-
-from tests.support import BODY, call, requires_db
 
 #: 手册 §五「接口总览」的 20 条：路径 / 方法锁定，任何增删改都必须显式反映到这里
 EXPECTED_ROUTES: set[tuple[str, str]] = {
@@ -66,25 +62,3 @@ def test_error_responses_point_to_contract_error_body() -> None:
         ref = responses[code]["content"]["application/json"]["schema"]["$ref"]
         assert "ContractErrorResponse" in ref, code
     assert "400" in responses["422"]["description"]
-
-
-@requires_db
-async def test_signed_skeleton_returns_501_placeholder() -> None:
-    """带签名打通骨架路由：#07 检索尚未实现，返回 501 占位且错误体与 request_id 回带齐全。
-
-    这条就是"骨架成立"的定义：验签、幂等、审计、错误出口全部到位，业务逻辑还没写。
-    #07 上线后本用例应删除（而不是改成断言 200）。
-    """
-    headers = build_signed_headers(
-        settings.CONTRACT_V1_SHARED_SECRET,
-        client_id=settings.CONTRACT_V1_CLIENT_ID,
-        method="POST",
-        path="/v1/knowledge/search",
-        body=BODY,
-    )
-    response = await call("POST", "/v1/knowledge/search", body=BODY, headers=headers)
-    assert response.status_code == 501
-    body = response.json()
-    assert body["error"]["code"] == contract_errors.INTERNAL_ERROR
-    assert body["error"]["retryable"] is False
-    assert body["request_id"] == "req-001"

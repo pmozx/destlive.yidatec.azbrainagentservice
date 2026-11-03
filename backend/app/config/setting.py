@@ -124,6 +124,16 @@ class Settings(BaseSettings):
     RERANK_MODEL: str = Field(default="bge-reranker-v2-m3", description="重排序模型名称（服务端单模型时可留空）")
     RERANK_TIMEOUT: float = Field(default=30.0, description="重排序请求超时（秒）")
 
+    # ==================== 检索配置（#07） ====================
+    SEARCH_INDEX_AUTO_CREATE: bool = Field(
+        default=True,
+        description="启动期幂等补建分片表关键词 GIN 索引；大表建议关闭，改用 sql/v1.6_keyword_search_index.sql 人工 CONCURRENTLY 建",
+    )
+    SEARCH_KEYWORD_CANDIDATE_MAX: int = Field(
+        default=200, description="关键词检索 SQL 候选上限（应用层打分排序后再截断到契约 limit）"
+    )
+    SEARCH_SNIPPET_LENGTH: int = Field(default=120, description="关键词命中摘要长度（字符数，超出以省略号截断）")
+
     PARSE_THREAD_POOL_SIZE: int = Field(default=4, description="文档解析线程池并发（CPU/IO 密集，建议不超过逻辑核数）")
     PARSE_CHUNK_SIZE: int = Field(default=800, description="默认分片长度（字符数）")
     PARSE_CHUNK_OVERLAP: int = Field(default=120, description="默认相邻分片重叠字符数，须小于分片长度")

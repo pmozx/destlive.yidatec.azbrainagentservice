@@ -16,7 +16,7 @@
 1. 起一个本地 `http.server` 托管样例 Markdown，给 #01 一个**真实可拉取**的 `file_url`
    （契约里 file_url 必须是 AI 能访问的地址，用假链接测不出拉取链路的真实缺陷）；
 2. 用与服务端**同一份** `build_signed_headers` 构造签名，逐条打契约用例：签名失败四类、
-   #01 幂等、#02 轮询与 404、#03 幂等与 409、#07 两模式、#14 生成与 `stream=true`；
+   #01 幂等、#02 轮询与 404、#03 幂等与 409、#07 关键词检索与自然语言待交付、#14 生成与 `stream=true`；
 3. `--record` 输出 Markdown 冒烟记录。
 
 退出码非 0 表示有用例不符合预期 —— 便于在联调期直接把它当回归脚本用。
@@ -46,6 +46,7 @@ import httpx
 from app.config.setting import settings
 from app.core.security_signature import build_signed_headers
 from app.modules_api.contract.errors import (
+    INTERNAL_ERROR,
     INVALID_REQUEST,
     NOT_FOUND,
     STALE_REVISION,
@@ -391,21 +392,35 @@ class Smoke:
         }
 
     def _case_search(self) -> None:
-        """#07：两种模式都能召回；authorization 跨度超限必须 400 INVALID_REQUEST。"""
+        """#07：keyword 走通（召回受 GSI 授权链约束）；natural_language 待 T4.2，明确回 501。"""
         # 每组用例开头重新签发一次（窗口最长 120 秒，整轮冒烟可能跨过它）
         self._auth = self._authorization()
-        for mode in ("keyword", "natural_language"):
-            payload = self._search_payload("vpn 申请怎么提交", mode=mode)
-            response = self.post("/v1/knowledge/search", payload)
-            body = json_dict(response)
-            hits = body.get("hits") or []
-            self.record(
-                f"#07 检索（mode={mode}）",
-                response,
-                status=200,
-                ok=bool(hits) and body.get("returned_count") == len(hits) and body.get("no_evidence") is False,
-                note=f"hits={len(hits)} top_score={(hits[0].get('score') if hits else None)}",
-            )
+
+        response = self.post("/v1/knowledge/search", self._search_payload("vpn 申请", mode="keyword"))
+        body = json_dict(response)
+        hits = body.get("hits") or []
+        self.record(
+            "#07 关键词检索（mode=keyword）",
+            response,
+            status=200,
+            # 只断言契约自洽：0 条 + no_evidence=true 同样合法——能否召回取决于该 user_id
+            # 在 GSI 的受众团队是否覆盖了本脚本刚发布的发布单元（权限在 AI 侧只读）
+            ok=body.get("returned_count") == len(hits) and body.get("no_evidence") == (not hits),
+            note=f"hits={len(hits)} top_score={(hits[0].get('score') if hits else None)}；"
+            "召回依赖 GSI 授权链（user_id 无受众团队时 0 条属预期）",
+        )
+
+        response = self.post(
+            "/v1/knowledge/search",
+            self._search_payload("如何申请 vpn", mode="natural_language"),
+        )
+        self.record(
+            "#07 自然语言检索（mode=natural_language）",
+            response,
+            status=SKELETON_STATUS,
+            ok=error_code(json_dict(response)) == INTERNAL_ERROR,
+            note="T4.2 交付（向量召回 + RRF + rerank）；未实现时明确回 501，不用空 hits 冒充无证据",
+        )
 
         response = self.post(
             "/v1/knowledge/search",

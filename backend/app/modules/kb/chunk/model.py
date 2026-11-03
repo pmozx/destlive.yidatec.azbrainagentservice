@@ -1,7 +1,9 @@
 """知识切片模型（表 ``sbp_ai_kb_chunk``）★ 核心表：``uuid`` 即契约 ``chunk_id``。
 
-只建 HNSW 向量索引；中文全文/trigram 索引留到 T4.1（keyword 检索）用手写 SQL 补，
-表达式索引交给手写脚本更可控。
+只建 HNSW 向量索引；中文关键词索引（pg_trgm 的 ``gin(content gin_trgm_ops)``）刻意不在此声明：
+``create_missing_tables`` 对已存在的表一律跳过，声明了也只对新库生效，而且索引建不出来会把整张表
+的 DDL 一起带崩。改由 ``app.core.table_bootstrap.ensure_keyword_index()`` 启动期幂等补建，
+存量库走 ``sql/v1.6_keyword_search_index.sql``（``CONCURRENTLY`` 人工建）。
 """
 
 from sqlalchemy import BigInteger, CheckConstraint, Index, Integer, String, text, Text, UniqueConstraint

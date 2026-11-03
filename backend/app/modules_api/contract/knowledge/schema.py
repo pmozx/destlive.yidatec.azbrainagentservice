@@ -1,4 +1,4 @@
-"""知识写入 / 基线读取 Schema（03.1 新增 / 03.2 读取基线 / 03.3 修改 / 03.4 删除）。
+"""知识写入 / 基线读取 / 检索引擎 Schema（03.1 新增 / 03.2 读取基线 / 03.3 修改 / 03.4 删除 / #07 检索）。
 
 ``content_hash`` 的规则尚未与 GSI 对齐（Q9），``canonical_content_hash`` 即本侧口径；
 对齐后如有变化，只改这一处并同步 ``app.scripts.contract.mock_gsi`` 的样例构造。
@@ -9,9 +9,9 @@
 
 import hashlib
 import json
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.core.validator import ensure_non_blank
 
@@ -235,4 +235,74 @@ class EntryQueryResponse(BaseModel):
     chunks: list[EntryBaselineChunk]
     searchable: bool
     next_cursor: str | None = None
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# #07 关键词 / 自然语言检索
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+class SearchAuthorization(BaseModel):
+    """#07 的短期授权块。
+
+    跨度 ≤120s 与过期拒绝由路由依赖 ``enforced_authorization`` 统一校验；
+    这里只声明必填，避免「缺块被当成可选」——契约要求 #07 必须携带。
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    scope_id: str = Field(description="GSI 本次授权追踪标识")
+    issued_at: int = Field(ge=0, description="签发时间，Unix 毫秒")
+    expires_at: int = Field(ge=0, description="到期时间，Unix 毫秒")
+
+    @field_validator("scope_id")
+    @classmethod
+    def _required_text(cls, value: str) -> str:
+        return ensure_non_blank(value)
+
+
+class SearchRequest(BaseModel):
+    """#07 请求正文（字段与手册 §七「04 关键词 / 自然语言检索」一致）。"""
+
+    model_config = ConfigDict(extra="ignore")
+
+    request_id: str
+    query: str = Field(description="查询词或自然语言问题，非空")
+    mode: Literal["keyword", "natural_language"] = Field(description="keyword=关键词；natural_language=自然语言")
+    limit: int = Field(ge=1, le=100, description="返回条数上限，1–100")
+    tenant_id: str
+    user_id: str = Field(description="GSI 登录用户的稳定数字主键（字符串）")
+    authorization: SearchAuthorization
+
+    @field_validator("request_id", "query", "tenant_id", "user_id")
+    @classmethod
+    def _required_text(cls, value: str) -> str:
+        return ensure_non_blank(value)
+
+
+class SearchHitItem(BaseModel):
+    """#07 单条命中（chunk 级）：``score`` 是模式内相对分 0–1，不是回答正确率。"""
+
+    resource_type: str
+    resource_id: str
+    publication_id: str
+    record_id: str
+    version_id: str
+    revision: int
+    knowledge_no: str
+    chunk_id: str
+    title: str
+    snippet: str
+    page_from: int | None = None
+    page_to: int | None = None
+    score: float
+
+
+class SearchResponse(BaseModel):
+    """#07 响应：``returned_count`` 必须等于 ``hits.length``，无命中时 ``no_evidence=true``。"""
+
+    request_id: str
+    hits: list[SearchHitItem]
+    returned_count: int
+    no_evidence: bool
 

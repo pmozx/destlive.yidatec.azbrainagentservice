@@ -1,4 +1,4 @@
-"""知识发布服务层（03.1 新增 / 03.2 读取基线 / 03.3 修改 / 03.4 删除）：校验 → 领域服务 → 回执投影。
+"""知识发布与检索服务层（03.1 / 03.2 / 03.3 / 03.4 / #07）：校验 → 领域服务 → 回执投影。
 
 本层只做契约相关的事：
 1. ``content_hash`` 校验：按本侧固定序列化规则重算（Q9 尚未与 GSI 对齐）；
@@ -6,12 +6,15 @@
 3. **切片 ID 分配**：新增切片未传 ``chunk_id`` 时按 ``record_id:seq`` 确定性生成，
    既有切片沿用调用方传入的 ID（AI 校验归属由领域层完成）；
 4. ``cursor`` 解析：游标是不透明字符串，本侧按 ``seq`` 实现（``seq > cursor``）；
-5. 领域异常 → 契约错误码：冲突 409 `STALE_REVISION`、不存在 404、越权 403、依赖失败 500。
+5. 领域异常 → 契约错误码：冲突 409 `STALE_REVISION`、不存在 404、越权 403、依赖失败 500；
+6. #07 检索：``mode`` 分发与「无证据」语义；权限数据不可用 → 503（绝不降级全库）。
 
 字段与切片集合的结构校验（非空、chunk_id 唯一、seq 连续、页码合法）在 ``schema.py``。
 """
 
 from typing import Any
+
+from fastapi import status
 
 from app.core.logger import logger
 from app.modules.kb.publication.schema import (
@@ -27,8 +30,14 @@ from app.modules.kb.publication.service import (
     EntryScopeError,
     KbEntryService,
 )
+from app.modules.kb.retrieval.schema import KeywordQuery
+from app.modules.kb.retrieval.service import (
+    KbRetrievalService,
+    RetrievalAuthorizationUnavailable,
+)
 
 from ..errors import (
+    AUTHORIZATION_UNAVAILABLE,
     CONTEXT_OUT_OF_SCOPE,
     INVALID_REQUEST,
     INTERNAL_ERROR,
@@ -36,9 +45,16 @@ from ..errors import (
     STALE_REVISION,
     ContractApiError,
 )
-from .schema import EntryDeleteRequest, EntryQueryRequest, EntryWriteRequest, canonical_content_hash
+from .schema import (
+    EntryDeleteRequest,
+    EntryQueryRequest,
+    EntryWriteRequest,
+    SearchRequest,
+    canonical_content_hash,
+)
 
 _SERVICE = KbEntryService()
+_RETRIEVAL = KbRetrievalService()
 
 
 def verify_content_hash(payload: EntryWriteRequest) -> None:
@@ -240,4 +256,62 @@ async def delete_entry(path_publication_id: str, payload: EntryDeleteRequest) ->
         "success": True,
         "deleted": True,
         "searchable": False,
+    }
+
+
+# ── #07 关键词 / 自然语言检索 ────────────────────────────────────────
+
+
+async def search_knowledge_base(payload: SearchRequest) -> dict[str, Any]:
+    """#07：keyword 模式（T4.1）已实现；natural_language 待 T4.2 交付。
+
+    自然语言通道明确回 501，而不是回空结果：空 ``hits`` 在契约里意味着
+    「库里确实没有依据」（``no_evidence=true``），拿它冒充未实现会把联调方引到错的方向。
+
+    授权下推在领域层完成（先算可检索发布单元集合，再在 SQL 里过滤）：
+    空集合直接返回空结果；权限数据不可用则 503，不做降级检索。
+    """
+    if payload.mode == "natural_language":
+        raise ContractApiError(
+            INTERNAL_ERROR,
+            "自然语言检索（向量召回 + RRF + rerank）由 T4.2 交付，当前仅支持 mode=keyword。",
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            retryable=False,
+            request_id=payload.request_id,
+        )
+
+    try:
+        result = await _RETRIEVAL.keyword_search(
+            KeywordQuery(
+                query=payload.query,
+                tenant_id=payload.tenant_id,
+                user_id=payload.user_id,
+                limit=payload.limit,
+            )
+        )
+    except RetrievalAuthorizationUnavailable as exc:
+        raise ContractApiError(AUTHORIZATION_UNAVAILABLE, str(exc)) from exc
+
+    return {
+        "request_id": payload.request_id,
+        "hits": [
+            {
+                "resource_type": hit.resource_type,
+                "resource_id": hit.resource_id,
+                "publication_id": hit.publication_id,
+                "record_id": hit.record_id,
+                "version_id": hit.version_id,
+                "revision": hit.revision,
+                "knowledge_no": hit.knowledge_no,
+                "chunk_id": hit.chunk_id,
+                "title": hit.title,
+                "snippet": hit.snippet,
+                "page_from": hit.page_from,
+                "page_to": hit.page_to,
+                "score": hit.score,
+            }
+            for hit in result.hits
+        ],
+        "returned_count": len(result.hits),
+        "no_evidence": result.no_evidence,
     }
