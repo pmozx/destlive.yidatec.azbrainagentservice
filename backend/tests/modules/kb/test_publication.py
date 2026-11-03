@@ -53,6 +53,8 @@ async def _seed(db: AsyncSession, *, publication_id: str = "pub-1", revision: in
             current_record_id="record-1",
             current_revision=revision,
             status="active",
+            # title 是 NOT NULL 且无库级默认：v1.4 合并 entry_meta 后由写入链路必填
+            title=f"{publication_id} 测试条目标题",
         )
     )
     await db.commit()

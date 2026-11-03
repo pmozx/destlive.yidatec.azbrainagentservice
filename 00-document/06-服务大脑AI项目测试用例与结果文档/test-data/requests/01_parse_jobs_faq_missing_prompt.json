@@ -1,0 +1,33 @@
+{
+  "job_id": "parse-missing-prompt-001",
+  "doc_id": "doc-lane2005-fdc",
+  "version_id": "1",
+  "file_url": "https://cdn-mineru.openxlab.org.cn/demo/example.pdf",
+  "file_name": "Lane_2005_造林与流量历时曲线.pdf",
+  "model_key": "default",
+  "options": {
+    "chunk": true,
+    "language": "zh"
+  },
+  "tenant_id": "gsi-default",
+  "resource_type": "faq",
+  "file_id": "file-lane2005-fdc",
+  "file_size": 336919,
+  "metadata": {
+    "title": "流量历时曲线对造林的响应",
+    "doc_type": "FAQ",
+    "owner": "kali03",
+    "author": "kali03",
+    "team": "TEAM-HYDRO",
+    "language": "zh",
+    "trust": "A",
+    "summary": "基于澳大利亚、南非和新西兰 10 个流域的长期日流量与年降雨数据，剔除降雨变异性后量化人工林建立对流量历时曲线（FDC）各百分位数的影响。",
+    "content": "以年降雨量偏差与林龄为自变量的 FDC 百分位数 S 型回归模型；气候调整后识别出两类响应：组 1 低流量与零流量天数显著增加，组 2 各百分位数流量均匀减少。",
+    "tags": [
+      "造林",
+      "流量历时曲线",
+      "流量减少",
+      "配对流域"
+    ]
+  }
+}

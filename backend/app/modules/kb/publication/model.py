@@ -70,8 +70,9 @@ class KbPublicationModel(ModelMixin):
     summary: Mapped[str | None] = mapped_column(Text, default=None, nullable=True, comment="内容摘要")
     tags: Mapped[list[str]] = mapped_column(
         JSONB,
+        # 不写 server_default：库级默认值由 v1.4 迁移 SQL 建（``DEFAULT '[]'::jsonb``），
+        # 模型里再写一遍会让 SQLite 建表报错（用例用内存库验证 CAS），纯属重复声明
         default=list,
-        server_default=text("'[]'::jsonb"),
         nullable=False,
         comment="标签（JSON 数组）",
     )

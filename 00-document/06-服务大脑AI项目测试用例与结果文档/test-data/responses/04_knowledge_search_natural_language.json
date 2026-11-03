@@ -1,0 +1,71 @@
+{
+  "request_file": "04_knowledge_search_natural_language.json",
+  "request_path": "POST /v1/knowledge/search",
+  "request": {
+    "request_id": "req-search-natural-language-001",
+    "tenant_id": "gsi-default",
+    "user_id": "1",
+    "query": "造林对流量历时曲线有什么影响",
+    "mode": "natural_language",
+    "limit": 10,
+    "authorization": {
+      "scope_id": "scope-search-natural-language-001",
+      "issued_at": 1793691117177,
+      "expires_at": 1793691237177
+    }
+  },
+  "response_status": 200,
+  "response_body": {
+    "request_id": "req-search-natural-language-001",
+    "hits": [
+      {
+        "resource_type": "document",
+        "resource_id": "doc-lane2005-fdc",
+        "publication_id": "0876a2b0-2788-4816-a1fd-7f26a2bfd061",
+        "record_id": "rec-search-001-v1",
+        "version_id": "v1",
+        "revision": 1,
+        "knowledge_no": "KB-HYDRO-2026-001",
+        "chunk_id": "rec-search-001-v1:1",
+        "title": "流量历时曲线对造林的响应",
+        "snippet": "The hydrologic effect of replacing pasture or other short crops with trees is reasonably well understood on a mean annua…",
+        "page_from": 1,
+        "page_to": 1,
+        "score": 0.9745
+      },
+      {
+        "resource_type": "document",
+        "resource_id": "doc-lane2005-fdc",
+        "publication_id": "0876a2b0-2788-4816-a1fd-7f26a2bfd061",
+        "record_id": "rec-search-001-v1",
+        "version_id": "v1",
+        "revision": 1,
+        "knowledge_no": "KB-HYDRO-2026-001",
+        "chunk_id": "rec-search-001-v1:2",
+        "title": "流量历时曲线对造林的响应",
+        "snippet": "Widespread afforestation through plantation establishment on non-forested land represents a potentially significant alte…",
+        "page_from": 2,
+        "page_to": 2,
+        "score": 0.9598
+      },
+      {
+        "resource_type": "document",
+        "resource_id": "doc-lane2005-fdc",
+        "publication_id": "0876a2b0-2788-4816-a1fd-7f26a2bfd061",
+        "record_id": "rec-search-001-v1",
+        "version_id": "v1",
+        "revision": 1,
+        "knowledge_no": "KB-HYDRO-2026-001",
+        "chunk_id": "rec-search-001-v1:3",
+        "title": "流量历时曲线对造林的响应",
+        "snippet": "## 2. Methods ## 2.1. Characterisation of flow regime Flow duration curves display the relationship between streamflow a…",
+        "page_from": 3,
+        "page_to": 3,
+        "score": 0.8245
+      }
+    ],
+    "returned_count": 3,
+    "no_evidence": false
+  },
+  "purpose": "自然语言模式走向量通道 + RRF 融合 + rerank：query「造林对流量历时曲线有什么影响」与铺场切片无字面重叠，仍应命中；向量化不可用时为 500 INTERNAL_ERROR(retryable=true)，授权不可用时为 503 AUTHORIZATION_UNAVAILABLE——都不是 no_evidence"
+}

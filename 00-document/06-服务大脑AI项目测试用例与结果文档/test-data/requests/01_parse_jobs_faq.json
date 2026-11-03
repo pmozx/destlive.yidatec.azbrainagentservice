@@ -1,0 +1,73 @@
+{
+  "job_id": "parse-faq-200001",
+  "doc_id": "doc-lane2005-fdc",
+  "version_id": "1",
+  "file_url": "https://cdn-mineru.openxlab.org.cn/demo/example.pdf",
+  "file_name": "Lane_2005_造林与流量历时曲线.pdf",
+  "prompt_text": "请基于该篇造林水文影响论文，严格依据原文提炼中文 FAQ 问答对，覆盖研究目的、方法（FDC 百分位数回归模型）、数据（10 个流域特征与处理）、结果（两类响应与零流量天数变化）、结论与局限性；答案准确完整，可保留关键公式、百分位数流量与降雨量等数值及术语，每问独立有意义、避免重复宽泛，按标准 FAQ 格式输出。",
+  "model_key": "default",
+  "options": {
+    "chunk": true,
+    "language": "zh"
+  },
+  "tenant_id": "gsi-default",
+  "resource_type": "faq",
+  "file_id": "file-lane2005-fdc",
+  "file_size": 336919,
+  "metadata": {
+    "title": "流量历时曲线对造林的响应",
+    "doc_type": "FAQ",
+    "owner": "kali03",
+    "author": "kali03",
+    "team": "TEAM-HYDRO",
+    "language": "zh",
+    "trust": "A",
+    "summary": "基于澳大利亚、南非和新西兰 10 个流域的长期日流量与年降雨数据，剔除降雨变异性后量化人工林建立对流量历时曲线（FDC）各百分位数的影响。",
+    "content": "以年降雨量偏差与林龄为自变量的 FDC 百分位数 S 型回归模型；气候调整后识别出两类响应：组 1 低流量与零流量天数显著增加，组 2 各百分位数流量均匀减少。",
+    "tags": [
+      "造林",
+      "流量历时曲线",
+      "流量减少",
+      "配对流域"
+    ],
+    "expire_at": "2027-12-31",
+    "scheduled_publish_at": "2026-11-01T09:00:00+08:00",
+    "invisible_teams": [
+      "TEAM-HR-ADMIN"
+    ],
+    "audience": {
+      "department": [
+        "水资源管理"
+      ],
+      "team": [
+        "TEAM-HYDRO"
+      ],
+      "role": [
+        "水文学家"
+      ],
+      "region": [
+        "澳大利亚"
+      ],
+      "skill": [
+        "中级"
+      ],
+      "scenario": [
+        "造林水文影响评估"
+      ]
+    },
+    "cover_url": "https://files.example.com/lane2005-fdc-cover.jpg",
+    "cover_name": "lane2005-fdc-cover.jpg",
+    "linked_doc_id": "doc-lane2005-fdc",
+    "linked_section": "2.1 流量制度特征",
+    "change_impact_level": "minor",
+    "units": [
+      {
+        "unit_id": "unit-1",
+        "no": "U001",
+        "title": "数据集",
+        "kind": "text",
+        "text": "澳大利亚东南部、新西兰与南非的 10 个流域，含日流量、年降雨与林龄记录。"
+      }
+    ]
+  }
+}

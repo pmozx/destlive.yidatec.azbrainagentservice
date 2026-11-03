@@ -16,7 +16,8 @@
 1. 起一个本地 `http.server` 托管样例 Markdown，给 #01 一个**真实可拉取**的 `file_url`
    （契约里 file_url 必须是 AI 能访问的地址，用假链接测不出拉取链路的真实缺陷）；
 2. 用与服务端**同一份** `build_signed_headers` 构造签名，逐条打契约用例：签名失败四类、
-   #01 幂等、#02 轮询与 404、#03 幂等与 409、#07 关键词检索与自然语言待交付、#14 生成与 `stream=true`；
+   #01 幂等、#02 轮询与 404、#03 幂等与 409、#07 关键词与自然语言检索、
+   #08–#15 会话与问答（建会话 → 生成 → 历史 / 结果查询 → 改名 → 清空 → 删除）；
 3. `--record` 输出 Markdown 冒烟记录。
 
 退出码非 0 表示有用例不符合预期 —— 便于在联调期直接把它当回归脚本用。
@@ -25,8 +26,11 @@
 - `verify_m1` 保「M1 门禁 + `--record` 证据」；
 - 本脚本保「GSI 侧样例 + 负向用例 + 联调」。
 
-刻意简化：只覆盖 POC 期验证过的 5 个端点，不覆盖修订/删除/会话历史；
-断言只看「契约字段是否按口径出现」，不做 schema 全量校验。
+刻意简化：不覆盖修订 / 重复组 / 停用，也不做 schema 全量校验；断言只看「契约字段是否按
+口径出现」。
+
+`--user-id` 必须是**数字主键的字符串形式**：`/v1` 把 `user_id` 当下推权限的输入，
+传一个非数字值不会报错，只会「什么都检索不到」——冒烟结果看着全过、实则一条证据都没有。
 """
 
 import argparse
@@ -45,8 +49,8 @@ import httpx
 
 from app.config.setting import settings
 from app.core.security_signature import build_signed_headers
+from app.modules.kb.chat.schema import REASON_SOURCE_UNAVAILABLE
 from app.modules_api.contract.errors import (
-    INTERNAL_ERROR,
     INVALID_REQUEST,
     NOT_FOUND,
     STALE_REVISION,
@@ -139,10 +143,20 @@ class FileServer:
 class Smoke:
     """按契约顺序逐条打用例，结果累积到 `rows`（供 Markdown 记录使用）。"""
 
-    def __init__(self, base_url: str, *, secret: str, client_id: str, with_chat: bool, allow_skeleton: bool) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        *,
+        secret: str,
+        client_id: str,
+        user_id: str,
+        with_chat: bool,
+        allow_skeleton: bool,
+    ) -> None:
         self.base_url = base_url
         self.secret = secret
         self.client_id = client_id
+        self.user_id = user_id
         self.with_chat = with_chat
         self.allow_skeleton = allow_skeleton
         self.rows: list[dict[str, Any]] = []
@@ -174,6 +188,24 @@ class Smoke:
             nonce=nonce,
         )
 
+    def request(
+        self,
+        method: str,
+        path: str,
+        payload: dict[str, Any] | None = None,
+        *,
+        secret: str | None = None,
+        timestamp_ms: int | None = None,
+        nonce: str | None = None,
+    ) -> httpx.Response:
+        """签名请求：DELETE / PATCH 也带正文（#12 / #13 的正文只承载身份与幂等键）。"""
+        raw = b"" if payload is None else json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        headers = {
+            "Content-Type": "application/json",
+            **self._headers(method, path, raw, secret=secret, timestamp_ms=timestamp_ms, nonce=nonce),
+        }
+        return self._client.request(method, path, content=raw, headers=headers)
+
     def post(
         self,
         path: str,
@@ -183,12 +215,7 @@ class Smoke:
         timestamp_ms: int | None = None,
         nonce: str | None = None,
     ) -> httpx.Response:
-        raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-        headers = {
-            "Content-Type": "application/json",
-            **self._headers("POST", path, raw, secret=secret, timestamp_ms=timestamp_ms, nonce=nonce),
-        }
-        return self._client.post(path, content=raw, headers=headers)
+        return self.request("POST", path, payload, secret=secret, timestamp_ms=timestamp_ms, nonce=nonce)
 
     def get(self, path: str, *, raw: bytes = b"") -> httpx.Response:
         return self._client.get(path, headers=self._headers("GET", path, raw))
@@ -326,7 +353,7 @@ class Smoke:
         return {
             "request_id": request_id,
             "tenant_id": "tenant-demo",
-            "user_id": "user-demo",
+            "user_id": self.user_id,
             "resource_type": "document",
             "resource_id": "doc-demo-001",
             "publication_id": publication_id,
@@ -387,12 +414,12 @@ class Smoke:
             "mode": mode,
             "limit": limit,
             "tenant_id": "tenant-demo",
-            "user_id": "user-demo",
+            "user_id": self.user_id,
             "authorization": self._auth,
         }
 
     def _case_search(self) -> None:
-        """#07：keyword 走通（召回受 GSI 授权链约束）；natural_language 待 T4.2，明确回 501。"""
+        """#07：keyword 与 natural_language 都走通（召回受 GSI 授权链约束）。"""
         # 每组用例开头重新签发一次（窗口最长 120 秒，整轮冒烟可能跨过它）
         self._auth = self._authorization()
 
@@ -414,12 +441,16 @@ class Smoke:
             "/v1/knowledge/search",
             self._search_payload("如何申请 vpn", mode="natural_language"),
         )
+        body = json_dict(response)
+        hits = body.get("hits") or []
         self.record(
             "#07 自然语言检索（mode=natural_language）",
             response,
-            status=SKELETON_STATUS,
-            ok=error_code(json_dict(response)) == INTERNAL_ERROR,
-            note="T4.2 交付（向量召回 + RRF + rerank）；未实现时明确回 501，不用空 hits 冒充无证据",
+            status=200,
+            # 同样只断言契约自洽：语义召回需 bge-m3 向量 + RRF，精排未接入时降级为融合序
+            ok=body.get("returned_count") == len(hits) and body.get("no_evidence") == (not hits),
+            note=f"hits={len(hits)} top_score={(hits[0].get('score') if hits else None)}；"
+            "召回依赖 bge-m3 向量与 GSI 授权链（向量化不可用时为 503，属依赖故障而非无证据）",
         )
 
         response = self.post(
@@ -434,26 +465,79 @@ class Smoke:
             note="契约未定义该场景专用错误码",
         )
 
-    def _chat_payload(self, *, question: str, request_id: str, stream: bool = False) -> dict[str, Any]:
+    def _chat_payload(self, *, session_id: str, question: str, request_id: str, stream: bool = False) -> dict[str, Any]:
         return {
             "request_id": request_id,
             "tenant_id": "tenant-demo",
-            "user_id": "user-demo",
-            "session_id": "",
+            "user_id": self.user_id,
+            # session_id 必须先由 #08 建出来：POC 期「首轮传空串」的口径已作废
+            "session_id": session_id,
             "question": question,
             "prompt_text": CHAT_PROMPT,
             "model_key": "default",
             "stream": stream,
             "authorization": self._auth,
-            "options": {"language": "zh", "max_output_tokens": 512},
+            "options": {"language": "zh-CN", "max_output_tokens": 512},
+        }
+
+    def _identity_payload(self, request_id: str) -> dict[str, Any]:
+        """#09–#13 / #15 的公共正文：只承载身份与本次授权块（会话 ID 在路径里）。"""
+        return {
+            "request_id": request_id,
+            "tenant_id": "tenant-demo",
+            "user_id": self.user_id,
+            "authorization": self._auth,
         }
 
     def _case_chat(self) -> None:
-        """#14：stream=true → 400；正常生成 → citations 的 quote 必须是切片正文的子串。"""
+        """#08–#15：建会话 → 生成 → 历史 / 结果查询 → 改名 → 清空 → 删除。
+
+        只断言「契约自洽」：能否检索到证据取决于该 ``user_id`` 在 GSI 的受众团队是否覆盖
+        了本脚本刚发布的发布单元（权限在 AI 侧只读），因此看的是「``no_evidence`` 与
+        citations 是否一致」，而不是「一定有引用」。
+        """
         self._auth = self._authorization()
+
+        response = self.post(
+            "/v1/chat/sessions",
+            {**self._identity_payload(f"request-session-{self.run_id}"), "title": "冒烟会话"},
+        )
+        session = json_dict(response)
+        session_id = str(session.get("session_id") or "")
+        self.record(
+            "#08 创建会话",
+            response,
+            status=201,
+            ok=bool(session_id) and session.get("title") == "冒烟会话",
+            note=f"session_id={session_id}",
+        )
+        if not session_id:
+            # 后续用例全部挂在会话上：没有会话就停在这里，不再连累一串误导性的失败
+            return
+
+        response = self.post(
+            "/v1/chat/sessions/query",
+            self._identity_payload(f"request-session-list-{self.run_id}"),
+        )
+        body = json_dict(response)
+        listed = [item.get("session_id") for item in body.get("sessions") or []]
+        self.record(
+            "#09 会话列表",
+            response,
+            status=200,
+            ok=session_id in listed,
+            note=f"sessions={len(listed)} next_cursor={body.get('next_cursor')}",
+        )
+
+        # stream 应在进入检索与模型调用之前就被拒：先打一次，确认不会产生任何副作用
         response = self.post(
             "/v1/chat/completions",
-            self._chat_payload(question="vpn 怎么申请？", request_id=f"request-chat-stream-{self.run_id}", stream=True),
+            self._chat_payload(
+                session_id=session_id,
+                question="vpn 怎么申请？",
+                request_id=f"request-chat-stream-{self.run_id}",
+                stream=True,
+            ),
         )
         self.record(
             "#14 stream=true 明确拒绝",
@@ -463,30 +547,133 @@ class Smoke:
         )
 
         request_id = f"request-chat-{self.run_id}"
-        response = self.post(
-            "/v1/chat/completions", self._chat_payload(question="vpn 申请后多久能审批完成？", request_id=request_id)
+        payload = self._chat_payload(
+            session_id=session_id,
+            question="vpn 申请后多久能审批完成？",
+            request_id=request_id,
         )
+        response = self.post("/v1/chat/completions", payload)
         body = json_dict(response)
         citations = body.get("citations") or []
         contents = "".join(chunk["content"] for chunk in CHUNKS)
         quotes_ok = all(citation.get("quote") and citation["quote"] in contents for citation in citations)
+        no_evidence = body.get("no_evidence") is True
         self.record(
             "#14 生成回答",
             response,
             status=200,
-            ok=body.get("no_evidence") is False and bool(citations) and quotes_ok and body.get("finish_reason") == "stop",
-            note=f"citations={len(citations)} quotes_verbatim={quotes_ok} session_id={body.get('session_id')}",
+            ok=body.get("session_id") == session_id
+            and no_evidence == (not citations)
+            and body.get("finish_reason") == ("no_evidence" if no_evidence else "stop")
+            and quotes_ok,
+            note=f"citations={len(citations)} quotes_verbatim={quotes_ok} "
+            f"no_evidence={no_evidence} finish_reason={body.get('finish_reason')}",
         )
+        assistant_message_id = str(body.get("assistant_message_id") or "")
 
-        response = self.post(
-            "/v1/chat/completions", self._chat_payload(question="vpn 申请后多久能审批完成？", request_id=request_id)
-        )
-        again = json_dict(response)
+        # 同 request_id 同正文重试必须回放首次结果：正文要逐字节一致，授权块因此不能重签
+        response = self.post("/v1/chat/completions", payload)
         self.record(
             "#14 幂等重试（同 request_id 同正文）",
             response,
             status=200,
-            ok=again.get("assistant_message_id") == body.get("assistant_message_id"),
+            ok=assistant_message_id and json_dict(response).get("assistant_message_id") == assistant_message_id,
+        )
+
+        # 一次生成可能耗时数十秒，后续用例重签授权块（窗口最长 120 秒，每个 request_id 都不同）
+        self._auth = self._authorization()
+
+        response = self.post(
+            f"/v1/chat/requests/{request_id}/query",
+            self._identity_payload(f"request-result-{self.run_id}"),
+        )
+        body = json_dict(response)
+        result = body.get("result") or {}
+        self.record(
+            "#15 查询生成结果",
+            response,
+            status=200,
+            ok=body.get("operation") == "completion"
+            and body.get("status") == "completed"
+            and body.get("result_visible") is True
+            and result.get("assistant_message_id") == assistant_message_id
+            and bool(result.get("answer")),
+            note=f"status={body.get('status')} result_visible={body.get('result_visible')} "
+            f"answer_len={len(result.get('answer') or '')}",
+        )
+
+        response = self.post(
+            f"/v1/chat/sessions/{session_id}/query",
+            {**self._identity_payload(f"request-session-detail-{self.run_id}"), "include_messages": True},
+        )
+        body = json_dict(response)
+        messages = body.get("messages") or []
+        self.record(
+            "#10 会话详情（含历史）",
+            response,
+            status=200,
+            ok=body.get("session_id") == session_id
+            and [message.get("role") for message in messages][-2:] == ["user", "assistant"],
+            note=f"messages={len(messages)} visible={[m.get('content_visible') for m in messages]}",
+        )
+
+        response = self.request(
+            "PATCH",
+            f"/v1/chat/sessions/{session_id}",
+            {**self._identity_payload(f"request-session-rename-{self.run_id}"), "title": "冒烟会话（已改名）"},
+        )
+        self.record(
+            "#11 修改会话标题",
+            response,
+            status=200,
+            ok=json_dict(response).get("title") == "冒烟会话（已改名）",
+        )
+
+        response = self.request(
+            "DELETE",
+            f"/v1/chat/sessions/{session_id}/messages",
+            self._identity_payload(f"request-session-clear-{self.run_id}"),
+        )
+        body = json_dict(response)
+        self.record(
+            "#13 清空会话历史",
+            response,
+            status=200,
+            ok=body.get("cleared") is True and body.get("session_id") == session_id,
+        )
+
+        response = self.post(
+            f"/v1/chat/requests/{request_id}/query",
+            self._identity_payload(f"request-result-cleared-{self.run_id}"),
+        )
+        body = json_dict(response)
+        self.record(
+            "#15 清空后查询生成结果",
+            response,
+            status=200,
+            ok=body.get("status") == "completed"
+            and body.get("result_visible") is False
+            and body.get("reason") == REASON_SOURCE_UNAVAILABLE,
+            note="结果本身仍是 completed，但答案已随清空下架：可见性按查询时刻重新判定",
+        )
+
+        response = self.request(
+            "DELETE",
+            f"/v1/chat/sessions/{session_id}",
+            self._identity_payload(f"request-session-delete-{self.run_id}"),
+        )
+        self.record("#12 删除会话", response, status=200, ok=json_dict(response).get("deleted") is True)
+
+        response = self.post(
+            f"/v1/chat/sessions/{session_id}/query",
+            self._identity_payload(f"request-session-gone-{self.run_id}"),
+        )
+        self.record(
+            "#12 删除后再查会话",
+            response,
+            status=404,
+            ok=error_code(json_dict(response)) == NOT_FOUND,
+            note="已删除与「不存在 / 不属于本人」同口径",
         )
 
 
@@ -529,7 +716,12 @@ def main() -> int:
     parser.add_argument("--base-url", default="http://127.0.0.1:8002", help="AI 服务地址")
     parser.add_argument("--client-id", default=settings.CONTRACT_V1_CLIENT_ID, help="签名客户端标识")
     parser.add_argument("--secret", default=settings.CONTRACT_V1_SHARED_SECRET, help="共享密钥（与正式契约同一组配置）")
-    parser.add_argument("--no-chat", action="store_true", help="跳过 #14（不调用外部模型，省费用）")
+    parser.add_argument(
+        "--user-id",
+        default="1",
+        help="模拟 GSI 登录用户的数字主键（字符串）；非数字会「无权限」，检索与问答均为 0 命中",
+    )
+    parser.add_argument("--no-chat", action="store_true", help="跳过 #08–#15 会话与问答（不调用外部模型，省费用）")
     parser.add_argument("--record", default="", help="冒烟记录输出路径（Markdown），留空只打印")
     parser.add_argument(
         "--allow-skeleton",
@@ -549,6 +741,7 @@ def main() -> int:
         args.base_url,
         secret=args.secret,
         client_id=args.client_id,
+        user_id=args.user_id,
         with_chat=not args.no_chat,
         allow_skeleton=args.allow_skeleton,
     )

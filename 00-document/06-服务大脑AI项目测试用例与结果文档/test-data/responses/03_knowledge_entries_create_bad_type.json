@@ -1,0 +1,56 @@
+{
+  "request_file": "03_knowledge_entries_create_bad_type.json",
+  "request_path": "POST /v1/knowledge/entries",
+  "request": {
+    "request_id": "req-kb-faq-badtype",
+    "tenant_id": "gsi-default",
+    "user_id": "user-demo-001",
+    "resource_type": "invalid_type",
+    "resource_id": "doc-lane2005-fdc",
+    "publication_id": "pub-test-faq-badtype-001",
+    "record_id": "rec-faq-badtype-v1",
+    "version_id": "v1",
+    "revision": 1,
+    "knowledge_no": "KB-HYDRO-2026-FAQ-001",
+    "content_hash": "sha256:db044ad2110b420af9b09bf6278347bcf53ed93bf7352570703c54fe721af1a2",
+    "metadata": {
+      "title": "流量历时曲线对造林的响应 · 常见问题",
+      "doc_type": "faq",
+      "owner": "kali03",
+      "language": "zh",
+      "source_parse_job_id": "parse-faq-200001"
+    },
+    "chunks": [
+      {
+        "seq": 1,
+        "heading": "这项研究的核心目标是什么？",
+        "content": "该研究旨在量化造林后流域年流量过程线（FDC）的变化。具体目标包括：(1) 以年降雨量和林龄为参数，拟合观测到的年FDC百分位数（如每年记录的10%分位数）时间序列模型；(2) 用长期平均降雨量替代年降雨量变化，获得气候调整后的FDC；(3) 量化随林龄增长的FDC百分位数变化。其关键假设是降雨和林龄是蒸散发的主要驱动因素，通过去除降雨信号的变化，使径流变化仅归因于人工林的蒸散发。",
+        "page_from": null,
+        "page_to": null
+      },
+      {
+        "seq": 2,
+        "heading": "研究的主要结论是什么？",
+        "content": "研究的主要结论包括：(1) 所提出的方法能有效去除降雨变异性，成功拟合了10个流域中8个的大多数百分位数流量变化，特别是10-50百分位数；(2) 气候调整后的FDC揭示了两种类型的流量减少响应：第一组低流量受影响更大且零流量天数显著增加，第二组所有百分位数流量减少更均匀；(3) 模型模拟的流量减少与已发表的配对流域实验结果一致；(4) 零流量天数方法表现良好，可用于确定任何给定流量随造林的变化。该方法为缺乏配对流域数据时理解流域对造林响应提供了方法论。",
+        "page_from": null,
+        "page_to": null
+      },
+      {
+        "seq": 3,
+        "heading": "气候调整后的FDC揭示了哪两类响应（分组）？各有什么特征？",
+        "content": "研究识别出两类响应。第一组（Group 1）包括Stewarts Creek、Pine Creek和Redhill，其特征是零流量天数大幅增加，低流量比高流量受到更大比例减少，导致流量完全停止。第二组（Group 2）包括Cathedral Peak 2和3、Lambrechtsbos A、Lambrechtsbos B、Glendhu 2、Biesievlei和Traralgon Creek，其特征是所有百分位数上的流量减少更为均匀。两组差异可能部分由蓄水特征解释。",
+        "page_from": null,
+        "page_to": null
+      }
+    ]
+  },
+  "response_status": 400,
+  "response_body": {
+    "error": {
+      "code": "INVALID_REQUEST",
+      "message": "resource_type 无效：Value error, resource_type 只支持 document / faq",
+      "retryable": false
+    },
+    "request_id": "req-kb-faq-badtype"
+  }
+}

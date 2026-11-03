@@ -1,0 +1,6 @@
+{
+  "request_id": "req-kb-incomplete",
+  "tenant_id": "gsi-default",
+  "resource_type": "document",
+  "publication_id": "pub-test-incomplete"
+}

@@ -29,7 +29,7 @@ class SystemRequestLogModel(MappedBase):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True, comment="主键ID")
     request_id: Mapped[str] = mapped_column(String(64), nullable=False, comment="契约请求 ID")
     operation: Mapped[str] = mapped_column(String(20), nullable=False, comment="completion/mutation/delete")
-    status: Mapped[str] = mapped_column(String(20), default="running", server_default=text("'running'"), nullable=False, comment="running/succeeded/failed/expired")
+    status: Mapped[str] = mapped_column(String(20), default="running", server_default=text("'running'"), nullable=False, comment="running/succeeded/failed/cancelled/expired")
     result_visible: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, comment="结果是否仍可返回")
     result_ref: Mapped[dict[str, Any] | None] = mapped_column(JSONB, default=None, nullable=True, comment="结果引用")
     error_code: Mapped[str | None] = mapped_column(String(64), default=None, nullable=True, comment="失败码")

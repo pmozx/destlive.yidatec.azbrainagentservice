@@ -1,0 +1,27 @@
+{
+  "request_file": "01_parse_jobs_doc_unsupported_type.json",
+  "request": {
+    "job_id": "parse-invalid-type-001",
+    "doc_id": "doc-lane2005-fdc",
+    "version_id": "v1",
+    "file_url": "https://cdn-mineru.openxlab.org.cn/demo/example.pdf",
+    "file_name": "readme.txt",
+    "options": {
+      "chunk": true,
+      "language": "zh"
+    },
+    "tenant_id": "gsi-default",
+    "resource_type": "document",
+    "file_size": 336919,
+    "metadata": {
+      "title": "流量历时曲线对造林的响应",
+      "language": "zh"
+    }
+  },
+  "response_status": 202,
+  "response_body": {
+    "job_id": "parse-invalid-type-001",
+    "status": "queued",
+    "message": "任务已受理，请查询结果。"
+  }
+}

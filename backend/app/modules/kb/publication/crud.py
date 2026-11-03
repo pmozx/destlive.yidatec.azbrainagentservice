@@ -18,6 +18,7 @@ from app.core.base_crud import CRUDBase
 from ..chunk.model import KbChunkModel
 from .model import KbPublicationModel
 from ..revision.model import KbRevisionModel
+from .schema import PUBLICATION_ACTIVE
 
 
 class KbPublicationCRUD(CRUDBase[KbPublicationModel, BaseModel, BaseModel]):
@@ -51,6 +52,24 @@ class KbPublicationCRUD(CRUDBase[KbPublicationModel, BaseModel, BaseModel]):
             .values(**values)
         )
         return result.rowcount == 1
+
+    async def effective_pointers(self, publication_ids: set[str]) -> dict[str, str | None]:
+        """批量读取发布单元的**当前生效快照**：返回 ``publication_id → current_record_id``。
+
+        回答与引用一旦落库就带着当时的 ``record_id``，之后可能被换指针、停用或删除；
+        判断历史回答是否还该展示时，只需要比对「当时那版是否仍是当前生效版」。
+        不存在或已非 ``active`` 的发布单元不出现在结果里（等同失效），
+        调用方用 ``pointers.get(pub) == 当时的 record_id`` 一句话就能判定。
+        """
+        if not publication_ids:
+            return {}
+        result = await self.db.execute(
+            select(KbPublicationModel.publication_id, KbPublicationModel.current_record_id).where(
+                KbPublicationModel.publication_id.in_(publication_ids),
+                KbPublicationModel.status == PUBLICATION_ACTIVE,
+            )
+        )
+        return {row.publication_id: row.current_record_id for row in result.all()}
 
     async def count_versions(self, publication_id: str) -> int:
         """统计发布单元的版本快照数。"""

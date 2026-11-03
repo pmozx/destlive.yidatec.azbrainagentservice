@@ -8,6 +8,7 @@
 （例如解析任务正文、知识条目正文）留在各自包的 ``conftest.py`` 或用例文件里。
 """
 
+import json
 import socket
 from functools import lru_cache
 from typing import Any
@@ -69,8 +70,6 @@ def make_request(*, method: str = "POST", path: str = PATH, body: bytes = b"") -
     request = StarletteRequest(scope, receive)
     # 真实请求里验签依赖会把解析结果缓存在 state.json_body（见 app.core.request_body），
     # 这里等价预置，让 _failed 之类的同步出口能像真实请求那样回带 request_id
-    import json
-
     try:
         request.state.json_body = json.loads(body) if body else None
     except ValueError:
@@ -84,3 +83,44 @@ async def call(method: str, path: str, *, body: bytes = b"", headers: dict[str, 
     request_headers.update(headers or {})
     async with AsyncClient(transport=ASGITransport(app=create_app()), base_url="http://test") as client:
         return await client.request(method, path, content=body, headers=request_headers)
+
+
+def parse_sse_frames(text: str) -> list[dict[str, Any]]:
+    """SSE 文本 → 帧列表 ``[{"event": str, "data": dict}]``。
+
+    只认本项目规范内的帧形：``event:`` 一行 + 单行 ``data:`` + 空行结尾（规范 S7）；
+    注释行（``:`` 开头）忽略；``data`` 不是 JSON 直接抛错——测试里不接受畸形帧。
+    """
+    frames: list[dict[str, Any]] = []
+    event: str | None = None
+    data: str | None = None
+    for raw in text.splitlines():
+        line = raw.rstrip("\r")
+        if not line:
+            if event is not None and data is not None:
+                frames.append({"event": event, "data": json.loads(data)})
+            event, data = None, None
+            continue
+        if line.startswith(":"):
+            continue
+        if line.startswith("event:"):
+            event = line.removeprefix("event:").strip()
+        elif line.startswith("data:"):
+            data = line.removeprefix("data:").strip()
+    if event is not None and data is not None:
+        frames.append({"event": event, "data": json.loads(data)})
+    return frames
+
+
+async def call_sse(method: str, path: str, *, body: bytes = b"", headers: dict[str, str] | None = None):
+    """进程内调用流式接口并解析帧：返回 ``(response, frames)``。
+
+    ``AsyncClient.request`` 会把响应体读完再返回，所以用例不需要逐帧交互；
+    验状态码/响应头用 ``response``，验帧序用 ``frames``。
+    """
+    request_headers = {"Content-Type": "application/json"} if body else {}
+    request_headers["Accept"] = "text/event-stream"
+    request_headers.update(headers or {})
+    async with AsyncClient(transport=ASGITransport(app=create_app()), base_url="http://test") as client:
+        response = await client.request(method, path, content=body, headers=request_headers)
+    return response, parse_sse_frames(response.text)

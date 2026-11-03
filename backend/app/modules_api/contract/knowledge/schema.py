@@ -105,6 +105,36 @@ class EntryWriteRequest(BaseModel):
         return value
 
 
+class EntryDeactivateRequest(BaseModel):
+    """#20 停用已生效知识请求正文（D05：通用接口，不带 resource_type / resource_id）。"""
+
+    model_config = ConfigDict(extra="ignore")
+
+    request_id: str
+    tenant_id: str
+    user_id: str
+    publication_id: str
+    record_id: str
+    revision: int = Field(ge=1, description="停用后的新修订号，必须大于当前值")
+    reason: str
+
+    @field_validator("request_id", "tenant_id", "user_id", "publication_id", "record_id", "reason")
+    @classmethod
+    def _required_text(cls, value: str) -> str:
+        return ensure_non_blank(value)
+
+
+class EntryDeactivateReceipt(BaseModel):
+    """#20 停用回执：`deactivated` / `searchable` 是固定值，回显给调用方免除二次猜测。"""
+
+    request_id: str
+    publication_id: str
+    record_id: str
+    revision: int
+    deactivated: bool
+    searchable: bool
+
+
 class EntryDeleteRequest(BaseModel):
     """03.4 请求正文。"""
 

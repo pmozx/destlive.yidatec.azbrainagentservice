@@ -7,19 +7,19 @@
    既有切片沿用调用方传入的 ID（AI 校验归属由领域层完成）；
 4. ``cursor`` 解析：游标是不透明字符串，本侧按 ``seq`` 实现（``seq > cursor``）；
 5. 领域异常 → 契约错误码：冲突 409 `STALE_REVISION`、不存在 404、越权 403、依赖失败 500；
-6. #07 检索：``mode`` 分发与「无证据」语义；权限数据不可用 → 503（绝不降级全库）。
+6. #07 检索：``mode`` 分发与「无证据」语义；权限数据不可用 → 503（绝不降级全库），
+   自然语言通道的向量化不可用 → 依赖故障（不拿纯字面命中冒充语义结果）。
 
 字段与切片集合的结构校验（非空、chunk_id 唯一、seq 连续、页码合法）在 ``schema.py``。
 """
 
 from typing import Any
 
-from fastapi import status
-
 from app.core.logger import logger
 from app.modules.kb.publication.schema import (
     BaselineQuery,
     EntryChunkData,
+    EntryDeactivateData,
     EntryDeleteData,
     EntryWriteData,
 )
@@ -30,10 +30,11 @@ from app.modules.kb.publication.service import (
     EntryScopeError,
     KbEntryService,
 )
-from app.modules.kb.retrieval.schema import KeywordQuery
+from app.modules.kb.retrieval.schema import SearchQuery
 from app.modules.kb.retrieval.service import (
     KbRetrievalService,
     RetrievalAuthorizationUnavailable,
+    RetrievalEmbeddingUnavailable,
 )
 
 from ..errors import (
@@ -46,6 +47,7 @@ from ..errors import (
     ContractApiError,
 )
 from .schema import (
+    EntryDeactivateRequest,
     EntryDeleteRequest,
     EntryQueryRequest,
     EntryWriteRequest,
@@ -259,38 +261,64 @@ async def delete_entry(path_publication_id: str, payload: EntryDeleteRequest) ->
     }
 
 
+async def deactivate_entry(path_publication_id: str, payload: EntryDeactivateRequest) -> dict[str, Any]:
+    """#20（D05）：停用已生效知识，成功 200、`deactivated=true`、`searchable=false`。
+
+    与 03.4 删除的差别只在「留不留内容」：删除物理清除切片，停用只停召回、保留正文供审计。
+    路径与正文的 ``publication_id`` 必须一致，否则改错发布单元而返回值看不出异常。
+    """
+    _ensure_path_publication(path_publication_id, payload.publication_id)
+    data = EntryDeactivateData(
+        request_id=payload.request_id,
+        tenant_id=payload.tenant_id,
+        user_id=payload.user_id,
+        publication_id=payload.publication_id,
+        record_id=payload.record_id,
+        revision=payload.revision,
+        reason=payload.reason,
+    )
+    try:
+        receipt = await _SERVICE.deactivate(data)
+    except Exception as exc:
+        raise _map_domain_error(exc) from exc
+    return {
+        "request_id": receipt.request_id,
+        "publication_id": receipt.publication_id,
+        "record_id": receipt.record_id,
+        "revision": receipt.revision,
+        "deactivated": True,
+        "searchable": False,
+    }
+
+
 # ── #07 关键词 / 自然语言检索 ────────────────────────────────────────
 
 
 async def search_knowledge_base(payload: SearchRequest) -> dict[str, Any]:
-    """#07：keyword 模式（T4.1）已实现；natural_language 待 T4.2 交付。
+    """#07：按 ``mode`` 分发两条通道（关键词字面命中 / 自然语言向量 + RRF + 精排）。
 
-    自然语言通道明确回 501，而不是回空结果：空 ``hits`` 在契约里意味着
-    「库里确实没有依据」（``no_evidence=true``），拿它冒充未实现会把联调方引到错的方向。
+    ``no_evidence`` 只在真的没召回时为 true：依赖不可用一律报错，不拿空 ``hits`` 冒充
+    「库里没有依据」——那会把联调方引到错的方向。
 
     授权下推在领域层完成（先算可检索发布单元集合，再在 SQL 里过滤）：
     空集合直接返回空结果；权限数据不可用则 503，不做降级检索。
     """
-    if payload.mode == "natural_language":
-        raise ContractApiError(
-            INTERNAL_ERROR,
-            "自然语言检索（向量召回 + RRF + rerank）由 T4.2 交付，当前仅支持 mode=keyword。",
-            status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            retryable=False,
-            request_id=payload.request_id,
-        )
-
+    query = SearchQuery(
+        query=payload.query,
+        tenant_id=payload.tenant_id,
+        user_id=payload.user_id,
+        limit=payload.limit,
+    )
     try:
-        result = await _RETRIEVAL.keyword_search(
-            KeywordQuery(
-                query=payload.query,
-                tenant_id=payload.tenant_id,
-                user_id=payload.user_id,
-                limit=payload.limit,
-            )
-        )
+        if payload.mode == "natural_language":
+            result = await _RETRIEVAL.natural_language_search(query)
+        else:
+            result = await _RETRIEVAL.keyword_search(query)
     except RetrievalAuthorizationUnavailable as exc:
         raise ContractApiError(AUTHORIZATION_UNAVAILABLE, str(exc)) from exc
+    except RetrievalEmbeddingUnavailable as exc:
+        logger.error("#07 自然语言检索向量化不可用：{}", exc)
+        raise ContractApiError(INTERNAL_ERROR, "向量化依赖暂不可用，请稍后重试。") from exc
 
     return {
         "request_id": payload.request_id,

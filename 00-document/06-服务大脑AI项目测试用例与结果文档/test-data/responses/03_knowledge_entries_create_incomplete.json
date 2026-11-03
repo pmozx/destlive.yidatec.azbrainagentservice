@@ -1,0 +1,19 @@
+{
+  "request_file": "03_knowledge_entries_create_incomplete.json",
+  "request_path": "POST /v1/knowledge/entries",
+  "request": {
+    "request_id": "req-kb-incomplete",
+    "tenant_id": "gsi-default",
+    "resource_type": "document",
+    "publication_id": "pub-test-incomplete"
+  },
+  "response_status": 400,
+  "response_body": {
+    "error": {
+      "code": "INVALID_REQUEST",
+      "message": "user_id 无效：Field required",
+      "retryable": false
+    },
+    "request_id": "req-kb-incomplete"
+  }
+}

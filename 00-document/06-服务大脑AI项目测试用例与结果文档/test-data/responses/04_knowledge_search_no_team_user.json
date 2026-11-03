@@ -1,0 +1,24 @@
+{
+  "request_file": "04_knowledge_search_no_team_user.json",
+  "request_path": "POST /v1/knowledge/search",
+  "request": {
+    "request_id": "req-search-no-team-001",
+    "tenant_id": "gsi-default",
+    "user_id": "999999",
+    "query": "flow duration curve",
+    "mode": "keyword",
+    "limit": 10,
+    "authorization": {
+      "scope_id": "scope-search-no-team-001",
+      "issued_at": 1793691114277,
+      "expires_at": 1793691234277
+    }
+  },
+  "response_status": 200,
+  "response_body": {
+    "request_id": "req-search-no-team-001",
+    "hits": [],
+    "returned_count": 0,
+    "no_evidence": true
+  }
+}

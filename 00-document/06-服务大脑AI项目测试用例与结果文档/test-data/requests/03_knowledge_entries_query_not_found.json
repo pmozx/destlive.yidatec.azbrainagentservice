@@ -1,0 +1,7 @@
+{
+  "request_id": "req-kb-notfound",
+  "tenant_id": "gsi-default",
+  "user_id": "user-demo-001",
+  "record_id": "rec-nonexistent",
+  "limit": 100
+}

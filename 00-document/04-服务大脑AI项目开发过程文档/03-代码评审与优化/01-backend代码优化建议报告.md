@@ -378,7 +378,7 @@ class SystemApiLogCreateSchema(BaseModel):
 | 存量 `sbp_ai_integration_*` 表清理 | 无需处理：dev 库实测 0 张，清理脚本从未落地也不再需要 |
 | `langchain_pg_*` / `vector_demo` | 已处置：前者改造为 `sbp_ai_kb_vector_*` 后 DROP，后者 DROP |
 | `tests/core/test_chat_cite.py` 断裂 | 已修：改指 `app.core.chat.cite`，4 项用例保留 |
-| `tests/debug_body.json` 疑似残留 | **不是残留**：验签用例的 29KB 固定字节样本，用途正当 |
+| `tests/debug_body.json` 疑似残留 | **不是残留**：验签用例的 29KB 固定字节样本，用途正当（2026-11-03 已规整：该样本迁至 `00-document/06-服务大脑AI项目测试用例与结果文档/test-data/requests/`，测试代码包内不再保留任何 JSON） |
 
 ---
 

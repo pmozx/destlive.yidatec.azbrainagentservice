@@ -123,8 +123,12 @@ class Settings(BaseSettings):
     RERANK_API_KEY: str = Field(default="", description="重排序服务密钥（私有化可留空）")
     RERANK_MODEL: str = Field(default="bge-reranker-v2-m3", description="重排序模型名称（服务端单模型时可留空）")
     RERANK_TIMEOUT: float = Field(default=30.0, description="重排序请求超时（秒）")
+    RERANK_SCORE_IS_LOGIT: bool = Field(
+        default=True,
+        description="重排序服务返回的是否为 logit（llama.cpp 默认返回 logit，可正可负）；Jina/Cohere 同构服务返回 0–1 概率，此时置 false",
+    )
 
-    # ==================== 检索配置（#07） ====================
+    # ==================== 检索配置（#07 关键词 + 自然语言） ====================
     SEARCH_INDEX_AUTO_CREATE: bool = Field(
         default=True,
         description="启动期幂等补建分片表关键词 GIN 索引；大表建议关闭，改用 sql/v1.6_keyword_search_index.sql 人工 CONCURRENTLY 建",
@@ -132,7 +136,31 @@ class Settings(BaseSettings):
     SEARCH_KEYWORD_CANDIDATE_MAX: int = Field(
         default=200, description="关键词检索 SQL 候选上限（应用层打分排序后再截断到契约 limit）"
     )
-    SEARCH_SNIPPET_LENGTH: int = Field(default=120, description="关键词命中摘要长度（字符数，超出以省略号截断）")
+    SEARCH_VECTOR_CANDIDATE_MAX: int = Field(
+        default=200, description="向量检索候选上限（HNSW 粗排窗口，融合精排前截断）"
+    )
+    SEARCH_RRF_K: int = Field(
+        default=60,
+        description="RRF 融合平滑常数 k：单通道得分 1/(k+rank)，越大越弱化头部差异（Google 论文经验值 60）",
+    )
+    SEARCH_RERANK_WINDOW: int = Field(
+        default=6,
+        description=(
+            "重排序窗口：融合后送入精排的候选上限（超出按融合序截断），同时是该通道的返回条数上限。"
+            "默认 6 由实测推导：CPU 上 bge-reranker 与条数严格线性（1 条 1.6s / 3 条 3.2s / 6 条 6.1s / "
+            "10 条 9.9s / 20 条 18.9s，正文 500 字符），6 条≈6s 加向量化与库检索仍能压在 "
+            "SEARCH_RERANK_TIMEOUT 内；窗口给到 20 会必然耗尽预算再降级，等于白付一次尾段耗时"
+        ),
+    )
+    SEARCH_RERANK_DOC_CHARS: int = Field(
+        default=500,
+        description="送精排的单条正文字符上限（标题不截断）；实测 800→500 字符可省约 25% 耗时且不影响排序",
+    )
+    SEARCH_RERANK_TIMEOUT: float = Field(
+        default=8.0,
+        description="检索链路的精排尾段预算（秒）：超时即降级为 RRF 融合序，不让调用方白等 RERANK_TIMEOUT",
+    )
+    SEARCH_SNIPPET_LENGTH: int = Field(default=120, description="命中摘要长度（字符数，超出以省略号截断）")
 
     PARSE_THREAD_POOL_SIZE: int = Field(default=4, description="文档解析线程池并发（CPU/IO 密集，建议不超过逻辑核数）")
     PARSE_CHUNK_SIZE: int = Field(default=800, description="默认分片长度（字符数）")
@@ -154,24 +182,34 @@ class Settings(BaseSettings):
         description="预览 URL 签名密钥；留空回落到 CONTRACT_V1_SHARED_SECRET，两者都空则不生成页图 URL",
     )
 
-    # ==================== AI 问答检索生成配置（当前无消费方，待 #07/#14 在 kb 域重建） ====================
-    # 原消费方 app/modules/integration_chat 已随模块删除；这些策略参数保留为重建时的口径基线，
-    # 重建完成前改它们不会产生任何效果（KB_RETRIEVE_TOP_K / KB_LLM_TIMEOUT 目前零引用）。
-    # 模型本身不再建表配置：LLM_* / EMBEDDING_* / RERANK_* 即运行时唯一来源，
-    # 此处只保留「检索与生成策略」参数，换模型无需改代码。
+    # ==================== AI 问答检索生成策略（kb 域：/v1 检索 + 问答、/kb/chat 管理端） ====================
+    # 检索与生成的「策略」参数收口在这里，换模型无需改代码（模型地址见 LLM_* / EMBEDDING_* / RERANK_*）。
+    # KB_LLM_TIMEOUT / KB_LLM_FIRST_TOKEN_TIMEOUT / KB_CHAT_STREAM_* 由 /kb/chat/ask/stream 消费；
+    # KB_RETRIEVE_TOP_K / KB_FOLLOWUP_COUNT 仍为零引用（检索层用自己的窗口），保留为口径基线。
     KB_RETRIEVE_TOP_K: int = Field(default=20, description="向量召回候选条数（精排前的粗排窗口）")
     KB_RETRIEVE_MIN_SCORE: float = Field(default=0.2, description="向量召回余弦相似度下限（1-距离）")
     KB_RERANK_TOP_N: int = Field(default=8, description="精排后保留条数（拼上下文的上限）")
-    KB_RERANK_MIN_SCORE: float = Field(default=0.3, description="精排相关度绝对下限；重排序服务不可用时该闸门跳过")
-    KB_RERANK_RELATIVE_RATIO: float = Field(default=0.6, description="精排相对闸门：低于最高分该比例的命中被丢弃")
+    KB_RERANK_MIN_SCORE: float = Field(
+        default=0.3,
+        description="精排相关度绝对下限（0–1）：低于它判为无证据；同时作为逐条命中的保留下限。重排序服务不可用时该闸门跳过",
+    )
+    KB_RERANK_RELATIVE_RATIO: float = Field(
+        default=0.6, description="精排相对闸门：低于 top1 相关度该比例的命中被丢弃（必须在 0–1 空间，logit 乘比例会反向）"
+    )
     KB_GRADE_MIN_CHUNKS: int = Field(default=1, description="命中条数下限，低于该值直接拒答")
     KB_CONTEXT_MAX_CHARS: int = Field(default=6000, description="拼给模型的知识片段总字符上限")
     KB_SNIPPET_CHARS: int = Field(default=160, description="引用来源摘要片段长度")
     KB_HISTORY_TURNS: int = Field(default=4, description="带入多轮上下文的历史消息条数")
     KB_ANSWER_TEMPERATURE: float = Field(default=0.2, description="回答温度（知识问答建议低温）")
     KB_ANSWER_MAX_TOKENS: int = Field(default=1500, description="回答最大 token 数")
-    KB_LLM_TIMEOUT: float = Field(default=90.0, description="单轮回答整体超时（秒）")
+    KB_LLM_TIMEOUT: float = Field(default=90.0, description="单轮回答总预算（秒）：覆盖检索 + 生成 + 落库")
     KB_LLM_FIRST_TOKEN_TIMEOUT: float = Field(default=15.0, description="首 token 超时（秒），超时转错误帧而不是无限等待")
+    KB_CHAT_STREAM_IDLE_TIMEOUT: float = Field(
+        default=30.0, description="SSE 流式生成的空闲超时（秒）：两片之间超过它即判超时并发 error 帧"
+    )
+    KB_CHAT_STREAM_PING_INTERVAL: float = Field(
+        default=15.0, description="SSE 心跳间隔（秒）：任何阶段空闲超过它发一次 ping 帧，防网关空闲断连"
+    )
     KB_FOLLOWUP_COUNT: int = Field(default=3, description="问题拓展条数")
 
     # ---- 集成期知识空间（文档上传 → 线程池解析 → 分片入库）----

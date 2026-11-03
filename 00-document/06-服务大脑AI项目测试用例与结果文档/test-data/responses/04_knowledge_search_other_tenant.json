@@ -1,0 +1,24 @@
+{
+  "request_file": "04_knowledge_search_other_tenant.json",
+  "request_path": "POST /v1/knowledge/search",
+  "request": {
+    "request_id": "req-search-other-tenant-001",
+    "tenant_id": "gsi-other",
+    "user_id": "1",
+    "query": "flow duration curve",
+    "mode": "keyword",
+    "limit": 10,
+    "authorization": {
+      "scope_id": "scope-search-other-tenant-001",
+      "issued_at": 1793691116185,
+      "expires_at": 1793691236185
+    }
+  },
+  "response_status": 200,
+  "response_body": {
+    "request_id": "req-search-other-tenant-001",
+    "hits": [],
+    "returned_count": 0,
+    "no_evidence": true
+  }
+}

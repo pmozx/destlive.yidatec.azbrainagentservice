@@ -83,6 +83,31 @@ class EntryReceipt:
 
 
 @dataclass(frozen=True)
+class EntryDeactivateData:
+    """D05 停用载荷（通用接口，不带 resource_type / resource_id）。"""
+
+    request_id: str
+    tenant_id: str
+    user_id: str
+    publication_id: str
+    record_id: str
+    revision: int
+    reason: str
+
+
+@dataclass(frozen=True)
+class EntryDeactivateReceipt:
+    """D05 停用回执（固定 deactivated=True / searchable=False）。"""
+
+    request_id: str
+    publication_id: str
+    record_id: str
+    revision: int
+    deactivated: bool = True
+    searchable: bool = False
+
+
+@dataclass(frozen=True)
 class EntryDeleteReceipt:
     """03.4 删除回执。"""
 
@@ -144,7 +169,12 @@ class BaselineData:
 
 # 知识类型与发布单元状态的白名单（与模型 CheckConstraint 保持同一口径）
 RESOURCE_TYPES: tuple[str, ...] = ("document", "faq")
-PUBLICATION_STATUSES: tuple[str, ...] = ("active", "inactive", "deleted")
+# 状态值常量化：crud（判生效指针）与 service（判写链路前置）必须认同一个取值，
+# 字面量散落两处时，一边改了一边漏改会变成「只在停用后失效」的隐性 bug
+PUBLICATION_ACTIVE = "active"
+PUBLICATION_INACTIVE = "inactive"
+PUBLICATION_DELETED = "deleted"
+PUBLICATION_STATUSES: tuple[str, ...] = (PUBLICATION_ACTIVE, PUBLICATION_INACTIVE, PUBLICATION_DELETED)
 
 
 def _normalize_tags(tags: list[str]) -> list[str]:

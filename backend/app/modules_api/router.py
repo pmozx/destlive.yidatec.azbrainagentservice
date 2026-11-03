@@ -10,6 +10,7 @@
 from fastapi import APIRouter
 
 from app.modules_api.contract.chat.controller import ChatRouter
+from app.modules_api.contract.duplicate.controller import DuplicateRouter
 from app.modules_api.contract.knowledge.controller import KnowledgeRouter
 from app.modules_api.contract.parse.controller import ParseRouter
 
@@ -19,6 +20,8 @@ DOMAIN_CONTROLLERS: dict[str, list[APIRouter]] = {
     "contract": [
         ParseRouter,
         KnowledgeRouter,
+        # 重复治理挂在 /knowledge 前缀下但不属于知识写入口，单独一个 controller 便于按接口族演进
+        DuplicateRouter,
         ChatRouter,
     ],
 }

@@ -1,0 +1,25 @@
+{
+  "request_file": "03_knowledge_entries_delete_not_found.json",
+  "request_path": "DELETE /v1/knowledge/entries/pub-nonexistent-999",
+  "request": {
+    "request_id": "req-kb-delete-notfound",
+    "tenant_id": "gsi-default",
+    "user_id": "user-demo-001",
+    "resource_type": "document",
+    "resource_id": "doc-lane2005-fdc",
+    "publication_id": "pub-nonexistent-999",
+    "record_id": "rec-nonexistent",
+    "version_id": "v1",
+    "revision": 2,
+    "reason": "测试删除：目标 publication 不存在。"
+  },
+  "response_status": 404,
+  "response_body": {
+    "error": {
+      "code": "NOT_FOUND",
+      "message": "发布单元 pub-nonexistent-999 不存在。",
+      "retryable": false
+    },
+    "request_id": "req-kb-delete-notfound"
+  }
+}

@@ -1,274 +1,191 @@
-"""解析接口契约测试脚本：执行 #01 / #02 接口的完整测试用例。"""
+"""解析接口契约测试脚本（#01 提交解析任务 / #02 查询解析进度）。
 
-import httpx
+```bash
+cd backend && .venv\\Scripts\\python.exe -m tests.contract.run_parse_tests
+```
+
+入参不写在脚本里：一律从 `00-document/06-.../test-data/requests/` 读文件字节，
+再把**同一份字节**交给签名接口和业务接口，避免「脚本一份、文档一份」的漂移。
+实测结果按「请求文件 → 同名响应文件」逐件回写 `test-data/responses/`：
+`requests/01_parse_jobs_doc.json` 的实测结果就是 `responses/01_parse_jobs_doc.json`，
+文件名与编号完全对应，报告引用时不需要再在汇总文件里查 key。
+"""
+
 import json
-import time
 import sys
 
-# 设置输出编码
-sys.stdout.reconfigure(encoding='utf-8')
+from tests.contract import case_data
+from tests.contract.client import call_api, wait_parse_job
 
-BASE_URL = "http://127.0.0.1:8002"
-RESULTS = []  # 存储测试结果
+sys.stdout.reconfigure(encoding="utf-8")
 
+# 键为「与 requests/ 同名的响应文件名」，最后一件一条落盘
+RESULTS: dict[str, dict] = {}
 
-def get_signed_headers(method: str, path: str, body: str = "") -> dict:
-    """调用测试辅助接口生成签名头"""
-    resp = httpx.post(f"{BASE_URL}/v1/test/signed-headers", json={
-        "method": method,
-        "path": path,
-        "body": body,
-    })
-    return resp.json()["headers"]
+PARSE_SUBMIT_PATH = "/v1/parse/jobs"
 
 
-def submit_parse_job(payload: dict) -> dict:
-    """提交解析任务"""
-    body_str = json.dumps(payload, ensure_ascii=False)
-    headers = get_signed_headers("POST", "/v1/parse/jobs", body_str)
-    headers["Content-Type"] = "application/json"
-    resp = httpx.post(f"{BASE_URL}/v1/parse/jobs", content=body_str, headers=headers)
-    return {"status_code": resp.status_code, "body": resp.json()}
+def section(title: str) -> None:
+    print("\n" + "=" * 70)
+    print(title)
+    print("=" * 70)
 
 
-def query_parse_job(job_id: str) -> dict:
-    """查询解析任务状态"""
-    headers = get_signed_headers("GET", f"/v1/parse/jobs/{job_id}")
-    resp = httpx.get(f"{BASE_URL}/v1/parse/jobs/{job_id}", headers=headers)
-    return {"status_code": resp.status_code, "body": resp.json()}
+def save(response_file: str, data: dict) -> None:
+    """按同名请求文件名收集：responses/ 与 requests/ 一一对应（含编号）。"""
+    RESULTS[response_file] = data
 
 
-def wait_for_completion(job_id: str, timeout: int = 300, interval: int = 3) -> dict:
-    """轮询等待任务完成"""
-    start = time.time()
-    while time.time() - start < timeout:
-        result = query_parse_job(job_id)
-        status = result["body"].get("status")
-        if status in ("succeeded", "failed"):
-            return result
-        print(f"  状态: {status}, 进度: {result['body'].get('progress')}%")
-        time.sleep(interval)
-    return {"error": "timeout", "status_code": None, "body": None}
+def show(payload: dict) -> None:
+    print("\n[请求入参]")
+    print(json.dumps(payload, indent=2, ensure_ascii=False))
 
 
-def save_result(test_name: str, request_data: dict, response_data: dict, final_result: dict = None):
-    """保存测试结果"""
-    result = {
-        "test_name": test_name,
-        "request": request_data,
-        "response": response_data,
-    }
-    if final_result:
-        result["final_result"] = final_result
-    RESULTS.append(result)
+def submit(file_name: str) -> tuple[dict, dict]:
+    """提交解析任务：请求正文取文件原始字节（含缩进/换行），签名与发送用同一份。"""
+    body = case_data.request_bytes(file_name)
+    payload = json.loads(body.decode("utf-8"))
+    show(payload)
+    result = call_api("POST", PARSE_SUBMIT_PATH, body)
+    print(f"\n[响应] HTTP {result['status_code']}")
+    print(json.dumps(result["body"], indent=2, ensure_ascii=False))
+    return payload, result
 
 
-def save_results_to_file(filename: str = "test_results.json"):
-    """将测试结果保存到文件"""
-    with open(filename, 'w', encoding='utf-8') as f:
-        json.dump(RESULTS, f, indent=2, ensure_ascii=False)
-    print(f"\n测试结果已保存到 {filename}")
+def finish(job_id: str) -> dict:
+    """轮询 #02 直到任务结束，返回最后一次查询的原始响应。"""
+    print(f"\n等待任务 {job_id} 完成...")
+    return wait_parse_job(job_id)
 
 
-# ==================== 测试用例 #1：文档解析提交 ====================
-print("=" * 70)
-print("用例 #1：文档解析提交")
-print("=" * 70)
+def query_job(file_name: str, expect_job_id: str) -> tuple[str, dict]:
+    """按 `02_*.json` 里的 `job_id` 拼 GET 路径并轮询到终态。
 
-doc_payload = {
-    "job_id": "parse-doc-100001",
-    "doc_id": "doc-demo-10001",
-    "version_id": "v1",
-    "file_url": "https://cdn-mineru.openxlab.org.cn/demo/example.pdf",
-    "file_name": "Lane_2005_造林与流量历时曲线.pdf",
-    "options": {"chunk": True, "language": "zh"},
-    "tenant_id": "gsi-default",
-    "resource_type": "document",
-    "file_size": 1024,
-    "metadata": {"title": "造林对流量历时曲线的影响"}
+    `02_*` 请求文件只承载路径参数（GET 无请求正文），因此不参与签名摘要。
+    """
+    job_id = case_data.load_request(file_name)["job_id"]
+    if job_id != expect_job_id:
+        raise SystemExit(f"{file_name} 的 job_id={job_id} 与提交入参 {expect_job_id} 不一致")
+    request_path = f"{PARSE_SUBMIT_PATH}/{job_id}"
+    print(f"\n[请求入参] {file_name} → GET {request_path}（无请求正文）")
+    return request_path, finish(job_id)
+
+
+# ==================== 用例 #1：文档解析提交（基线） ====================
+section("用例 #1：文档解析提交 (#01 POST /v1/parse/jobs) — 基线 01_parse_jobs_doc.json")
+
+doc_payload, r1 = submit("01_parse_jobs_doc.json")
+save("01_parse_jobs_doc.json", {
+    "request_file": "01_parse_jobs_doc.json",
+    "request": doc_payload,
+    "response_status": r1["status_code"],
+    "response_body": r1["body"],
+})
+
+doc_query_path, r1_final = query_job("02_parse_jobs_doc.json", doc_payload["job_id"])
+print(f"\n[最终查询响应] HTTP {r1_final['status_code']}")
+print(json.dumps(r1_final["body"], indent=2, ensure_ascii=False))
+save("02_parse_jobs_doc.json", {
+    "request_file": "02_parse_jobs_doc.json",
+    "request_path": f"GET {doc_query_path}",
+    "response_status": r1_final["status_code"],
+    "response_body": r1_final["body"],
+})
+
+
+# ==================== 用例 #2：FAQ 解析提交（基线） ====================
+section("用例 #2：FAQ 解析提交 (#01 POST /v1/parse/jobs) — 基线 01_parse_jobs_faq.json")
+
+faq_payload, r2 = submit("01_parse_jobs_faq.json")
+save("01_parse_jobs_faq.json", {
+    "request_file": "01_parse_jobs_faq.json",
+    "request": faq_payload,
+    "response_status": r2["status_code"],
+    "response_body": r2["body"],
+})
+
+faq_query_path, r2_final = query_job("02_parse_jobs_faq.json", faq_payload["job_id"])
+print(f"\n[最终查询响应] HTTP {r2_final['status_code']}")
+print(json.dumps(r2_final["body"], indent=2, ensure_ascii=False))
+save("02_parse_jobs_faq.json", {
+    "request_file": "02_parse_jobs_faq.json",
+    "request_path": f"GET {faq_query_path}",
+    "response_status": r2_final["status_code"],
+    "response_body": r2_final["body"],
+})
+
+
+# ==================== 用例 #5：文件类型不支持 ====================
+section("用例 #5：文件类型不支持 (#01 POST /v1/parse/jobs)")
+
+payload, r5 = submit("01_parse_jobs_doc_unsupported_type.json")
+save("01_parse_jobs_doc_unsupported_type.json", {
+    "request_file": "01_parse_jobs_doc_unsupported_type.json",
+    "request": payload,
+    "response_status": r5["status_code"],
+    "response_body": r5["body"],
+})
+
+
+# ==================== 用例 #6：文件超过 10MB ====================
+section("用例 #6：文件超过 10MB (#01 POST /v1/parse/jobs)")
+
+payload, r6 = submit("01_parse_jobs_doc_too_large.json")
+save("01_parse_jobs_doc_too_large.json", {
+    "request_file": "01_parse_jobs_doc_too_large.json",
+    "request": payload,
+    "response_status": r6["status_code"],
+    "response_body": r6["body"],
+})
+
+
+# ==================== 用例 #7：FAQ 缺失 prompt_text ====================
+section("用例 #7：FAQ 缺失 prompt_text (#01 POST /v1/parse/jobs)")
+
+payload, r7 = submit("01_parse_jobs_faq_missing_prompt.json")
+save("01_parse_jobs_faq_missing_prompt.json", {
+    "request_file": "01_parse_jobs_faq_missing_prompt.json",
+    "request": payload,
+    "response_status": r7["status_code"],
+    "response_body": r7["body"],
+})
+
+
+# ==================== 用例 #8：任务不存在 ====================
+section("用例 #8：任务不存在 (#02 GET /v1/parse/jobs/{job_id})")
+
+not_found_job_id = case_data.load_request("02_parse_jobs_not_found.json")["job_id"]
+request_path = f"{PARSE_SUBMIT_PATH}/{not_found_job_id}"
+print(f"\n[请求入参] 02_parse_jobs_not_found.json → GET {request_path}（无请求正文）")
+r8 = call_api("GET", request_path)
+print(f"\n[响应] HTTP {r8['status_code']}")
+print(json.dumps(r8["body"], indent=2, ensure_ascii=False))
+save("02_parse_jobs_not_found.json", {
+    "request_file": "02_parse_jobs_not_found.json",
+    "request_path": f"GET {request_path}",
+    "response_status": r8["status_code"],
+    "response_body": r8["body"],
+})
+
+
+# ==================== 用例 #9：幂等重试 ====================
+section("用例 #9：幂等重试 (#01 POST /v1/parse/jobs) — 重复用例 #1 的同一份请求")
+
+retry_payload, r9 = submit("01_parse_jobs_doc.json")
+if retry_payload != doc_payload:
+    raise SystemExit("重试正文与用例 #1 不一致，幂等前提不成立")
+# 同一份请求文件 ⇒ 同一个响应文件：重试回执作为附加证据记在同一处
+doc_receipt = RESULTS["01_parse_jobs_doc.json"]
+doc_receipt["idempotent_retry"] = {
+    "response_status": r9["status_code"],
+    "response_body": r9["body"],
+    "identical": r9["body"] == doc_receipt["response_body"],
 }
-
-print("\n请求入参：")
-print(json.dumps(doc_payload, indent=2, ensure_ascii=False))
-
-result = submit_parse_job(doc_payload)
-print(f"\nHTTP {result['status_code']}")
-print("响应出参：")
-print(json.dumps(result["body"], indent=2, ensure_ascii=False))
-
-# 等待任务完成
-print("\n等待任务完成...")
-final_result = wait_for_completion("parse-doc-100001")
-print(f"\n最终结果（#02 查询）:")
-print(json.dumps(final_result, indent=2, ensure_ascii=False))
-
-# 保存结果
-save_result("用例 #1：文档解析提交", doc_payload, result, final_result)
+print(f"\n[幂等] 重试回执与首次一致：{doc_receipt['idempotent_retry']['identical']}")
 
 
-# ==================== 测试用例 #2：FAQ 解析提交 ====================
-print("\n" + "=" * 70)
-print("用例 #2：FAQ 解析提交")
-print("=" * 70)
-
-faq_payload = {
-    "job_id": "parse-faq-200001",
-    "doc_id": "doc-demo-20001",
-    "version_id": "1",
-    "file_url": "https://cdn-mineru.openxlab.org.cn/demo/example.pdf",
-    "file_name": "example.pdf",
-    "prompt_text": "请基于文档内容，严格依据原文提炼覆盖研究目的、方法、数据、结果、结论与局限性的中文FAQ问答对，答案准确完整并可含关键公式、数值和术语，每问独立有意义、避免重复宽泛，按标准FAQ格式输出。",
-    "model_key": "default",
-    "options": {"chunk": True, "language": "中文"},
-    "tenant_id": "gsi-default",
-    "resource_type": "faq",
-    "file_id": "108",
-    "file_size": 102400,
-    "metadata": {
-        "title": "造林对流量历时曲线的影响",
-        "doc_type": "FAQ",
-        "owner": "kali03",
-        "author": "kali03",
-        "team": "TEAM-IT",
-        "language": "中文",
-        "trust": "A",
-        "summary": "VPN申请与开通",
-        "content": "VPN申请流程",
-        "tags": ["VPN"],
-        "expire_at": "2027-12-31",
-        "scheduled_publish_at": "2026-11-01T09:00:00+08:00",
-        "invisible_teams": ["TEAM-EXCLUDED"],
-        "audience": {
-            "department": ["IT"],
-            "team": ["TEAM-IT"],
-            "role": ["工程师"],
-            "region": ["中国"],
-            "skill": ["基础"],
-            "scenario": ["VPN申请"]
-        },
-        "cover_url": "https://files.example.com/cover.png",
-        "cover_name": "cover.png",
-        "linked_doc_id": "doc-source-001",
-        "linked_section": "VPN申请",
-        "change_impact_level": "minor",
-        "units": [
-            {
-                "unit_id": "unit-1",
-                "no": "U001",
-                "title": "申请步骤",
-                "kind": "text",
-                "text": "在服务台提交申请。"
-            }
-        ]
-    }
-}
-
-print("\n请求入参：")
-print(json.dumps(faq_payload, indent=2, ensure_ascii=False))
-
-result = submit_parse_job(faq_payload)
-print(f"\nHTTP {result['status_code']}")
-print("响应出参：")
-print(json.dumps(result["body"], indent=2, ensure_ascii=False))
-
-# 等待任务完成
-print("\n等待任务完成...")
-final_result = wait_for_completion("parse-faq-200001")
-print(f"\n最终结果（#02 查询）:")
-print(json.dumps(final_result, indent=2, ensure_ascii=False))
-
-# 保存结果
-save_result("用例 #2：FAQ 解析提交", faq_payload, result, final_result)
-
-
-# ==================== 测试用例 #5：文件类型不支持 ====================
-print("\n" + "=" * 70)
-print("用例 #5：文件类型不支持")
-print("=" * 70)
-
-invalid_type_payload = doc_payload.copy()
-invalid_type_payload["job_id"] = "parse-invalid-type-001"
-invalid_type_payload["file_name"] = "readme.txt"
-
-print("\n请求入参（file_name 改为 .txt）：")
-print(json.dumps(invalid_type_payload, indent=2, ensure_ascii=False))
-
-result = submit_parse_job(invalid_type_payload)
-print(f"\nHTTP {result['status_code']}")
-print("响应出参：")
-print(json.dumps(result["body"], indent=2, ensure_ascii=False))
-save_result("用例 #5：文件类型不支持", invalid_type_payload, result)
-
-
-# ==================== 测试用例 #6：文件超过 10MB ====================
-print("\n" + "=" * 70)
-print("用例 #6：文件超过 10MB")
-print("=" * 70)
-
-too_large_payload = doc_payload.copy()
-too_large_payload["job_id"] = "parse-too-large-001"
-too_large_payload["file_size"] = 11000000
-
-print("\n请求入参（file_size 改为 11MB）：")
-print(json.dumps(too_large_payload, indent=2, ensure_ascii=False))
-
-result = submit_parse_job(too_large_payload)
-print(f"\nHTTP {result['status_code']}")
-print("响应出参：")
-print(json.dumps(result["body"], indent=2, ensure_ascii=False))
-save_result("用例 #6：文件超过 10MB", too_large_payload, result)
-
-
-# ==================== 测试用例 #7：FAQ 缺失 prompt_text ====================
-print("\n" + "=" * 70)
-print("用例 #7：FAQ 缺失 prompt_text")
-print("=" * 70)
-
-missing_prompt_payload = faq_payload.copy()
-missing_prompt_payload["job_id"] = "parse-missing-prompt-001"
-del missing_prompt_payload["prompt_text"]
-
-print("\n请求入参（删除 prompt_text）：")
-print(json.dumps(missing_prompt_payload, indent=2, ensure_ascii=False))
-
-result = submit_parse_job(missing_prompt_payload)
-print(f"\nHTTP {result['status_code']}")
-print("响应出参：")
-print(json.dumps(result["body"], indent=2, ensure_ascii=False))
-save_result("用例 #7：FAQ 缺失 prompt_text", missing_prompt_payload, result)
-
-
-# ==================== 测试用例 #8：任务不存在 ====================
-print("\n" + "=" * 70)
-print("用例 #8：任务不存在")
-print("=" * 70)
-
-print("\n请求：GET /v1/parse/jobs/non-existent-job-id")
-result = query_parse_job("non-existent-job-id")
-print(f"\nHTTP {result['status_code']}")
-print("响应出参：")
-print(json.dumps(result["body"], indent=2, ensure_ascii=False))
-save_result("用例 #8：任务不存在", {"job_id": "non-existent-job-id"}, result)
-
-
-# ==================== 测试用例 #9：幂等重试 ====================
-print("\n" + "=" * 70)
-print("用例 #9：幂等重试（与用例 #1 相同入参）")
-print("=" * 70)
-
-print("\n请求入参（与用例 #1 完全相同）：")
-print(json.dumps(doc_payload, indent=2, ensure_ascii=False))
-
-result = submit_parse_job(doc_payload)
-print(f"\nHTTP {result['status_code']}")
-print("响应出参：")
-print(json.dumps(result["body"], indent=2, ensure_ascii=False))
-save_result("用例 #9：幂等重试", doc_payload, result)
-
-
-print("\n" + "=" * 70)
-print("测试执行完成！")
-print("=" * 70)
-
-# 保存所有测试结果到文件
-save_results_to_file("tests/contract/test_results.json")
+# ==================== 保存结果 ====================
+section("测试执行完成！回写结果（responses/ 与 requests/ 同名一一对应）...")
+for response_file, payload in RESULTS.items():
+    case_data.save_result(response_file, payload)
+    print(f"  {response_file}")

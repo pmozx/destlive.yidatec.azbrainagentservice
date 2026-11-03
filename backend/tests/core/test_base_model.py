@@ -142,6 +142,7 @@ async def test_delete_removes_rows_physically(session: AsyncSession) -> None:
             current_record_id="record-1",
             current_revision=1,
             status="active",
+            title="待删除的测试条目",
         )
     )
     await session.commit()

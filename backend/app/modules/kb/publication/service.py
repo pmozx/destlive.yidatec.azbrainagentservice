@@ -42,6 +42,8 @@ from .schema import (
     BaselineData,
     BaselineQuery,
     EntryChunkData,
+    EntryDeactivateData,
+    EntryDeactivateReceipt,
     EntryDeleteData,
     EntryDeleteReceipt,
     EntryReceipt,
@@ -60,11 +62,12 @@ from .schema import (
     KbPublicationSnapshotDeleteSchema,
     KbPublicationStatusSchema,
     KbPublicationUpdateSchema,
+    PUBLICATION_ACTIVE,
+    PUBLICATION_DELETED,
+    PUBLICATION_INACTIVE,
 )
 
-# ── 状态常量 ────────────────────────────────────────────────────────────────
-PUBLICATION_ACTIVE = "active"
-PUBLICATION_DELETED = "deleted"
+# ── 状态常量（发布单元部分从 schema 导入，保持单一取值来源）──────────────────
 REVISION_ONLINE = "online"
 REVISION_ARCHIVED = "archived"
 
@@ -344,7 +347,84 @@ class KbEntryService:
             deleted_chunk_count=deleted,
         )
 
+    async def deactivate(self, data: EntryDeactivateData) -> EntryDeactivateReceipt:
+        """D05 停用已生效知识：停止检索与引用，**保留**正文与向量供审计。
+
+        与 03.4 删除的区别只在「留不留内容」：删除物理清除切片（#06 要求删后不可召回），
+        停用只把切片与版本置为 `archived` 并让发布单元离开 `active`。三处同时失效是刻意冗余：
+        检索硬过滤同时看「发布单元生效」「快照可检索」「切片在线」，任何一处漏改都会在
+        停用后继续被召回。
+
+        幂等口径：完全相同（record_id 与 revision 都一致）的重复调用直接返回同一份回执；
+        已停用后拿旧修订再来，一律按 409 `STALE_REVISION` 拒绝，而不是“静默成功”。
+        """
+        async with async_session_factory() as session, session.begin():
+            pub_crud = KbPublicationCRUD(session)
+            publication = await pub_crud.get(publication_id=data.publication_id)
+            if publication is None:
+                raise EntryNotFoundError(f"发布单元 {data.publication_id} 不存在。")
+            # D05 没有 resource_type / resource_id：只校验租户归属
+            if publication.tenant_id is not None and publication.tenant_id != data.tenant_id:
+                raise EntryScopeError(
+                    f"发布单元 {data.publication_id} 属于租户 {publication.tenant_id}，与请求的 {data.tenant_id} 不一致。"
+                )
+            if publication.status == PUBLICATION_DELETED:
+                raise EntryConflictError(f"发布单元 {data.publication_id} 已删除，不能停用。")
+            if publication.status == PUBLICATION_INACTIVE:
+                if publication.current_record_id == data.record_id and publication.current_revision == data.revision:
+                    return self._deactivate_receipt(data)
+                raise EntryConflictError(
+                    f"发布单元 {data.publication_id} 已停用（revision={publication.current_revision}），"
+                    "不同修订的停用请求请以最新基线为准。"
+                )
+            if publication.current_record_id != data.record_id:
+                raise EntryConflictError(
+                    f"record_id {data.record_id} 不是当前生效快照（当前为 {publication.current_record_id}），请读取最新基线。"
+                )
+            if data.revision <= publication.current_revision:
+                raise EntryConflictError(
+                    f"停用 revision 必须大于当前值 {publication.current_revision}，收到 {data.revision}。"
+                )
+
+            now = datetime.now(UTC)
+            archived_chunks = await KbChunkCRUD(session).archive_by_record(
+                publication_id=data.publication_id, record_id=data.record_id
+            )
+            await KbRevisionCRUD(session).archive_by_record(
+                publication_id=data.publication_id, record_id=data.record_id
+            )
+            # current_record_id 保留：停用后仍需知道「停的是哪个快照」（审计与幂等判定都要它），
+            # 召回侧由 status != active 拦住，不依赖指针是否为空
+            advanced = await pub_crud.advance(
+                publication_id=data.publication_id,
+                expected_revision=publication.current_revision,
+                values={"status": PUBLICATION_INACTIVE, "current_revision": data.revision, "last_synced_at": now},
+            )
+            if not advanced:
+                raise EntryConflictError(
+                    f"发布单元 {data.publication_id} 的基线已被并发请求推进，请读取最新内容后重新提交。"
+                )
+
+        logger.info(
+            "知识停用完成：publication_id={} record_id={} revision={} archived_chunks={} reason={}",
+            data.publication_id,
+            data.record_id,
+            data.revision,
+            archived_chunks,
+            data.reason,
+        )
+        return self._deactivate_receipt(data)
+
     # ── 私有方法 ────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _deactivate_receipt(data: EntryDeactivateData) -> EntryDeactivateReceipt:
+        return EntryDeactivateReceipt(
+            request_id=data.request_id,
+            publication_id=data.publication_id,
+            record_id=data.record_id,
+            revision=data.revision,
+        )
 
     @staticmethod
     def _assert_scope(publication: KbPublicationModel, data: EntryWriteData | EntryDeleteData) -> None:

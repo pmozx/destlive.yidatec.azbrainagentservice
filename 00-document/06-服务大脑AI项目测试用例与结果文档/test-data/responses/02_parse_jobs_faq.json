@@ -1,0 +1,175 @@
+{
+  "request_file": "02_parse_jobs_faq.json",
+  "request_path": "GET /v1/parse/jobs/parse-faq-200001",
+  "response_status": 200,
+  "response_body": {
+    "job_id": "parse-faq-200001",
+    "status": "succeeded",
+    "progress": 100,
+    "result": {
+      "pages": [
+        {
+          "width": 1088,
+          "height": 1486,
+          "page_no": 1,
+          "image_url": "http://192.168.29.2:8002/previews/parse/parse-faq-200001/page-1.png?expires=1794290189&sig=d59100180ac36021bf2abd35ad35fcec2134b74d1d72b4d907581cf877d5b9d1"
+        },
+        {
+          "width": 1088,
+          "height": 1486,
+          "page_no": 2,
+          "image_url": "http://192.168.29.2:8002/previews/parse/parse-faq-200001/page-2.png?expires=1794290189&sig=5a7bee16a3eb5591e9acb0a450e8f5a5e27c4beec5c02f12b017ff3d766060f5"
+        },
+        {
+          "width": 1088,
+          "height": 1486,
+          "page_no": 3,
+          "image_url": "http://192.168.29.2:8002/previews/parse/parse-faq-200001/page-3.png?expires=1794290189&sig=2f8f9ec99ccaaed284d40e7de092b58ece1e199f7389b54e3364f8930ede9e85"
+        },
+        {
+          "width": 1088,
+          "height": 1486,
+          "page_no": 4,
+          "image_url": "http://192.168.29.2:8002/previews/parse/parse-faq-200001/page-4.png?expires=1794290189&sig=f5dee1b86cc57dfe0897e5b6d9a119ce3b1769b27cf675ecd332552f33b15a8f"
+        },
+        {
+          "width": 1088,
+          "height": 1486,
+          "page_no": 5,
+          "image_url": "http://192.168.29.2:8002/previews/parse/parse-faq-200001/page-5.png?expires=1794290189&sig=d706f472a5266afc077c38c971681344849b1bef98b3d936ab05ccd9987e24bf"
+        },
+        {
+          "width": 1088,
+          "height": 1486,
+          "page_no": 6,
+          "image_url": "http://192.168.29.2:8002/previews/parse/parse-faq-200001/page-6.png?expires=1794290189&sig=71028ada59c810ed83851608aa90476a2311c7f474f26d1851c4c0ee4089d319"
+        },
+        {
+          "width": 1088,
+          "height": 1486,
+          "page_no": 7,
+          "image_url": "http://192.168.29.2:8002/previews/parse/parse-faq-200001/page-7.png?expires=1794290189&sig=fbad92739f59c51b6a64e35dcaf373c02f1be78894735e4dd0008f5e371b1ef4"
+        },
+        {
+          "width": 1088,
+          "height": 1486,
+          "page_no": 8,
+          "image_url": "http://192.168.29.2:8002/previews/parse/parse-faq-200001/page-8.png?expires=1794290189&sig=5a488d5b293edb6ef7d256857afb6942b82a4067bf24c42e94b018f28576fe3d"
+        },
+        {
+          "width": 1088,
+          "height": 1486,
+          "page_no": 9,
+          "image_url": "http://192.168.29.2:8002/previews/parse/parse-faq-200001/page-9.png?expires=1794290189&sig=3fd82f45ed223e617c7132c2d1210446bd20df2210090e10263426a53c7163d7"
+        },
+        {
+          "width": 1088,
+          "height": 1486,
+          "page_no": 10,
+          "image_url": "http://192.168.29.2:8002/previews/parse/parse-faq-200001/page-10.png?expires=1794290189&sig=6d35e2fb76bfbf31345f50a2d0f4763ef500510a1261e66e26f34657dd29d552"
+        },
+        {
+          "width": 1088,
+          "height": 1486,
+          "page_no": 11,
+          "image_url": "http://192.168.29.2:8002/previews/parse/parse-faq-200001/page-11.png?expires=1794290189&sig=6084ef9d6aea62242959e200562d0077a89c05d5c75eb5bd3338516b9256fbf4"
+        },
+        {
+          "width": 1088,
+          "height": 1486,
+          "page_no": 12,
+          "image_url": "http://192.168.29.2:8002/previews/parse/parse-faq-200001/page-12.png?expires=1794290189&sig=2daf810f33414b4f530625e63ab2ac4cbeabd1632f72e80a25da2d04803acfb1"
+        },
+        {
+          "width": 1088,
+          "height": 1486,
+          "page_no": 13,
+          "image_url": "http://192.168.29.2:8002/previews/parse/parse-faq-200001/page-13.png?expires=1794290189&sig=582ea72b2968b1054ced0f162f3ac4011b24024d2b100a297c185fd6948bf9a9"
+        }
+      ],
+      "chunks": [
+        {
+          "seq": 1,
+          "content": "该研究旨在量化造林后流域年流量过程线（FDC）的变化。具体目标包括：(1) 以年降雨量和林龄为参数，拟合观测到的年FDC百分位数（如每年记录的10%分位数）时间序列模型；(2) 用长期平均降雨量替代年降雨量变化，获得气候调整后的FDC；(3) 量化随林龄增长的FDC百分位数变化。其关键假设是降雨和林龄是蒸散发的主要驱动因素，通过去除降雨信号的变化，使径流变化仅归因于人工林的蒸散发。",
+          "heading": "这项研究的核心目标是什么？",
+          "source_type": "text"
+        },
+        {
+          "seq": 2,
+          "content": "模型形式为：Q_% = a + b(ΔP) + Y / [1 + exp((T - T_half)/S)]。其中Q_%是百分位流量（如Q_50为50%分位流量）；a是平均气候条件（ΔP=0）下造林达到新平衡时的Q_%值；b是降雨项系数；ΔP是年降雨量与记录期平均值的偏差；Y是造林引起的流量变化幅度；S描述响应曲线的形状；T_half是造林引起Q_%减少一半所需的时间（年）。对于平均预处理条件（ΔP=0, T=0），Q_%约等于a+Y。",
+          "heading": "研究中使用的FDC百分位数回归模型（公式2）的具体形式是什么？各参数含义是什么？",
+          "source_type": "text"
+        },
+        {
+          "seq": 3,
+          "content": "零流量天数分析采用逆S形函数，将公式(2)的左侧替换为每年零流量天数N_zero，即N_zero = a + b(ΔP) + Y / [1 + exp((T - T_half)/S)]。与FDC模型不同，此处b和S被约束为负值，因为N_zero随降雨增加而减少，随人工林生长而增加。对于平均预处理条件（ΔP=0, T=0），N_zero约等于a；Y表示造林引起的零流量天数变化幅度；a+Y为造林达到新平衡时的零流量天数。",
+          "heading": "零流量天数分析模型（公式3）与FDC模型有何不同？",
+          "source_type": "text"
+        },
+        {
+          "seq": 4,
+          "content": "研究使用了来自澳大利亚东南部、新西兰和南非的10个流域数据。除Traralgon Creek外，其余流域均种植松树（主要为Pinus radiata，两个Cathedral Peak流域种植P. patula）。Traralgon Creek仅有6%松树，其余为桉树（大部分为Eucalyptus regnans）。流域面积从18公顷（Stewarts Ck 5）到8700公顷（Traralgon Ck）不等，平均年降雨量从775毫米（Pine Ck）到1504毫米（Cathedral Peak 3）。预处理期0-30年，林龄9-20年，平均土壤深度从<1米到2米，基流指数（BFI）从0.26（Pine Ck）到0.87（Lambrechtsbos B）。",
+          "heading": "研究使用了哪些流域数据？它们的主要特征是什么？",
+          "source_type": "text"
+        },
+        {
+          "seq": 5,
+          "content": "模型对观测数据的拟合总体良好。77%的拟合返回效率系数E>0.7，60%达到0.8或更好。模型对高流量（低百分位数）拟合更好，大多数较差的拟合出现在80-100百分位数范围。Lambrechtsbos A和B的E值最差。对于10-50百分位数，45个数据集中有50个在0.05水平上降雨项显著。模型对10-50百分位数的拟合最好，这与降雨项显著性最高的结果一致。",
+          "heading": "模型拟合效果如何？哪些百分位数的拟合最好？",
+          "source_type": "text"
+        },
+        {
+          "seq": 6,
+          "content": "研究识别出两类响应。第一组（Group 1）包括Stewarts Creek、Pine Creek和Redhill，其特征是零流量天数大幅增加，低流量比高流量受到更大比例减少，导致流量完全停止。第二组（Group 2）包括Cathedral Peak 2和3、Lambrechtsbos A、Lambrechtsbos B、Glendhu 2、Biesievlei和Traralgon Creek，其特征是所有百分位数上的流量减少更为均匀。两组差异可能部分由蓄水特征解释。",
+          "heading": "气候调整后的FDC揭示了哪两类响应（分组）？各有什么特征？",
+          "source_type": "text"
+        },
+        {
+          "seq": 7,
+          "content": "对第一组流域的零流量天数分析模型表现特别好，气候调整后显示N_zero显著增加。零流量天数方法可用于确定任何给定流量发生频率随造林的变化。该方法为理解流域对造林的响应提供了方法论，特别是在没有配对流域数据的情况下。",
+          "heading": "造林对零流量天数（N_zero）的影响如何？该分析方法有何应用价值？",
+          "source_type": "text"
+        },
+        {
+          "seq": 8,
+          "content": "研究的主要结论包括：(1) 所提出的方法能有效去除降雨变异性，成功拟合了10个流域中8个的大多数百分位数流量变化，特别是10-50百分位数；(2) 气候调整后的FDC揭示了两种类型的流量减少响应：第一组低流量受影响更大且零流量天数显著增加，第二组所有百分位数流量减少更均匀；(3) 模型模拟的流量减少与已发表的配对流域实验结果一致；(4) 零流量天数方法表现良好，可用于确定任何给定流量随造林的变化。该方法为缺乏配对流域数据时理解流域对造林响应提供了方法论。",
+          "heading": "研究的主要结论是什么？",
+          "source_type": "text"
+        },
+        {
+          "seq": 9,
+          "content": "研究的局限性包括：(1) 并非所有流域都有预处理数据，为保持分析一致性，所有数据集从处理年份开始；(2) 土壤特征数据（特别是孔隙度）不统一，仅报告平均深度，只能提供蓄水能力的粗略指示；(3) 有5个实例因长时间零流量导致数据不足无法拟合模型；(4) 部分流域（如Glendhu 2和Cathedral Peak 3的某些百分位数）的E值可能夸大了拟合优度；(5) 流量减少的比较受到流域造林面积比例不同的影响（从70%到100%），但未进行线性缩放，因为无证据支持线性关系；(6) 模型假设降雨和林龄是主要驱动因素，且流域物理性质（土壤、地形）时间不变。",
+          "heading": "研究有哪些局限性？",
+          "source_type": "text"
+        },
+        {
+          "seq": 10,
+          "content": "研究将完整模型(2)拆分为简化形式：仅含时间项（设b=0，公式5）和仅含降雨项（设Y=0，公式6）。然后对FDC分析和零流量天数分析进行t检验，比较简化模型与完整模型是否显著不同。由于降雨和时间项必须为正，采用单尾t检验。t值计算为F^0.5，与0.05显著性水平的临界值比较。F统计量按公式(7)计算：F = [(SSE_s - SSE_c)/(df_c - df_s)] / (SSE_c/df_c)，其中SSE为残差平方和，df为自由度，下标s和c分别指简化模型和完整模型。",
+          "heading": "研究中如何检验降雨项和时间项的显著性？",
+          "source_type": "text"
+        },
+        {
+          "seq": 11,
+          "content": "效率系数E定义为：E = 1.0 - Σ(O_i - P_i)² / Σ(O_i - Ō)²，其中O为观测数据，P为预测值，Ō为整个时期的平均值。E等于1减去均方误差与观测数据方差之比，范围从-∞到1.0。E优先于r²使用，因为它是偏离1:1线的度量，而r²仅度量相关性。由于E总是小于r²，研究中任意将E>0.7视为模型拟合充分。",
+          "heading": "研究中使用的效率系数E（Nash-Sutcliffe）是如何定义的？为什么优先于r²使用？",
+          "source_type": "text"
+        }
+      ],
+      "warnings": [
+        "文档正文超过 30000 字符，FAQ 提取仅使用前 30000 字符。"
+      ],
+      "file_name": "Lane_2005_造林与流量历时曲线.pdf",
+      "suggested_doc_type": "FAQ",
+      "suggested": {
+        "tags": [
+          "造林",
+          "流量历时曲线",
+          "流量减少",
+          "配对流域"
+        ],
+        "title": "流量历时曲线对造林的响应",
+        "summary": "基于澳大利亚、南非和新西兰 10 个流域的长期日流量与年降雨数据，剔除降雨变异性后量化人工林建立对流量历时曲线（FDC）各百分位数的影响。"
+      }
+    }
+  }
+}

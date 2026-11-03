@@ -93,12 +93,12 @@ cd backend && uv run python -m tests.contract.debug_signed_headers
 ## 七、当前基线
 
 ```bash
-cd backend && uv run pytest -q     # 132 passed
+cd backend && uv run pytest -q     # 243 passed
 ```
 
 | 包 | 用例数 | 文件 |
 |---|---|---|
-| `core/` | 51 | base_model 9 / base_crud 2 / settings 3 / db_getter 3 / request_body 5 / chat_cite 4 / vector_store 20 / embedding_client 5 |
-| `contract/` | 44 | signature 23 / idempotency 10 / error_codes 3 / audit 3 / routes 5 |
-| `modules/` | 34 | kb 25（parse_job 4 / publication 10 / entry_write 11）；system 9（access_trace） |
-| `stages/` | 3 | m1_contract：路由清单 / 错误响应声明 / 501 骨架 |
+| `core/` | 101 | base_model 9 / base_crud 2 / settings 3 / db_getter 3 / request_body 5 / chat_cite 4 / chat_rerank 8 / chat_streaming 10 / sse 6 / vector_store 20 / embedding_client 5 / s3_client 26 |
+| `contract/` | 54 | signature 23 / idempotency 10 / routes 5 / audit 3 / error_codes 3 / chat_projection 10 |
+| `modules/` | 86 | kb 77（parse_job 11 / publication 10 / entry_write 12 / keyword_search 12 / natural_language_search 12 / knowledge_admin 3 / retrieval_admin 4 / chat_admin 6 / chat_stream 7）；system 9（access_trace） |
+| `stages/` | 2 | m1_contract：路由清单 / 错误响应声明（501 骨架断言已于 #07 上线时删除） |

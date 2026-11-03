@@ -1,0 +1,21 @@
+{
+  "request_file": "04_knowledge_search_authorization_missing.json",
+  "request_path": "POST /v1/knowledge/search",
+  "request": {
+    "request_id": "req-search-auth-missing-001",
+    "tenant_id": "gsi-default",
+    "user_id": "1",
+    "query": "flow duration curve",
+    "mode": "keyword",
+    "limit": 10
+  },
+  "response_status": 400,
+  "response_body": {
+    "error": {
+      "code": "INVALID_REQUEST",
+      "message": "authorization 无效：Field required",
+      "retryable": false
+    },
+    "request_id": "req-search-auth-missing-001"
+  }
+}

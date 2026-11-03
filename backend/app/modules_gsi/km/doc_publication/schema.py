@@ -1,8 +1,39 @@
 """GSI 文档按团队生效关系出入参 Schema。"""
 
+from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
+
+
+def publication_subtitle(teams: Sequence[str]) -> str:
+    """受众团队 → 展示副标题，形如「正式知识 · IT团队」；无团队时只回「正式知识」。
+
+    下线为模块函数而不是只做属性：治理分组可能把多个团队的发布单元合成一条知识，
+    调用方会先把团队名合并去重再取文案，两处必须用同一口径，不能各拼一份字符串。
+    """
+    return "正式知识 · " + "、".join(teams) if teams else "正式知识"
+
+
+@dataclass(frozen=True)
+class SbpKmDocPublicationBrief:
+    """发布单元的业务展示信息（治理页 ``items[].subtitle`` 的取数来源）。
+
+    只带「展示与比对需要的那几列」，不把整行交给上层：GSI 业务表由 GSI 维护，
+    AI 侧只用它补展示，不应依赖其它列。
+    """
+
+    publication_id: str
+    doc_id: str
+    record_id: str
+    index_status: str
+    teams: tuple[str, ...] = ()
+
+    @property
+    def subtitle(self) -> str:
+        """单个发布单元的展示副标题（口径见 :func:`publication_subtitle`）。"""
+        return publication_subtitle(self.teams)
 
 
 class SbpKmDocPublicationOutSchema(BaseModel):

@@ -68,6 +68,24 @@ export const constantRoutes = [
         component: () => import('@/views/module_kb/dupGroup/index.vue'),
         meta: { title: '重复治理', icon: 'CopyDocument' },
       },
+      {
+        path: 'retrieval',
+        name: 'KbRetrieval',
+        component: () => import('@/views/module_kb/retrieval/index.vue'),
+        meta: { title: '知识检索', icon: 'Search' },
+      },
+      {
+        path: 'ai-chat',
+        name: 'KbAiChat',
+        component: () => import('@/views/module_kb/aiChat/index.vue'),
+        meta: { title: 'AI 对话', icon: 'MagicStick' },
+      },
+      {
+        path: 'chat-record',
+        name: 'KbChatRecord',
+        component: () => import('@/views/module_kb/chatRecord/index.vue'),
+        meta: { title: '会话记录', icon: 'ChatLineSquare' },
+      },
     ],
   },
   {

@@ -1,0 +1,13 @@
+{
+  "request_id": "req-search-auth-too-long-001",
+  "tenant_id": "gsi-default",
+  "user_id": "1",
+  "query": "flow duration curve",
+  "mode": "keyword",
+  "limit": 10,
+  "authorization": {
+    "scope_id": "scope-search-auth-too-long-001",
+    "issued_at": "__AUTH_ISSUED_AT__",
+    "expires_at": "__AUTH_EXPIRES_300S__"
+  }
+}

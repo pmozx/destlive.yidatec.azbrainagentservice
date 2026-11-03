@@ -1,7 +1,7 @@
-"""调试脚本（**不是测试**）：生成一组可直接粘贴到 curl / Apifox / Postman 的签名头。
+r"""调试脚本（**不是测试**）：生成一组可直接粘贴到 curl / Apifox / Postman 的签名头。
 
 ```bash
-cd backend && uv run python -m tests.contract.debug_signed_headers
+cd backend && .venv\Scripts\python.exe -m tests.contract.debug_signed_headers
 ```
 
 四处必须与服务端完全一致，否则一律 401「服务签名认证失败」：
@@ -9,7 +9,7 @@ cd backend && uv run python -m tests.contract.debug_signed_headers
 1. 密钥 = `env/.env.<ENVIRONMENT>` 的 `CONTRACT_V1_SHARED_SECRET`（不要再硬编码另一份）；
 2. path = 真实请求路径，服务端用 `request.url.path` 比对，传空串必错；
 3. body 原始字节：多行 JSON 完全支持，但缩进/换行/末尾换行差一个字节就验不过，
-   所以统一从 `debug_body.json` 读字节，客户端也用同一个文件发（curl 必须 `--data-binary @file`，
+   所以统一从 `06-.../test-data/requests/` 读文件字节，客户端也用同一个文件发（curl 必须 `--data-binary @file`，
    `-d` / `--data-raw` 会把换行删掉）；
 4. 五个头都要有值，缺值会先被判「缺少签名请求头」。
 
@@ -17,19 +17,18 @@ cd backend && uv run python -m tests.contract.debug_signed_headers
 test/uat/prod 反而会误报——那三个环境的密钥是**故意留空待 GSI 下发**的。
 """
 
-import uuid
-from pathlib import Path
-
 from app.config.setting import settings
 from app.core.rich_print import pretty_log
-from app.core.security_signature import body_digest, build_signed_headers, now_ms
+from app.core.security_signature import body_digest, build_signed_headers
+from tests.contract import case_data
 
 ###### 01 提交文档 / FAQ 解析任务 ######
 DEBUG_PATH = "/v1/parse/jobs"
 DEBUG_METHOD = "POST"
-DEBUG_BODY_FILE = Path(__file__).parent / "debug_json" / "01_parse_jobs_doc.json"
-# DEBUG_BODY_FILE = Path(__file__).parent / "debug_json" / "01_parse_jobs_fqa.json"
-DEBUG_BODY = DEBUG_BODY_FILE.read_bytes()
+# 待签名正文：默认取文档解析基线，换成 "01_parse_jobs_faq.json" 即 FAQ 基线
+DEBUG_BODY_NAME = "01_parse_jobs_doc.json"
+DEBUG_BODY_FILE = case_data.REQUEST_DIR / DEBUG_BODY_NAME
+DEBUG_BODY = case_data.request_bytes(DEBUG_BODY_NAME)
 
 ###### 02 查询解析进度与完整结果 ######
 # DEBUG_PATH = "/v1/parse/jobs/parse-faq-200001"
@@ -42,14 +41,14 @@ def main() -> None:
         print("⚠️  CONTRACT_V1_SHARED_SECRET 为空：服务端会返回 503，先在 env/.env.dev 配置密钥")
         return
 
+    # timestamp_ms / nonce 不显式传：默认取当前毫秒 + 随机 nonce；
+    # 需要复现某次历史签名（例如比对报告里的旧头）时，再固定 timestamp_ms=... 与 nonce="..."
     signed_headers = build_signed_headers(
         secret,
         client_id=settings.CONTRACT_V1_CLIENT_ID,
         method=DEBUG_METHOD,
         path=DEBUG_PATH,
         body=DEBUG_BODY,
-        timestamp_ms=now_ms(),  # 真实当前 Unix 毫秒，服务端只接受 ±5 分钟窗口内的时间戳
-        nonce=uuid.uuid4().hex,  # 每次新生成：固定 nonce 第二次到达会被判重放
     )
 
     print("==== 自定义安全头 ====")
