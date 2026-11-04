@@ -5,19 +5,25 @@
 ```
 app/modules_api/
 ├── router.py                  # 路由总表（唯一事实来源，F2）
-└── contract/
-    ├── common.py              # 路由类 / 验签依赖 / 错误响应声明 / 501 骨架出口
-    ├── deps.py                # 验签、nonce 防重放、幂等预约依赖
-    ├── errors.py              # 错误码全量表 + ContractApiRoute（异常 → 契约错误体）
-    ├── audit.py               # security_check JSONB 装载
-    ├── signature.py           # 验签口径翻译（算法在 app/core/security_signature.py）
-    ├── nonce.py               # nonce 台账适配
-    ├── idempotency.py         # 三类幂等域适配
-    ├── schema.py              # 骨架期通用请求体
+├── base/                      # 契约协议基座：后续扩展接口直接复用
+│   ├── common.py              # 路由类 / 验签依赖 / 错误响应声明
+│   ├── deps.py                # 验签、nonce 防重放、幂等预约依赖
+│   ├── errors.py              # 错误码全量表 + ContractApiRoute（异常 → 契约错误体）
+│   ├── audit.py               # security_check JSONB 装载
+│   ├── signature.py           # 验签口径翻译（算法在 app/core/security_signature.py）
+│   ├── nonce.py               # nonce 台账适配
+│   ├── idempotency.py         # 三类幂等域适配
+│   ├── schema.py              # 通用请求体
+│   └── test_utils/            # 签名头生成辅助路由（CONTRACT_TEST_ENABLE）
+└── kb/                        # 知识平台子模块
     ├── parse/                 # #01–#02
     ├── knowledge/             # #03–#07、#16–#20
+    ├── duplicate/             # 重复治理
     └── chat/                  # #08–#15
 ```
+
+协议口径只写一份：新增业务域时直接用 `base.common.make_contract_router()` 构造 Router，
+错误码取 `base.errors`，幂等守卫取 `base.deps`，不在业务包里复制验签与幂等实现。
 
 通用能力（签名算法、请求体解析、下载客户端、规范化摘要、非空校验）在 ``app/core`` 或
 ``app/utils``，本域只保留「知道 /v1 契约协议」的适配代码（错误码、错误体、幂等域）。
@@ -59,7 +65,7 @@ def register_api(app: FastAPI) -> None:
 
     # 测试辅助路由（签名头生成等）：CONTRACT_TEST_ENABLE=true 时挂载
     if settings.CONTRACT_TEST_ENABLE:
-        from app.modules_api.contract.test_utils.controller import TestRouter
+        from app.modules_api.base.test_utils.controller import TestRouter
 
         api_router.include_router(TestRouter)
         logger.info("==== 测试辅助路由已挂载（/v1/test/*）：生产环境请关闭 CONTRACT_TEST_ENABLE ====")

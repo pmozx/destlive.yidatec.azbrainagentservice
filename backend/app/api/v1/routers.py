@@ -26,6 +26,7 @@ from app.modules.kb.parse_job.admin_controller import KbParseJobRouter
 from app.modules.kb.retrieval.controller import KbRetrievalRouter
 from app.modules.system.access_trace.controller import AccessTraceRouter
 from app.modules.system.api_log.controller import SystemApiLogRouter
+from app.modules.system.storage.controller import StorageRouter
 
 API_PREFIX = "/api/v1"
 
@@ -33,6 +34,7 @@ DOMAIN_CONTROLLERS: dict[str, list[APIRouter]] = {
     "/system": [
         SystemApiLogRouter,
         AccessTraceRouter,
+        StorageRouter,
     ],
     "/kb": [
         KbPublicationRouter,

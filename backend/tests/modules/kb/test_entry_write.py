@@ -22,8 +22,8 @@ from app.config.setting import settings
 from app.core.clients.embedding import EmbeddingClient
 from app.core.database import async_session_factory
 from app.core.security_signature import build_signed_headers
-from app.modules_api.contract import errors as contract_errors
-from app.modules_api.contract.knowledge.schema import canonical_content_hash
+from app.modules_api.base import errors as contract_errors
+from app.modules_api.kb.knowledge.schema import canonical_content_hash
 from app.modules.kb.chunk.model import KbChunkModel
 from app.modules.kb.publication.model import KbPublicationModel
 from app.modules.kb.revision.model import KbRevisionModel

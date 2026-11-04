@@ -1,148 +1,111 @@
-"""解析页图预览：落盘、签名 URL 与访问校验（T2.4）。
+"""解析页图预览：渲染结果上传对象存储，读取时按需重新预签名（T2.4）。
 
 口径：
-- 页图按 ``job_id`` 分目录存放在 ``static/parse-previews/<job_id>/page-<n>.png``；
-- `#02` 返回的 ``image_url`` 带 ``expires`` 与 ``sig``，签名覆盖 ``job_id:file_name:expires``，
-  默认 7 天有效；调用方不需要携带契约签名头即可预览；
-- ``image_url`` 的基址取 ``PARSE_PREVIEW_BASE_URL``；未配置时自动探测本机网卡 IP + 端口，
-  保证返回的是服务自身可被外部访问的地址（不受调用方 Host 头影响）；
-- 过期、签名不符、路径不合法一律按 404 处理，不泄漏目录结构；
-- 无签名密钥时不生成 URL（能力缺失按契约返回 ``pages=[]``，不伪造图像地址）。
+- 页图不再落本地磁盘：上传到系统已集成的 S3 兼容对象存储（``app/core/clients/s3.py``），
+  对象键为 ``parse-previews/<job_id>/page-<n>.png``（全局前缀由 ``S3_KEY_PREFIX`` 再加），
+  对象键随产物一起落库（``pages[*].object_key``）；
+- `#02` 返回的 ``image_url`` 是对象存储的**预签名 GET URL**，有效期取
+  ``PARSE_PREVIEW_TTL_SECONDS``；调用方不需要携带契约签名头即可预览；
+- 预签名 URL 会过期，所以每次投影响应都按 ``object_key`` 重新签发（``refresh_pages``）；
+  旧产物没有 ``object_key`` 时原样回放库里那份 URL，属历史数据，不再续签；
+- 关掉 ``PARSE_PREVIEW_ENABLE`` 或未接入对象存储（``S3_ENABLE=false``）时返回 ``[]``——
+  能力缺失按契约返回空数组，不伪造图像地址。
 """
 
-import hashlib
-import hmac
 import re
-import socket
-import time
-from pathlib import Path
 from typing import Any
-from urllib.parse import quote, urlencode, urlsplit, urlunsplit
 
-from app.config.path_conf import STATIC_DIR
 from app.config.setting import settings
+from app.core.clients.s3 import S3Client, get_s3_client
 from app.core.logger import logger
 from app.core.rag.page_render import RenderedPage
 
-PREVIEW_ROUTE_PREFIX = "/previews/parse"
-_PREVIEW_DIR = STATIC_DIR / "parse-previews"
-_PAGE_FILE = re.compile(r"^page-\d+\.png$")
+# 对象键前缀：与桶内的文档原件等隔离，便于按生命周期策略单独清理
+_KEY_PREFIX = "parse-previews"
+
+# 已下线的本地预览路由（旧产物里存的是这种地址），投影时识别出来并丢弃
+_LEGACY_PREVIEW_PATH = "/previews/parse/"
+
+# ``job_id`` 来自调用方，做白名单替换，杜绝 ``../`` 之类的键穿越
 _UNSAFE_JOB_ID = re.compile(r"[^A-Za-z0-9._-]")
-_detected_base_url: str | None = None
-
-
-def _secret() -> str:
-    return (settings.PARSE_PREVIEW_SECRET or settings.CONTRACT_V1_SHARED_SECRET).strip()
-
-
-def _detect_lan_ip() -> str:
-    """探测本机对外网卡的 IPv4：UDP 只取路由结果，不实际发包；失败回落到主机名解析。"""
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-            sock.connect(("8.8.8.8", 80))
-            return sock.getsockname()[0]
-    except OSError:
-        pass
-    try:
-        return socket.gethostbyname(socket.gethostname())
-    except OSError:
-        return "127.0.0.1"
-
-
-def public_base_url() -> str:
-    """页图 URL 的对外基址。
-
-    优先取 ``PARSE_PREVIEW_BASE_URL``（容器部署、端口映射与域名场景必须显式配置）；
-    留空时用本机真实网卡 IP + ``PORT``，避免回落到调用方 Host 头（可能是 127.0.0.1 或内网别名）。
-    """
-    global _detected_base_url
-    configured = settings.PARSE_PREVIEW_BASE_URL.strip()
-    if configured:
-        return configured.rstrip("/")
-    if _detected_base_url is None:
-        _detected_base_url = f"http://{_detect_lan_ip()}:{settings.PORT}"
-        logger.info("解析页图预览基址自动探测为 {}（如需外部访问请配置 PARSE_PREVIEW_BASE_URL）", _detected_base_url)
-    return _detected_base_url
-
-
-def apply_public_base(image_url: str) -> str:
-    """把已落库的页图 URL 换成当前对外基址。
-
-    只处理本服务的预览路径，``expires`` / ``sig`` 原样保留；用于旧任务（曾按
-    127.0.0.1 或调用方 Host 生成）以及换 IP / 端口 / 域名后的自愈，无需重新解析。
-    """
-    parts = urlsplit(image_url)
-    if not parts.path.startswith(PREVIEW_ROUTE_PREFIX):
-        return image_url
-    base = urlsplit(public_base_url())
-    prefix = base.path.rstrip("/")
-    return urlunsplit((base.scheme, base.netloc, f"{prefix}{parts.path}", parts.query, ""))
-
-
-def pages_with_public_base(pages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """批量把页图数组的 ``image_url`` 投影到当前对外基址（无 image_url 的项原样保留）。"""
-    return [
-        {**page, "image_url": apply_public_base(page["image_url"])} if page.get("image_url") else page
-        for page in pages
-    ]
 
 
 def preview_available() -> bool:
-    """是否具备页图能力：开关打开且有签名密钥。"""
-    return bool(settings.PARSE_PREVIEW_ENABLE and _secret())
+    """是否具备页图能力：开关打开且对象存储已接入。"""
+    return bool(settings.PARSE_PREVIEW_ENABLE and settings.S3_ENABLE)
 
 
-def _signature(job_id: str, file_name: str, expires: int) -> str:
-    message = f"{job_id}:{file_name}:{expires}".encode()
-    return hmac.new(_secret().encode(), message, hashlib.sha256).hexdigest()
+def _object_key(job_id: str, page_no: int) -> str:
+    """页图对象键（不含 ``S3_KEY_PREFIX``，与 ``presign_get`` 的入参口径一致）。"""
+    return f"{_KEY_PREFIX}/{_UNSAFE_JOB_ID.sub('_', job_id)}/page-{page_no}.png"
 
 
-def _job_dir(job_id: str) -> Path:
-    """任务目录名做白名单替换，杜绝 ``../`` 穿越。"""
-    return _PREVIEW_DIR / _UNSAFE_JOB_ID.sub("_", job_id)
-
-
-def save_pages(
+def upload_pages(
     job_id: str,
     pages: list[RenderedPage],
     *,
-    base_url: str | None = None,
     ttl_seconds: int | None = None,
+    client: S3Client | None = None,
 ) -> list[dict[str, Any]]:
-    """把渲染结果落盘并返回契约 ``pages`` 结构；未启用页图能力时返回空列表。"""
+    """上传渲染结果并返回契约 ``pages`` 结构；未启用页图能力时返回空列表。
+
+    同步阻塞（boto3 上传走网络），调用方请用 ``asyncio.to_thread`` 包一层。
+    整批上传不做部分成功：任一张失败都抛异常，由上层降级成「未返回预览图」的告警，
+    避免调用方拿到一半可用一半 404 的页图数组。
+    """
     if not pages or not preview_available():
         return []
 
-    expires = int(time.time()) + (settings.PARSE_PREVIEW_TTL_SECONDS if ttl_seconds is None else ttl_seconds)
-    directory = _job_dir(job_id)
-    directory.mkdir(parents=True, exist_ok=True)
-    base = (base_url or public_base_url()).rstrip("/")
+    bucket = client or get_s3_client()
+    expire = settings.PARSE_PREVIEW_TTL_SECONDS if ttl_seconds is None else ttl_seconds
     rows: list[dict[str, Any]] = []
     for page in pages:
-        file_name = f"page-{page.page_no}.png"
-        (directory / file_name).write_bytes(page.data)
-        signature = _signature(job_id, file_name, expires)
-        query = urlencode({"expires": expires, "sig": signature})
+        key = _object_key(job_id, page.page_no)
+        bucket.upload_bytes(page.data, key, content_type="image/png")
         rows.append(
             {
                 "page_no": page.page_no,
                 "width": page.width,
                 "height": page.height,
-                "image_url": f"{base}{PREVIEW_ROUTE_PREFIX}/{quote(job_id, safe='')}/{file_name}?{query}",
+                "image_url": bucket.presign_get(key, expires_in=expire),
+                # 内部字段：只用于读取时重新签发，投影响应前由 refresh_pages 去掉
+                "object_key": key,
             }
         )
+    logger.info("解析页图已上传对象存储：job_id={} 共 {} 页", job_id, len(rows))
     return rows
 
 
-def preview_file_path(job_id: str, file_name: str) -> Path | None:
-    """合法页图文件路径；任务目录与文件名不合法时返回 None。"""
-    if not _PAGE_FILE.match(file_name):
-        return None
-    return _job_dir(job_id) / file_name
+def refresh_pages(
+    pages: list[dict[str, Any]],
+    *,
+    ttl_seconds: int | None = None,
+) -> list[dict[str, Any]]:
+    """把落库的页图数组投影成对外结构：按 ``object_key`` 重签 URL，并去掉内部字段。
 
+    ``presign_get`` 只做本地签名计算，不发网络请求，因此可直接在同步投影函数里调用。
+    对象存储不可用时保留库里那份 URL（可能已过期），只告警，不影响整个 ``#02`` 响应。
+    """
+    if not pages:
+        return []
 
-def verify_preview_request(*, job_id: str, file_name: str, expires: int, signature: str) -> bool:
-    """校验有效期与签名（恒时比较），任何一项不满足都返回 False。"""
-    if not preview_available() or expires < int(time.time()):
-        return False
-    return hmac.compare_digest(signature, _signature(job_id, file_name, expires))
+    expire = settings.PARSE_PREVIEW_TTL_SECONDS if ttl_seconds is None else ttl_seconds
+    available = preview_available()
+    client: S3Client | None = None
+    rows: list[dict[str, Any]] = []
+    for page in pages:
+        item = {key: value for key, value in page.items() if key != "object_key"}
+        object_key = str(page.get("object_key") or "").strip()
+        if object_key:
+            if available:
+                try:
+                    client = client or get_s3_client()
+                    item["image_url"] = client.presign_get(object_key, expires_in=expire)
+                except Exception as exc:  # noqa: BLE001 预览失败不影响解析结果
+                    logger.warning("页图预签名失败（object_key={}）：{}", object_key, exc)
+        elif _LEGACY_PREVIEW_PATH in str(page.get("image_url") or ""):
+            # 旧版本的本地静态预览路由已下线，宁可不返回，也不回放必然 404 的链接
+            logger.info("跳过旧版本本地页图（job_id 不可追溯，object_key 缺失）：{}", page.get("page_no"))
+            continue
+        rows.append(item)
+    return rows

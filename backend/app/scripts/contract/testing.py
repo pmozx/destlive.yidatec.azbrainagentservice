@@ -8,7 +8,7 @@
 2. ``error_code``：取契约错误体里的 ``error.code``；
 3. ``SKELETON_STATUS``：骨架期 501 的统一判定值（业务未实现 ≠ 用例失败）。
 
-错误码常量本身仍以 ``app.modules_api.contract.errors`` 为唯一事实源，脚本直接 ``from ...`` 引用。
+错误码常量本身仍以 ``app.modules_api.base.errors`` 为唯一事实源，脚本直接 ``from ...`` 引用。
 """
 
 from typing import Any, Final

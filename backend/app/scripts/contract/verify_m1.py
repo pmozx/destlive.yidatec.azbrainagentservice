@@ -41,14 +41,14 @@ import httpx
 
 from app.config.setting import settings
 from app.core.security_signature import build_signed_headers, now_ms
-from app.modules_api.contract.errors import (
+from app.modules_api.base.errors import (
     IDEMPOTENCY_CONFLICT,
     INTERNAL_ERROR,
     INVALID_REQUEST,
     UNAUTHORIZED,
     ContractApiError,
 )
-from app.modules_api.contract.idempotency import (
+from app.modules_api.base.idempotency import (
     SCOPE_EVENT,
     SCOPE_ID_KEYS,
     SCOPE_JOB,

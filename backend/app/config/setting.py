@@ -75,6 +75,9 @@ class Settings(BaseSettings):
     VERSION: str = Field(default="1.0.0", description="应用版本")
 
     DEBUG: bool = Field(default=True, description="是否开启调试模式")
+    # 展示时区：库内 timestamptz 一律按 UTC 存，接口输出前统一换算到该时区再格式化，
+    # 否则页面把 UTC 墙上时间当本地时间显示（北京时间会差 8 小时）
+    TIMEZONE: str = Field(default="Asia/Shanghai", description="接口时间输出与入参解析使用的业务时区（IANA 名）")
 
     # ==================== 服务配置 ====================
     HOST: str = Field(default="0.0.0.0", description="服务监听地址")
@@ -169,17 +172,16 @@ class Settings(BaseSettings):
 
     # ---- 解析页图预览（#02 result.pages，T2.4）----
     # 仅 PDF 能被本地光栅化；Office/图片等仍返回 []，不伪造图像 URL。
-    PARSE_PREVIEW_ENABLE: bool = Field(default=True, description="是否渲染 PDF 页图并返回预览 URL")
+    # 页图上传对象存储，image_url 是预签名 GET URL（地址与凭据见 S3_*），不再落本地、不再自建预览路由。
+    PARSE_PREVIEW_ENABLE: bool = Field(
+        default=True,
+        description="是否渲染 PDF 页图并返回预签名预览 URL；S3_ENABLE=false 时整项退化为返回 []",
+    )
     PARSE_PREVIEW_MAX_PAGES: int = Field(default=50, description="单个文档最多渲染的页数，超出只渲染前 N 页并告警")
     PARSE_PREVIEW_SCALE: float = Field(default=2.0, description="页图缩放倍率（1.0≈72dpi，2.0≈144dpi）")
-    PARSE_PREVIEW_TTL_SECONDS: int = Field(default=604800, description="预览 URL 有效期（秒），默认 7 天，须覆盖编辑预览周期")
-    PARSE_PREVIEW_BASE_URL: str = Field(
-        default="",
-        description="预览 URL 的对外基址（如 https://ai.example.com）；留空时取发起 #01 请求的 base_url",
-    )
-    PARSE_PREVIEW_SECRET: str = Field(
-        default="",
-        description="预览 URL 签名密钥；留空回落到 CONTRACT_V1_SHARED_SECRET，两者都空则不生成页图 URL",
+    PARSE_PREVIEW_TTL_SECONDS: int = Field(
+        default=604800,
+        description="页图预签名 URL 有效期（秒），默认 7 天；每次投影响应都按该值重签",
     )
 
     # ==================== AI 问答检索生成策略（kb 域：/v1 检索 + 问答、/kb/chat 管理端） ====================
@@ -291,7 +293,7 @@ class Settings(BaseSettings):
 
     # ==================== /v1 接口安全请求头（契约接入层） ====================
     # 验签参数只有这一组：调用方标识、HMAC 共享密钥、时间戳窗口、nonce 保留时长、authorization 跨度。
-    # 算法在 app/core/security_signature.py，错误码口径在 app/modules_api/contract/errors.py。
+    # 算法在 app/core/security_signature.py，错误码口径在 app/modules_api/base/errors.py。
     # 密钥只写在 env：留空＝未配置，验签失败关闭（契约 503 AUTHORIZATION_UNAVAILABLE）——
     # 宁可服务不可用，也不能因为缺密钥就把签名校验放过。
     CONTRACT_V1_CLIENT_ID: str = Field(default="gsi-service", description="认可的调用方标识（X-AI-Client-Id）")
@@ -304,7 +306,7 @@ class Settings(BaseSettings):
         default=120_000, description="authorization 签发-过期最大跨度（毫秒）"
     )
 
-    # ==================== 正式接入层（/v1，T1.1–T1.5，app/modules_api/contract） ====================
+    # ==================== 正式接入层（/v1，T1.1–T1.5，app/modules_api/base） ====================
     CONTRACT_V1_ENABLE: bool = Field(
         default=True, description="是否挂载正式 /v1 契约路由；关闭后 /v1 完全不挂载（404）"
     )

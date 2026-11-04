@@ -42,7 +42,7 @@ from app.modules.system.request_log.service import (
 )
 from app.utils.cursor import decode_cursor
 
-from ..errors import (
+from ...base.errors import (
     AUTHORIZATION_UNAVAILABLE,
     DEFAULT_MESSAGES,
     ERROR_CODE_STATUS,

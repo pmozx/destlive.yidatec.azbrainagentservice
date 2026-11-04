@@ -12,6 +12,7 @@ from pydantic import AfterValidator, PlainSerializer, WithJsonSchema
 from app.common.constant import DATETIME_DISPLAY_FMT
 from app.common.enums import RET
 from app.core.exceptions import CustomException
+from app.utils.time_util import format_datetime, parse_local_datetime
 
 
 def ensure_non_blank(value: str) -> str:
@@ -24,12 +25,14 @@ def ensure_non_blank(value: str) -> str:
 def datetime_validator(value: str | datetime) -> datetime:
     """日期时间格式验证器：接受 ``%Y-%m-%d %H:%M:%S`` 字符串或 ``datetime``。
 
+    字符串按**业务时区**解释（与输出同口径），否则查询条件会比库内时刻早 8 小时。
+
     异常:
     - CustomException: 格式无效（默认 400，不再混进 5xx）。
     """
     try:
         if isinstance(value, str):
-            return datetime.strptime(value, DATETIME_DISPLAY_FMT)
+            return parse_local_datetime(value, DATETIME_DISPLAY_FMT)
         if isinstance(value, datetime):
             return value
     except Exception:
@@ -42,7 +45,7 @@ DateTimeStr = Annotated[
     datetime,
     AfterValidator(lambda x: datetime_validator(x)),
     PlainSerializer(
-        lambda x: x.strftime(DATETIME_DISPLAY_FMT) if isinstance(x, datetime) else str(x),
+        lambda x: format_datetime(x, DATETIME_DISPLAY_FMT) if isinstance(x, datetime) else str(x),
         return_type=str,
         when_used="json",
     ),

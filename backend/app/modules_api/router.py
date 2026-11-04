@@ -1,7 +1,9 @@
 """`/v1` 契约路由总表（唯一事实来源）。
 
-新增契约接口时：在 ``app/modules_api/contract/<功能>/controller.py`` 定义 Router，
+新增契约接口时：在 ``app/modules_api/kb/<功能>/controller.py`` 定义 Router，
 再到此表登记即可；禁止在 ``create_app`` 中散落 ``include_router``（规则 F2）。
+
+协议基座（验签、幂等、nonce、错误体）在 ``app/modules_api/base/``；本表只登记业务域。
 
 路径 / 方法与手册 §五「接口总览」逐条对齐（20 条）：解析 #01–#02、知识 #03–#07 与
 #16–#20、会话与生成 #08–#15。
@@ -9,15 +11,15 @@
 
 from fastapi import APIRouter
 
-from app.modules_api.contract.chat.controller import ChatRouter
-from app.modules_api.contract.duplicate.controller import DuplicateRouter
-from app.modules_api.contract.knowledge.controller import KnowledgeRouter
-from app.modules_api.contract.parse.controller import ParseRouter
+from app.modules_api.kb.chat.controller import ChatRouter
+from app.modules_api.kb.duplicate.controller import DuplicateRouter
+from app.modules_api.kb.knowledge.controller import KnowledgeRouter
+from app.modules_api.kb.parse.controller import ParseRouter
 
 API_PREFIX = "/v1"
 
 DOMAIN_CONTROLLERS: dict[str, list[APIRouter]] = {
-    "contract": [
+    "kb": [
         ParseRouter,
         KnowledgeRouter,
         # 重复治理挂在 /knowledge 前缀下但不属于知识写入口，单独一个 controller 便于按接口族演进

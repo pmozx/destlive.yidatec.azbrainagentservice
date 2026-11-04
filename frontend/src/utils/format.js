@@ -33,11 +33,40 @@ export function formatNumber(value) {
   return Number(value).toLocaleString('zh-CN')
 }
 
+/** 字节数转可读大小（对象存储列表用，保留一位小数） */
+export function formatFileSize(bytes) {
+  const size = Number(bytes)
+  if (!Number.isFinite(size) || size < 0) return '-'
+  if (size < 1024) return `${size} B`
+  const units = ['KB', 'MB', 'GB', 'TB']
+  let value = size / 1024
+  let unitIndex = 0
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024
+    unitIndex += 1
+  }
+  return `${value.toFixed(1)} ${units[unitIndex]}`
+}
+
 /** 安全地美化输出 JSON */
 export function prettyJson(data) {
   try {
     return JSON.stringify(data, null, 2)
   } catch {
     return String(data)
+  }
+}
+
+/**
+ * 字符串载荷美化：本身是 JSON 文本时展开，否则原样返回
+ * @param {string} text 载荷字符串（历史审计行、非 JSON 请求体等）
+ */
+export function prettyJsonString(text) {
+  const trimmed = (text || '').trim()
+  if (!trimmed || (trimmed[0] !== '{' && trimmed[0] !== '[')) return text
+  try {
+    return JSON.stringify(JSON.parse(trimmed), null, 2)
+  } catch {
+    return text
   }
 }

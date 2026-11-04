@@ -1,23 +1,10 @@
-from sqlalchemy import Index, Integer, String, text, Text
+from typing import Any
+
+from sqlalchemy import Index, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.common.enums import DatabaseTypeEnum
-from app.config.setting import settings
 from app.core.base_model import ModelMixin
-
-
-def get_api_log_text_column_type():
-    """按数据库类型选择大文本列类型（MySQL 用 LONGTEXT，避免响应体超长被截断）。"""
-    if settings.DATABASE_TYPE == DatabaseTypeEnum.MYSQL.value:
-        from sqlalchemy.dialects.mysql import LONGTEXT
-
-        return LONGTEXT
-    if settings.DATABASE_TYPE == DatabaseTypeEnum.POSTGRES.value:
-        from sqlalchemy.dialects.postgresql import TEXT
-
-        return TEXT
-    return Text
 
 
 class SystemApiLogModel(ModelMixin):
@@ -26,6 +13,9 @@ class SystemApiLogModel(ModelMixin):
     T1.4 在基座既有列上扩展四列（`auth_mode`/`client_id`/`request_id`/`security_check`）：
     `/v1` 契约调用没有 JWT 用户，`username` 只能填 `client_id`；安全头校验结果必须能独立取证，
     不能只留在应用日志里（ADR-13）。四列均可为空：历史行与 `/api/v1` 的 JWT 调用不回填。
+
+    请求参数与响应报文用 ``JSONB`` 而不是 ``TEXT``：库里存的是**结构化 JSON**（不是序列化后的
+    字符串），详情页才能直接展开阅读；存量库的 TEXT 列由域启动引导就地转换（见 ``bootstrap``）。
     """
 
     __tablename__: str = "sbp_ai_system_api_log"
@@ -52,9 +42,15 @@ class SystemApiLogModel(ModelMixin):
     request_path: Mapped[str] = mapped_column(String(255), nullable=False, comment="请求路径")
     request_method: Mapped[str] = mapped_column(String(10), nullable=False, comment="请求方式")
     request_query: Mapped[str | None] = mapped_column(Text, default=None, nullable=True, comment="查询字符串")
-    request_payload: Mapped[str | None] = mapped_column(get_api_log_text_column_type(), default=None, nullable=True, comment="请求参数")
+    # 结构固定为 {"body": …, "query": …, "path_params": …, "form": …}，敏感键已脱敏、文件已丢弃
+    request_payload: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB, default=None, nullable=True, comment="请求参数（JSON：body/query/path_params/form）"
+    )
     response_code: Mapped[int] = mapped_column(Integer, default=200, nullable=False, comment="响应状态码")
-    response_json: Mapped[str | None] = mapped_column(get_api_log_text_column_type(), default=None, nullable=True, comment="响应体")
+    # 仅记录 application/json 且非流式的响应；异常路径为 {"error": "…"}
+    response_json: Mapped[Any | None] = mapped_column(
+        JSONB, default=None, nullable=True, comment="响应报文（JSON；仅 application/json 非流式）"
+    )
     process_time: Mapped[str | None] = mapped_column(String(20), default=None, nullable=True, comment="处理耗时(毫秒)")
     request_ip: Mapped[str | None] = mapped_column(String(50), default=None, nullable=True, index=True, comment="请求IP")
     user_agent: Mapped[str | None] = mapped_column(String(255), default=None, nullable=True, comment="浏览器 UA")

@@ -1,8 +1,8 @@
+import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import FastAPI
 
 from app.config.path_conf import STATIC_DIR
 from app.core.exceptions import handle_exception
@@ -13,7 +13,7 @@ from app.core.logger import logger
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """
     应用生命周期：启动时准备 pgvector 扩展、按模块初始化表结构、接口审计过期清理、
-    解析中断恢复、种子数据、文档解析器；关闭时先等审计落库，再释放数据库连接。
+    解析中断恢复、对象存储桶、种子数据、文档解析器；关闭时先等审计落库，再释放数据库连接。
 
     这些均为辅助/待集成能力，初始化失败只告警不阻断启动。
     """
@@ -52,7 +52,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.error(f"❌ 接口审计日志过期清理失败（不影响业务）: {e!s}")
 
     # 上次进程中断留下的 queued/running 解析任务改判 failed，否则 #02 永远 running
-    from app.modules_api.contract.errors import PARSE_FAILED
+    from app.modules_api.base.errors import PARSE_FAILED
     from app.modules.kb.parse_job.service import KbParseJobService
 
     try:
@@ -74,9 +74,23 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as e:
         logger.error(f"❌ MinerU 解析器安装失败（二进制文档将不可解析）: {e!s}")
 
+    # 对象存储：启用时保证桶存在，页图预览与文档原件都依赖它；失败只告警，
+    # 真正上传时 S3ClientError 会转成可读错误，不拖住启动
+    from app.config.setting import settings
+
+    if settings.S3_ENABLE and settings.S3_AUTO_CREATE:
+        from app.core.clients import get_s3_client
+
+        try:
+            # boto3 建桶会走网络，放线程里跑
+            await asyncio.to_thread(get_s3_client().ensure_bucket)
+            logger.info("==== 对象存储就绪：桶 {} ====", settings.S3_BUCKET)
+        except Exception as e:
+            logger.error(f"❌ 对象存储初始化失败（页图预览不可用）: {e!s}")
+
     # 契约 /v1 台账（T1.1 / T1.3）：清理过期 nonce 与过期幂等记录。台账不可用只告警，
     # 真正校验时会以 503 AUTHORIZATION_UNAVAILABLE 明确拒绝，不会放行
-    from app.modules_api.contract import ensure_contract_store
+    from app.modules_api.base import ensure_contract_store
 
     try:
         await ensure_contract_store()
@@ -85,8 +99,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # 种子数据（sql/ 下一张表一个同名 JSON）：建表后按依赖顺序导入，表非空则整表跳过；
     # 失败只告警。当前种子表（空间/分类）随 integration_kb 一起删除，清单为空即跳过
-    from app.config.setting import settings
-
     if settings.KB_SEED_ENABLE:
         from app.scripts.initialize import InitializeData
 
@@ -171,25 +183,6 @@ def create_app() -> FastAPI:
     async def healthz():
         """容器健康检查探针：仅验证进程与 HTTP 栈可用，不探测数据库等外部依赖"""
         return {"status": "ok"}
-
-    @app.get("/previews/parse/{job_id}/{file_name}", include_in_schema=False)
-    async def parse_preview(job_id: str, file_name: str, expires: int = 0, sig: str = ""):
-        """解析页图预览（T2.4）：只放行带有效期且签名正确的 URL，其余一律 404。"""
-        from app.modules.kb.parse_result.preview import preview_file_path, verify_preview_request
-
-        if not verify_preview_request(job_id=job_id, file_name=file_name, expires=expires, signature=sig):
-            raise HTTPException(status_code=404, detail="预览图不存在或已过期")
-        path = preview_file_path(job_id, file_name)
-        if path is None or not path.is_file():
-            raise HTTPException(status_code=404, detail="预览图不存在或已过期")
-        # 文件名与 Content-Disposition 都保留 .png 后缀，便于浏览器/前端直接按图片内联预览
-        return FileResponse(
-            path,
-            media_type="image/png",
-            filename=file_name,
-            content_disposition_type="inline",
-            headers={"Cache-Control": "private, max-age=3600"},
-        )
 
     # 挂载前端构建产物：frontend 执行 npm run build 后输出到 backend/static 目录
     app.frontend("/ui", directory=STATIC_DIR, fallback="index.html")

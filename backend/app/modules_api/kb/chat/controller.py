@@ -16,9 +16,9 @@ from typing import Annotated
 
 from fastapi import Depends, Request, status
 
-from ..common import make_contract_router
-from ..deps import idempotent_event, idempotent_request, record_receipt, replay_response
-from ..idempotency import Reservation
+from ...base.common import make_contract_router
+from ...base.deps import idempotent_event, idempotent_request, record_receipt, replay_response
+from ...base.idempotency import Reservation
 from .schema import (
     ChatCompletionRequest,
     ChatCompletionResponse,

@@ -16,10 +16,10 @@
 1. **算法只有一份**：原文拼装、时间窗、nonce 格式、`authorization` 跨度这四处任一处写歪，
    联调时都会以「签名失败」的形式暴露却很难定位；两份拷贝迟早会漂移，改一处忘一处。
 2. 本模块**不认识任何错误体**：失败一律抛 `SignatureCheckError` / `AuthorizationCheckError`，
-   由 `app/modules_api/contract/signature.py` 翻译成契约大写码（密钥缺失 503 失败关闭，
+   由 `app/modules_api/base/signature.py` 翻译成契约大写码（密钥缺失 503 失败关闭，
    其余 401 `UNAUTHORIZED`）。算法共享，对外口径不污染。
 3. nonce 的**时序**（先验签再登记，否则伪造请求可以抢占合法 nonce）固定在此；**存储**由
-   调用方负责：契约层用落库的 `contract.nonce.NonceStore`（异步，登记在 `deps.py` 里编排）。
+   调用方负责：契约基座用落库的 `base.nonce.NonceStore`（异步，登记在 `deps.py` 里编排）。
 4. 验签必须拿**原始字节**算摘要，不能先解析 JSON 再序列化（键序、空格、中文转义都会变），
    所以调用点在路由依赖里、在 Pydantic 之前。
 """
@@ -237,7 +237,7 @@ def check_signature(
 ) -> VerifiedSignature:
     """按契约顺序验签：密钥 → 缺头 → 版本/客户端 → 时间窗 → nonce 格式 → 签名比对。
 
-    **不含 nonce 防重放**：那一步要落台账，由调用方在验签通过后执行（见 `contract.nonce.NonceStore`）。
+    **不含 nonce 防重放**：那一步要落台账，由调用方在验签通过后执行（见 `base.nonce.NonceStore`）。
     先验签再登记，否则伪造请求可以抢占合法 nonce。
     """
     if not secret:

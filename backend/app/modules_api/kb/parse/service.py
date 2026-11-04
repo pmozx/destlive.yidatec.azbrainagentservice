@@ -32,10 +32,10 @@ from app.core.logger import logger
 from app.core.rag import ChunkedDocument, parse_and_chunk, supported_suffixes
 from app.core.rag.page_render import render_pdf_pages
 from app.modules.kb.parse_job.service import ParseJobSnapshot, KbParseJobService
-from app.modules.kb.parse_result.preview import pages_with_public_base, preview_available, save_pages
+from app.modules.kb.parse_result.preview import preview_available, refresh_pages, upload_pages
 from app.utils.page_locator import PageLocator
 
-from ..errors import DEFAULT_MESSAGES, INVALID_REQUEST, PARSE_FAILED, PAYLOAD_TOO_LARGE, ContractApiError
+from ...base.errors import DEFAULT_MESSAGES, INVALID_REQUEST, PARSE_FAILED, PAYLOAD_TOO_LARGE, ContractApiError
 from .schema import ParseJobRequest
 
 # 契约上限：单文件 10MB（正文里声明的 file_size 与实际拉取的字节都要校验）
@@ -241,10 +241,8 @@ async def _build_pages(
     file_name: str,
     data: bytes,
     warnings: list[str],
-    *,
-    preview_base_url: str,
 ) -> list[dict[str, Any]]:
-    """PDF 页图渲染 + 落盘 + 签名 URL；任何失败都降级为告警并返回 ``[]``。"""
+    """PDF 页图渲染 → 上传对象存储 → 预签名 URL；任何失败都降级为告警并返回 ``[]``。"""
     if Path(file_name).suffix.lower() != ".pdf" or not preview_available():
         return []
     try:
@@ -261,13 +259,13 @@ async def _build_pages(
     if rendered.pages and rendered.total_pages > len(rendered.pages):
         warnings.append(f"文档共 {rendered.total_pages} 页，仅返回前 {len(rendered.pages)} 页预览图。")
     try:
+        # boto3 上传是同步阻塞调用，放线程里跑，避免拖住事件循环
         return await asyncio.to_thread(
-            save_pages,
+            upload_pages,
             job_id,
             rendered.pages,
-            base_url=preview_base_url,
         )
-    except Exception as exc:  # noqa: BLE001 落盘失败不影响解析结果
+    except Exception as exc:  # noqa: BLE001 上传失败不影响解析结果
         logger.warning("页图预览保存失败（job_id={}）：{}", job_id, exc)
         warnings.append("页图预览保存失败，未返回预览图。")
         return []
@@ -310,7 +308,6 @@ async def run_parse_job(
     model_key: str | None,
     metadata: dict[str, Any],
     language: str,
-    preview_base_url: str,
 ) -> None:
     """响应后置任务：解析 → 分片/FAQ → 页图 → 建议 → 写产物；异常统一转 failed。"""
     try:
@@ -343,7 +340,7 @@ async def run_parse_job(
                 raise CustomException(msg="文档解析后未生成有效切片。", status_code=400)
         await PARSE_JOB_SERVICE.update_progress(job_id, PROGRESS_CHUNKED)
 
-        pages = await _build_pages(job_id, file_name, data, warnings, preview_base_url=preview_base_url)
+        pages = await _build_pages(job_id, file_name, data, warnings)
         await PARSE_JOB_SERVICE.update_progress(job_id, PROGRESS_PAGES)
 
         suggested, suggested_doc_type = build_suggested(metadata, text, file_name)
@@ -382,8 +379,8 @@ def status_response(snapshot: ParseJobSnapshot) -> dict[str, Any]:
     }
     if snapshot.status == "succeeded":
         result: dict[str, Any] = {
-            # 页图 URL 按当前对外基址投影：旧任务存的是旧地址，换 IP/端口后仍能打开
-            "pages": pages_with_public_base(snapshot.pages or []),
+            # 页图是对象存储的预签名 URL，按当前配置重签：库里存的那份只作快照
+            "pages": refresh_pages(snapshot.pages or []),
             "chunks": snapshot.chunks or [],
             "warnings": snapshot.warnings or [],
         }

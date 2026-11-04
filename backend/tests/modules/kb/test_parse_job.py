@@ -7,7 +7,6 @@
 import json
 import uuid
 from typing import Any
-from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
@@ -15,9 +14,9 @@ from app.config.setting import settings
 from app.core.rag.page_render import render_pdf_pages
 from app.core.security_signature import build_signed_headers
 from app.modules.kb.parse_result import preview
-from app.modules_api.contract import errors as contract_errors
-from app.modules_api.contract.parse import service as parse_service
-from app.modules_api.contract.parse.service import MAX_FILE_BYTES, fetch_file
+from app.modules_api.base import errors as contract_errors
+from app.modules_api.kb.parse import service as parse_service
+from app.modules_api.kb.parse.service import MAX_FILE_BYTES, fetch_file
 from app.scripts.contract.mock_gsi import FileServer
 from app.utils.text_splitter import split_text
 
@@ -196,14 +195,33 @@ def test_render_pdf_pages_returns_png() -> None:
     assert first.data.startswith(b"\x89PNG\r\n\x1a\n")
 
 
-async def test_build_pages_writes_signed_preview(monkeypatch, tmp_path) -> None:
-    """页图落盘后返回带有效期的签名 URL，签名正确可通过校验、过期则拒绝。"""
+class _FakeS3:
+    """对象存储替身：只记录上传并回报可预期的预签名地址，避免用例真的走网络。"""
+
+    def __init__(self) -> None:
+        self.uploads: list[tuple[str, int, str | None]] = []
+
+    def upload_bytes(self, data: bytes, object_key: str, *, content_type: str | None = None, **_: Any) -> str:
+        self.uploads.append((object_key, len(data), content_type))
+        return object_key
+
+    def presign_get(self, object_key: str, expires_in: int | None = None) -> str:
+        return f"https://obs.example.com/{object_key}?X-Amz-Expires={expires_in}"
+
+
+async def test_build_pages_uploads_previews_to_object_storage(monkeypatch) -> None:
+    """PDF 页图上传对象存储并返回预签名 URL；object_key 随产物落库，对外投影时被剔除。"""
     import io
 
     import pypdfium2 as pdfium
 
-    monkeypatch.setattr(preview, "_PREVIEW_DIR", tmp_path)
+    fake = _FakeS3()
+    monkeypatch.setattr(settings, "PARSE_PREVIEW_ENABLE", True)
+    monkeypatch.setattr(settings, "S3_ENABLE", True)
     monkeypatch.setattr(settings, "PARSE_PREVIEW_SCALE", 1.0)
+    monkeypatch.setattr(settings, "PARSE_PREVIEW_TTL_SECONDS", 600)
+    monkeypatch.setattr(preview, "get_s3_client", lambda: fake)
+
     document = pdfium.PdfDocument.new()
     page = document.new_page(120, 200)
     page.gen_content()
@@ -213,26 +231,21 @@ async def test_build_pages_writes_signed_preview(monkeypatch, tmp_path) -> None:
     document.close()
 
     warnings: list[str] = []
-    pages = await parse_service._build_pages(
-        "job-preview",
-        "guide.pdf",
-        buffer.getvalue(),
-        warnings,
-        preview_base_url="https://ai.example.com",
-    )
+    pages = await parse_service._build_pages("job-preview", "guide.pdf", buffer.getvalue(), warnings)
     assert warnings == []
-    assert pages and pages[0]["width"] == 120 and pages[0]["height"] == 200
+    assert [(key, content_type) for key, _, content_type in fake.uploads] == [
+        ("parse-previews/job-preview/page-1.png", "image/png")
+    ]
+    assert pages and (pages[0]["width"], pages[0]["height"]) == (120, 200)
+    assert pages[0]["object_key"] == "parse-previews/job-preview/page-1.png"
+    assert pages[0]["image_url"] == (
+        "https://obs.example.com/parse-previews/job-preview/page-1.png?X-Amz-Expires=600"
+    )
 
-    parsed = urlsplit(pages[0]["image_url"])
-    query = parse_qs(parsed.query)
-    expires = int(query["expires"][0])
-    signature = query["sig"][0]
-    assert preview.verify_preview_request(
-        job_id="job-preview", file_name="page-1.png", expires=expires, signature=signature
-    )
-    assert not preview.verify_preview_request(
-        job_id="job-preview", file_name="page-1.png", expires=expires - 10_000, signature=signature
-    )
+    # 对外投影：按 object_key 重签，且不把内部字段抛给调用方
+    refreshed = preview.refresh_pages(pages, ttl_seconds=60)
+    assert "object_key" not in refreshed[0]
+    assert refreshed[0]["image_url"].endswith("?X-Amz-Expires=60")
 
 
 def test_build_suggested_prefers_page_metadata() -> None:
@@ -252,7 +265,7 @@ async def test_faq_parse_uses_prompt_and_returns_questions(monkeypatch) -> None:
     async def fake_chat(self, messages, **kwargs) -> str:
         return '[{"question": "如何申请 VPN？", "answer": "在服务台提交 VPN 申请，由负责人审核后开通账号。"}]'
 
-    monkeypatch.setattr("app.modules_api.contract.parse.service.LlmClient.chat", fake_chat)
+    monkeypatch.setattr("app.modules_api.kb.parse.service.LlmClient.chat", fake_chat)
 
     job_id = f"parse-{uuid.uuid4().hex[:12]}"
     try:
@@ -327,7 +340,7 @@ async def test_parse_result_persists_pages_and_suggested_doc_type() -> None:
                     "page_no": 1,
                     "width": 240,
                     "height": 400,
-                    "image_url": "https://ai.example.com/previews/parse/job/page-1.png?expires=1&sig=x",
+                    "image_url": "https://obs.example.com/parse-previews/job/page-1.png?X-Amz-Signature=x",
                 }
             ],
             suggested={"title": "VPN 手册", "tags": ["VPN"]},
@@ -343,7 +356,7 @@ async def test_parse_result_persists_pages_and_suggested_doc_type() -> None:
                 "page_no": 1,
                 "width": 240,
                 "height": 400,
-                "image_url": "https://ai.example.com/previews/parse/job/page-1.png?expires=1&sig=x",
+                "image_url": "https://obs.example.com/parse-previews/job/page-1.png?X-Amz-Signature=x",
             }
         ]
         assert snapshot.suggested_doc_type == "SOP"

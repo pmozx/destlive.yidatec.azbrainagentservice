@@ -43,13 +43,16 @@ def call_api(method: str, path: str, body: bytes = b"", query: str = "", timeout
 
 
 def wait_parse_job(job_id: str, timeout: int = 600, interval: int = 5) -> dict[str, Any]:
-    """轮询 #02 直到 succeeded / failed，超时返回最后一次查询结果。"""
+    """轮询 #02 直到 succeeded / failed；非 200 立即失败（404 再等也等不出结果）。"""
     last: dict[str, Any] | None = None
     deadline = time.time() + timeout
     while time.time() < deadline:
         last = call_api("GET", f"/v1/parse/jobs/{job_id}")
+        print(f"  [{job_id}] 状态={last['body'].get('status')} 进度={last['body'].get('progress')}%")
+        if last["status_code"] != 200:
+            # 404 多为命中幂等回放（台账在、任务行被清），见 04-实现与运维说明 §5.1
+            raise SystemExit(f"[{job_id}] #02 返回 HTTP {last['status_code']}，停止轮询：{last['body']}")
         status = last["body"].get("status")
-        print(f"  [{job_id}] 状态={status} 进度={last['body'].get('progress')}%")
         if status in ("succeeded", "failed"):
             return last
         time.sleep(interval)

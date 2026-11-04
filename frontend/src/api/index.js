@@ -5,6 +5,8 @@
  * 每个业务模块目录只在此登记一次，禁止重复导出同名函数。
  */
 export * from './module_system/log'
+export * from './module_system/accessTrace'
+export * from './module_system/storage'
 export * from './module_kb/publication'
 export * from './module_kb/parseJob'
 export * from './module_kb/dupGroup'

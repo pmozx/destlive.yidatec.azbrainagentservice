@@ -63,7 +63,7 @@ build（门禁校验） → package（构建并推送镜像） → deploy（dock
 | 启动方式   | 入口脚本 `python main.py run --env=<env>`               | 入口脚本 `python -m uvicorn app:create_app --factory`（关掉热重载） |
 | 中间件     | `devops/common-server`（MySQL + Redis + Milvus）        | `devops/common-server`（**PostgreSQL 17 + pgvector + MinIO + Ollama / llama.cpp 模型服务**，可选用） |
 | 数据与向量 | 业务库 MySQL + 向量库 Milvus 两套存储                   | **单库合流**：业务表与向量表（`sbp_ai_kb_chunk`，含 `embedding vector` 列）同在 PostgreSQL，靠 pgvector + HNSW 检索 |
-| 对象存储   | 业务库 MySQL + 向量库 Milvus                            | ~~**MinIO（S3 协议）**：文档原件与解析产物落桶~~ **当前应用侧不使用**（客户端已随 integration 域删除，编排保留待重建） |
+| 对象存储   | 业务库 MySQL + 向量库 Milvus                            | **MinIO（S3 协议）**：当前唯一消费方是解析页图预览（`parse-previews/`，客户端在 `app/core/clients/s3.py`）；文档原件仍由 GSI 提供 URL 直拉 |
 
 ---
 
@@ -355,12 +355,13 @@ curl -fsS http://service-brain-rerank:8001/v1/rerank \
 > - **模型来源**：rerank GGUF 默认从 `hf-mirror.com` 下载（国内直连 huggingface.co 通常不通），可用 `RERANK_MODEL_URL`
 >   指向 ModelScope、内网制品库或其他镜像站地址。
 
-### 6.6 对象存储：MinIO（S3 兼容，可选，**应用侧当前不使用**）
+### 6.6 对象存储：MinIO（S3 兼容，可选，解析页图预览依赖）
 
-> **状态变更**：`S3StorageClient` 已随 `integration_kb` 域删除，应用代码中不再有任何 S3 实现，契约 #01 改为 `file_url` 直拉。
-> 本节的编排仍保留在仓库内供文件上传能力重建时复用，但**当前发布无需拉起 MinIO**，`S3_*` 配置改了也不产生效果。
+> **当前用途**：`app/core/clients/s3.py` 的 `S3Client` 负责把 PDF 页图传到 `parse-previews/<job_id>/page-<n>.png`，
+> `#02 result.pages[].image_url` 返回预签名 GET URL；不启用时解析仍可用，只是 `pages=[]`。
+> 文档原件不上传（契约 #01 仍按 `file_url` 直拉）。
 
-`devops/common-server/docker-compose-minio.yml` 提供 S3 兼容对象存储（原用于存放文档原件与解析产物）：
+`devops/common-server/docker-compose-minio.yml` 提供 S3 兼容对象存储：
 
 | 项 | 值 |
 | --- | --- |
@@ -393,12 +394,10 @@ S3_AUTO_CREATE=true                            # 启动时幂等建桶
 >   因此编排里不塞 `minio-init` 容器，少维护一个 `mc` 镜像 tag；
 > - **寻址风格**：务必保持 `path`。`virtual` 会把桶名拼成 `service-brain-minio.<域名>`，内网无此 DNS 记录，所有请求直接失败；
 > - **凭据**：编排内联的是 root 账号，仅适合联调；正式环境用 `mc admin user add` 建最小权限子账号（只给目标桶读写）并写入 env；
-> - **自检**：「系统集成 → 集成自检」的「对象存储」卡片会真实建桶、写入探针对象、读回比对后删除，
->   一次暴露凭据错、权限不足、寻址配错与网络不通（临时对象在 `_self_check/` 前缀下，读完即删）；
 > - **预签名链接**：链接 host 就是 `S3_ENDPOINT`；要让浏览器直接打开，endpoint 必须是对外可达地址，
 >   容器内按容器名填写时外部打不开；
-> - **桶内布局**：原件 `spaces/{空间code}/{doc_id}/{原文件名}`，解析产物 `spaces/{空间code}/{doc_id}/parsed/{full.md, content_list.json, images/*}`（`S3_KEY_PREFIX` 非空时整体挂在它下面）。
->   键全部由空间与文档标识推导，库里不存产物键，因此删文档时按 `parsed/` 前缀整目录清理；
+> - **桶内布局**：当前只有解析页图 `parse-previews/{job_id}/page-<n>.png`（`S3_KEY_PREFIX` 非空时整体挂在它下面）；
+>   对象键随解析产物 JSONB 里的 `object_key` 保留，删任务时可按 `parse-previews/{job_id}/` 前缀清目录；
 > - **批量删除的兼容坑**：早期/当前版本的 MinIO 对 `DeleteObjects` 强制要求 `Content-MD5`，而新版 botocore 改发 CRC32 校验头，
 >   批量接口会回 `MissingContentMD5`；客户端已退化为逐个 `delete_object`，日志里会有一条 warning（属预期降级，不是故障）；
 > - **镜像名**：是 `minio/minio`（不是 `milvusdb/minio`），Milvus 官方编排引用的也是 `minio/minio` 的同一 RELEASE 构建。

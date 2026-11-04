@@ -7,12 +7,10 @@ from typing import Annotated
 
 from fastapi import BackgroundTasks, Depends, Request, status
 
-from app.modules.kb.parse_result.preview import public_base_url
-
-from ..common import make_contract_router
-from ..deps import idempotent_job, record_receipt, replay_response
-from ..errors import NOT_FOUND, ContractApiError
-from ..idempotency import Reservation
+from ...base.common import make_contract_router
+from ...base.deps import idempotent_guard, record_receipt, replay_response
+from ...base.errors import NOT_FOUND, ContractApiError
+from ...base.idempotency import SCOPE_JOB, Reservation
 from .schema import ParseJobReceipt, ParseJobRequest, ParseJobStatus
 from .service import (
     accepted_response,
@@ -27,6 +25,15 @@ from .service import (
 ParseRouter = make_contract_router(prefix="/parse", tags=["契约 /v1 解析（#01–#02）"])
 
 
+async def _parse_job_exists(job_id: str) -> bool:
+    """回放前校验：任务行还在才回放；被清库/迁库带走时作废台账重新受理。"""
+    return await get_parse_job_snapshot(job_id) is not None
+
+
+# job 域的幂等依赖在这里特化：带上「任务行是否还在」的存活校验
+parse_idempotent_job = idempotent_guard(SCOPE_JOB, verify_existing=_parse_job_exists)
+
+
 @ParseRouter.post(
     "/jobs",
     status_code=status.HTTP_202_ACCEPTED,
@@ -36,7 +43,7 @@ ParseRouter = make_contract_router(prefix="/parse", tags=["契约 /v1 解析（#
 async def create_parse_job(
     request: Request,
     background: BackgroundTasks,
-    reservation: Annotated[Reservation, Depends(idempotent_job)],
+    reservation: Annotated[Reservation, Depends(parse_idempotent_job)],
     payload: ParseJobRequest,
 ):
     """T2.1：202 受理 + `job_id` 幂等 + `file_url` 拉取与 10MB/类型校验。"""
@@ -61,8 +68,6 @@ async def create_parse_job(
             model_key=payload.model_key,
             metadata=payload.metadata,
             language=payload.options.language,
-            # 页图 URL 必须指向服务自身可被外部访问的地址，不能跟随调用方 Host（可能是 127.0.0.1）
-            preview_base_url=public_base_url(),
         )
     receipt = accepted_response(payload, snapshot)
     await record_receipt(request, reservation, status_code=status.HTTP_202_ACCEPTED, body=receipt)

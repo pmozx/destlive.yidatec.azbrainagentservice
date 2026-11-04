@@ -50,14 +50,14 @@ import httpx
 from app.config.setting import settings
 from app.core.security_signature import build_signed_headers
 from app.modules.kb.chat.schema import REASON_SOURCE_UNAVAILABLE
-from app.modules_api.contract.errors import (
+from app.modules_api.base.errors import (
     INVALID_REQUEST,
     NOT_FOUND,
     STALE_REVISION,
     UNAUTHORIZED,
     UNSUPPORTED_STREAM,
 )
-from app.modules_api.contract.knowledge.schema import canonical_content_hash
+from app.modules_api.kb.knowledge.schema import canonical_content_hash
 
 from .testing import SKELETON_STATUS, error_code, json_dict
 

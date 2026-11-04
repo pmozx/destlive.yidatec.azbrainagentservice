@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from botocore.exceptions import ClientError
 
-from app.utils.s3_client import S3Client, S3ClientError, get_s3_client, reset_s3_client
+from app.core.clients.s3 import S3Client, S3ClientError, get_s3_client, reset_s3_client
 
 
 # ==================== fixtures ====================
@@ -32,7 +32,7 @@ def _reset_singleton():
 @pytest.fixture
 def mock_settings():
     """模拟 S3 配置。"""
-    with patch("app.utils.s3_client.settings") as s:
+    with patch("app.core.clients.s3.settings") as s:
         s.S3_ENABLE = True
         s.S3_ENDPOINT = "https://obs.cn-north-4.myhuaweicloud.com"
         s.S3_ACCESS_KEY = "test-access-key"
@@ -52,7 +52,7 @@ def mock_settings():
 @pytest.fixture
 def mock_boto_client():
     """模拟 boto3 客户端。"""
-    with patch("app.utils.s3_client.boto3.client") as m:
+    with patch("app.core.clients.s3.boto3.client") as m:
         client = MagicMock()
         m.return_value = client
         yield client
@@ -297,6 +297,86 @@ class TestListObjects:
         result = client.list_objects()
 
         assert result == []
+
+
+# ==================== 目录列举 ====================
+
+
+class TestListDir:
+    """目录列举（delimiter + 续传）测试。"""
+
+    def test_list_dir_maps_prefixes_and_contents(self, mock_settings, mock_boto_client):
+        """CommonPrefixes 折成目录、Contents 折成文件，并去掉全局前缀。"""
+        from datetime import datetime
+
+        mock_settings.S3_KEY_PREFIX = "test/prefix"
+        mock_boto_client.list_objects_v2.return_value = {
+            "CommonPrefixes": [{"Prefix": "test/prefix/job-1/"}],
+            "Contents": [
+                {"Key": "test/prefix/job-1/page-1.png", "Size": 10, "LastModified": datetime.now()},
+                # 目录占位对象不算文件
+                {"Key": "test/prefix/job-1/", "Size": 0, "LastModified": datetime.now()},
+            ],
+            "IsTruncated": True,
+            "NextContinuationToken": "next-token",
+        }
+
+        client = S3Client()
+        result = client.list_dir("job-1", "/", 100, None)
+
+        assert result["folders"] == [{"prefix": "job-1/", "name": "job-1"}]
+        assert [f["name"] for f in result["files"]] == ["page-1.png"]
+        assert result["files"][0]["key"] == "job-1/page-1.png"
+        assert result["next_token"] == "next-token"
+        assert result["is_truncated"] is True
+
+        # 前缀原样下发（由服务层补尾斜杠），关键字搜索可直接拼半截键
+        assert mock_boto_client.list_objects_v2.call_args.kwargs["Prefix"] == "test/prefix/job-1"
+        assert mock_boto_client.list_objects_v2.call_args.kwargs["Delimiter"] == "/"
+
+    def test_list_dir_root_without_prefix(self, mock_settings, mock_boto_client):
+        """不传 prefix 时从全局前缀这一层开始列（不带尾斜杠则不跨桶根目录）。"""
+        mock_settings.S3_KEY_PREFIX = "test/prefix"
+        mock_boto_client.list_objects_v2.return_value = {}
+
+        client = S3Client()
+        result = client.list_dir()
+
+        assert result == {"folders": [], "files": [], "next_token": None, "is_truncated": False}
+        assert mock_boto_client.list_objects_v2.call_args.kwargs["Prefix"] == "test/prefix/"
+
+    def test_list_dir_passes_continuation_token(self, mock_settings, mock_boto_client):
+        """续传令牌原样透传给 list_objects_v2。"""
+        mock_boto_client.list_objects_v2.return_value = {"IsTruncated": False}
+
+        client = S3Client()
+        client.list_dir("docs/", "/", 50, "token-2")
+
+        kwargs = mock_boto_client.list_objects_v2.call_args.kwargs
+        assert kwargs["ContinuationToken"] == "token-2"
+        assert kwargs["MaxKeys"] == 50
+
+
+class TestStatObject:
+    """对象元信息测试。"""
+
+    def test_stat_object(self, mock_settings, mock_boto_client):
+        """head_object 的响应归一成 size/content_type/etag 等字段。"""
+        mock_boto_client.head_object.return_value = {
+            "ContentLength": 2048,
+            "ContentType": "image/png",
+            "ETag": '"abc123"',
+            "Metadata": {"job": "j1"},
+        }
+
+        client = S3Client()
+        stat = client.stat_object("docs/a.png")
+
+        assert stat["size"] == 2048
+        assert stat["content_type"] == "image/png"
+        assert stat["etag"] == "abc123"
+        assert stat["metadata"] == {"job": "j1"}
+        assert mock_boto_client.head_object.call_args.kwargs["Key"] == "test/prefix/docs/a.png"
 
 
 # ==================== 单例 ====================

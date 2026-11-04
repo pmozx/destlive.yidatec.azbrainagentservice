@@ -9,7 +9,7 @@
 
 from typing import Any
 
-from ..common import make_contract_router
+from ...base.common import make_contract_router
 from .schema import (
     DuplicateCheckRequest,
     DuplicateGroupQueryRequest,

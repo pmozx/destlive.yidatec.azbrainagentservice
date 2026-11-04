@@ -93,12 +93,12 @@ cd backend && uv run python -m tests.contract.debug_signed_headers
 ## 七、当前基线
 
 ```bash
-cd backend && uv run pytest -q     # 189 collected
+cd backend && uv run pytest -q     # 216 collected
 ```
 
 | 包 | 用例数 | 文件 |
 |---|---|---|
-| `core/` | 101 | base_model 9 / base_crud 2 / settings 3 / db_getter 3 / request_body 5 / chat_cite 4 / chat_rerank 8 / chat_streaming 10 / sse 6 / vector_store 20 / embedding_client 5 / s3_client 26 |
+| `core/` | 117 | base_model 9 / base_crud 2 / settings 3 / db_getter 3 / request_body 5 / chat_cite 4 / chat_rerank 8 / chat_streaming 10 / sse 6 / vector_store 20 / embedding_client 5 / s3_client 30 / idempotent_guard_verify 3 / time_util 5 / audit_payload 4 |
 | `contract/` | 0 | 无 pytest 用例：`run_parse_tests.py` / `run_knowledge_tests.py` / `run_search_tests.py` 是对已启动服务发签名请求的回归脚本，pytest 不收集；`debug_signed_headers.py` 是手工调试脚本 |
-| `modules/` | 86 | kb 77（parse_job 11 / publication 10 / entry_write 12 / keyword_search 12 / natural_language_search 12 / knowledge_admin 3 / retrieval_admin 4 / chat_admin 6 / chat_stream 7）；system 9（access_trace） |
+| `modules/` | 97 | kb 77（parse_job 11 / publication 10 / entry_write 12 / keyword_search 12 / natural_language_search 12 / knowledge_admin 3 / retrieval_admin 4 / chat_admin 6 / chat_stream 7）；system 20（access_trace 9 / storage 11） |
 | `stages/` | 2 | m1_contract：路由清单 / 错误响应声明（501 骨架断言已于 #07 上线时删除） |

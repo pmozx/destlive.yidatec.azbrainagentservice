@@ -48,8 +48,8 @@
 | 表名 | 中文名 | 角色 | 写入方 | 保留策略 |
 | --- | --- | --- | --- | --- |
 | `sbp_ai_system_api_log` | 接口审计日志 | 明细（只追加） | `core/router_class.py::ApiLogRoute` → 进程内异步任务 | 90 天（启动清理 + 手动清理，物理删除） |
-| `sbp_ai_system_nonce` | 防重放台账 | 台账（状态机） | `contract/deps.py::verified_signature` → `SystemNonceService.register` | 600 秒（启动清理，物理删除；过期行可被新 nonce 接管） |
-| `sbp_ai_system_idempotency` | 幂等台账 | 台账（状态机） | `contract/deps.py::_idempotent_guard` → `SystemIdempotencyService` | 90 天（启动清理）；**墓碑永不清** |
+| `sbp_ai_system_nonce` | 防重放台账 | 台账（状态机） | `base/deps.py::verified_signature` → `SystemNonceService.register` | 600 秒（启动清理，物理删除；过期行可被新 nonce 接管） |
+| `sbp_ai_system_idempotency` | 幂等台账 | 台账（状态机） | `base/deps.py::_idempotent_guard` → `SystemIdempotencyService` | 90 天（启动清理）；**墓碑永不清** |
 | `sbp_ai_system_request_log` | 结果台账 | 台账（设计态） | **无（未接入）** | 设计 24 小时，**无清理任务** |
 
 字段、键、索引与表间引用见 [`02-数据模型与表关系.md`](02-数据模型与表关系.md)；保留策略的完整口径见 [`01-业务功能说明.md`](01-业务功能说明.md) §六。
@@ -84,11 +84,11 @@
 | `app/modules/system/api_log/` | 表模型、写入/查询 schema、CRUD、查询与清理服务、4 个端点 | `crud.py` 里写明了"审计表走物理删除"的原因 |
 | `app/modules/system/access_trace/` | 四表只读视图：service（时间线/概览/分页）、crud（复用四个 CRUD 的薄桥接）、schema、7 个端点 | `model.py` 只做集中导出，避免模型复制 |
 | `app/modules/system/nonce/` | 防重放台账：原子登记（`ON CONFLICT ... WHERE expires_at < now`）+ 过期清理 | `crud.py` 的单条 SQL 是"首用唯一事实来源" |
-| `app/modules/system/idempotency/` | 幂等台账：预约、接管过期、登记结果、释放、墓碑、清理 | 返回中性状态，不依赖 `app.modules_api.contract` |
+| `app/modules/system/idempotency/` | 幂等台账：预约、接管过期、登记结果、释放、墓碑、清理 | 返回中性状态，不依赖 `app.modules_api.base` |
 | `app/modules/system/request_log/` | 结果台账模型 + 只读 CRUD | 无写入方、无清理任务 |
-| `app/modules_api/contract/deps.py` | `verified_signature`（逐步回填 `security_check`）、`_idempotent_guard`（预约/释放/登记）、`contract_store_ready`（启动清理） | 台账的**业务写入时机**由这里决定 |
-| `app/modules_api/contract/audit.py` | `SecurityRecord`：`security_check` 六字段结构与取值常量 | 定义"留痕长什么样" |
-| `app/modules_api/contract/idempotency.py`、`app/modules_api/contract/nonce.py` | 契约层适配：把台账中性状态翻译成 409/503 契约错误码 | 反向依赖方向：`contract → modules/system` |
+| `app/modules_api/base/deps.py` | `verified_signature`（逐步回填 `security_check`）、`_idempotent_guard`（预约/释放/登记）、`contract_store_ready`（启动清理） | 台账的**业务写入时机**由这里决定 |
+| `app/modules_api/base/audit.py` | `SecurityRecord`：`security_check` 六字段结构与取值常量 | 定义"留痕长什么样" |
+| `app/modules_api/base/idempotency.py`、`app/modules_api/base/nonce.py` | 契约层适配：把台账中性状态翻译成 409/503 契约错误码 | 反向依赖方向：`base → modules/system` |
 | `app/modules/system/bootstrap.py` | 建表清单（审计表受 `API_LOG_AUTO_CREATE` 控制） | 表由启动期建出，项目不使用迁移 |
 | `app/__init__.py`（lifespan） | 启动：`purge_expired()` 清审计 → `ensure_contract_store()` 清 nonce/幂等；关停：`flush_pending_api_logs()` | 失败只告警不阻断 |
 | `frontend/src/views/module_system/log/`、`trace/` | 两个页面；接口封装在 `frontend/src/api/module_system/{log,accessTrace}.js` | 页面不做本地过滤，全下推后端 |

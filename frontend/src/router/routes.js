@@ -41,6 +41,12 @@ export const constantRoutes = [
         component: () => import('@/views/module_system/trace/index.vue'),
         meta: { title: '接入调用追踪', icon: 'Link' },
       },
+      {
+        path: 'storage',
+        name: 'SystemStorage',
+        component: () => import('@/views/module_system/storage/index.vue'),
+        meta: { title: '文件存储', icon: 'FolderOpened' },
+      },
     ],
   },
   {

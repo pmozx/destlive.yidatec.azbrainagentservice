@@ -1,7 +1,7 @@
 """幂等台账服务：预约状态机、结果登记、失败释放与过期清理。
 
 服务只返回中性状态（``new`` / ``replay`` / ``body_conflict`` / ``processing``），
-由调用层翻译成契约错误码，避免系统域反向依赖 ``app.modules_api.contract``。
+由调用层翻译成契约错误码，避免系统域反向依赖 ``app.modules_api.base``。
 
 台账与业务同库不同事务：登记/完成都用独立会话立即提交；业务失败必须显式 release，
 否则一次失败会把该 ID 永久锁在 ``processing``（重试全变 409）。

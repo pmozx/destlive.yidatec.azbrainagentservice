@@ -15,7 +15,7 @@
 | Web 框架 | FastAPI、uvicorn[standard] |
 | 数据层 | SQLAlchemy 2.0（async）、asyncpg（PostgreSQL 主选）/ aiomysql / aiosqlite |
 | 向量存储 | PostgreSQL + pgvector（`pgvector` Python 包 + HNSW 余弦索引）；业务向量落 `sbp_ai_kb_chunk.embedding`，通用向量层为 `sbp_ai_kb_vector_collection` / `sbp_ai_kb_vector_embedding` |
-| 对象存储 | ~~MinIO（S3 协议兼容）~~ **已随 `integration` 域删除**，`S3StorageClient` 不再存在；`S3_*` 配置保留为重建时的口径基线（无消费方） |
+| 对象存储 | S3 协议兼容（`app/core/clients/s3.py`，boto3）：MinIO / 华为云 OBS / 阿里云 OSS 均可，靠 `S3_PROVIDER` 切换寻址风格 |
 | 文档解析 | MinerU（`mineru-open-sdk`）：PDF / Office / 图片 → Markdown + 版面 JSON（页码溯源）；纯文本/HTML 走内置解析器。实现位于 `app/core/rag/`，当前仅契约 #01 解析任务使用 |
 | 配置与日志 | pydantic-settings、python-dotenv、loguru |
 | 调度 | APScheduler 3.x |
@@ -132,12 +132,11 @@ VECTOR_AUTO_CREATE=true          # 启动时只建 vector 扩展；分片表由 
 
 向量落点：契约 #03 写入时由 `EmbeddingClient` 批量生成向量，直接落 `sbp_ai_kb_chunk.embedding`（`KbEntryService._build_chunk_rows`），维度不符整批拒绝、不入库。`core/rag/vector_store.py` 另有一套通用向量层（表 `sbp_ai_kb_vector_collection` / `sbp_ai_kb_vector_embedding`，SQLAlchemy Core 直接写 SQL，表名与索引名自持），当前**仅 `validate_embedding` 被调用**，`upsert_documents` / `search_documents` 等无真实消费方。解析链路（`contract/parse.py`）只做「解析 → 分片」（`core/rag/parse_and_chunk`），不负责向量化。
 
-### 对象存储（已下线）
+### 对象存储（解析页图）
 
-原 `S3StorageClient`（boto3 + IO 线程池）、`ensure_bucket`、`/integration/probe?target=s3` 自检端点**已随 `integration_kb` 域一起删除**，代码中不再有任何 S3 实现；契约 #01 改为 `file_url` 直拉，不落对象存储。
+`S3StorageClient` 曾随 `integration_kb` 域删除；现在的实现是 `app/core/clients/s3.py` 的 `S3Client`（boto3 + IO 线程池，进程级单例），消费方只有解析页图预览：PDF 页图渲染后上传到 `parse-previews/<job_id>/page-<n>.png`（再加 `S3_KEY_PREFIX`），`#02 result.pages[].image_url` 返回**预签名 GET URL**，不再落本地 `static/parse-previews`、也不再自建 `/previews/parse` 预览路由。
 
-`S3_*` 与 `IO_THREAD_POOL_SIZE` 配置项仍保留在 `setting.py`，标注为「当前无消费方」，供文件上传能力重建时复用——**改这些值不会产生任何效果**。MinIO 编排（`devops/common-server/docker-compose-minio.yml`）仍在仓库内，但应用侧不再连接。
-更完整的编排口径（镜像、端口、凭据与运维命令）见 [devops/README.md 6.6](./devops/README.md)。
+启用只需把 `S3_ENABLE=true` 并填好 endpoint / 凭据 / 桶；`S3_AUTO_CREATE=true` 时启动期幂等建桶（失败只告警）。关掉 `S3_ENABLE` 即退化为 `pages=[]`，解析本身不受影响。MinIO 编排（`devops/common-server/docker-compose-minio.yml`）可直接复用，更完整的口径见 [devops/README.md 6.6](./devops/README.md)。
 
 ### 知识库域现状（模型就绪，无 controller）
 
@@ -179,7 +178,7 @@ GSI 业务表以 `sbp_` 开头（无 `ai` 段），由 GSI 侧 Flyway 创建与�
 
 ### 模型服务（LLM / Embedding / Rerank）
 
-客户端实现位于 `app/core/clients/`（`llm.py` / `embedding.py` / `rerank.py` / `mineru.py`），均为独立 HTTP 客户端，不依赖业务模块。按需填写配置，缺省留空即视为“未接入”，调用时报 503 并提示该填哪个变量，不做静默降级：
+客户端实现位于 `app/core/clients/`（`llm.py` / `embedding.py` / `rerank.py` / `mineru.py` / `s3.py`），均为独立客户端，不依赖业务模块。按需填写配置，缺省留空即视为“未接入”，调用时报 503 并提示该填哪个变量，不做静默降级：
 
 ```ini
 # 大语言模型（OpenAI 兼容：DeepSeek 直连 / 自建 vLLM / Azure 网关）
@@ -230,7 +229,7 @@ MinerU 返回的 `content_list` 会转成「文本 → 页码」映射，分片�
 1. **flash 与 precise 差别很大**：未配 `MINERU_API_TOKEN` 走 flash，只回 Markdown —— 既没有 `content_list`（页码只能留空），也没有图片（落不了 `content_list.json` / `images/`）。要页码与完整产物必须配 token 走 precise；
 2. MinerU 的提交+轮询是分钟级阻塞调用，一律在解析线程池里执行，不占事件循环。
 
-解析产物当前**不落对象存储**（S3 客户端已删除），`full.md` / `content_list.json` / 图片仅作为契约 #01/#02 的返回载荷存在；解析结果的正本落在 `sbp_ai_kb_parse_result` 与 `sbp_ai_kb_chunk`。原「解析产物预览」弹窗与 `/document/asset/...` 图片接口已随前端页面一起删除。
+解析产物正文不入对象存储（`full.md` / `content_list.json` 只作为契约 #01/#02 的返回载荷存在），落库的是 `sbp_ai_kb_parse_result` 与 `sbp_ai_kb_chunk`；**唯一进对象存储的是 PDF 页图**（`parse-previews/` 下，供 `#02 result.pages` 预签名预览）。
 
 联调验收用 `app/scripts/contract/verify_m1.py`（服务已启动后执行，退出码非 0 即验收不达标）：
 

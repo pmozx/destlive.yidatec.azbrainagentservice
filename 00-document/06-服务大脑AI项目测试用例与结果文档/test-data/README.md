@@ -135,7 +135,7 @@ FAQ 形态（`resource_type=faq`，源 `responses/02_parse_jobs_faq.json`，`pag
 | `requests/01_parse_jobs_faq.json` | `responses/01_parse_jobs_faq.json` | 202 受理回执 |
 | `requests/02_parse_jobs_doc.json` | `responses/02_parse_jobs_doc.json` | 200 文档任务终态（`pages` / `chunks` / `suggested` 全量） |
 | `requests/02_parse_jobs_faq.json` | `responses/02_parse_jobs_faq.json` | 200 FAQ 任务终态（`suggested_doc_type=FAQ`） |
-| `requests/01_parse_jobs_doc_unsupported_type.json` | 同名 | 202（类型校验延迟到后台，见报告问题 1） |
+| `requests/01_parse_jobs_doc_unsupported_type.json` | 同名 | 400 `INVALID_REQUEST`（`file_name=readme.exe`；`.txt` 属已支持后缀，不拿来做本用例） |
 | `requests/01_parse_jobs_doc_too_large.json` | 同名 | 413 `PAYLOAD_TOO_LARGE` |
 | `requests/01_parse_jobs_faq_missing_prompt.json` | 同名 | 400 `INVALID_REQUEST` |
 | `requests/02_parse_jobs_not_found.json` | 同名 | 404 `NOT_FOUND` |

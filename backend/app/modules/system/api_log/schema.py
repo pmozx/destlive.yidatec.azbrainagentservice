@@ -1,3 +1,5 @@
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 from app.core.base_schema import BaseQueryParam, BaseSchema
@@ -12,9 +14,9 @@ class SystemApiLogCreateSchema(BaseModel):
     request_path: str = Field(..., max_length=255, description="请求路径")
     request_method: str = Field(..., max_length=10, description="请求方式")
     request_query: str | None = Field(default=None, description="查询字符串")
-    request_payload: str | None = Field(default=None, description="请求参数")
+    request_payload: dict[str, Any] | None = Field(default=None, description="请求参数（JSON 结构）")
     response_code: int = Field(default=200, ge=100, le=599, description="响应状态码")
-    response_json: str | None = Field(default=None, description="响应体")
+    response_json: Any = Field(default=None, description="响应报文（JSON 结构）")
     process_time: str | None = Field(default=None, max_length=20, description="处理耗时(毫秒)")
     request_ip: str | None = Field(default=None, max_length=50, description="请求IP")
     user_agent: str | None = Field(default=None, max_length=255, description="浏览器 UA")
@@ -34,11 +36,11 @@ class SystemApiLogOutSchema(BaseSchema):
 
 
 class SystemApiLogDetailOutSchema(SystemApiLogOutSchema):
-    """接口审计日志详情响应（含请求/响应体）"""
+    """接口审计日志详情响应（含请求/响应报文；都是 JSON 结构，页面直接展开）"""
 
     request_query: str | None = Field(default=None, description="查询字符串")
-    request_payload: str | None = Field(default=None, description="请求参数")
-    response_json: str | None = Field(default=None, description="响应体")
+    request_payload: dict[str, Any] | None = Field(default=None, description="请求参数（JSON）")
+    response_json: Any = Field(default=None, description="响应报文（JSON）")
     user_agent: str | None = Field(default=None, description="浏览器 UA")
 
 

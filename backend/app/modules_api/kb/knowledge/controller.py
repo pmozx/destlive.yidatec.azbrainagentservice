@@ -1,7 +1,7 @@
 """`/v1` 知识接口：发布（03.1–03.4）、检索（#07）与停用（#20）。
 
 已实现接口把编排交给 ``service.py``；重复治理的查重/分组/预览（#16–#19）在
-``contract/duplicate``，本文件只保留与之同族的“发布单元写入口”——#20 停用与 03.3/03.4
+``kb/duplicate``，本文件只保留与之同族的“发布单元写入口”——#20 停用与 03.3/03.4
 共用 ``/entries/{publication_id}`` 路径与同一个幂等域。
 """
 
@@ -9,9 +9,9 @@ from typing import Annotated
 
 from fastapi import Depends, Request, status
 
-from ..common import make_contract_router
-from ..deps import idempotent_request, record_receipt, replay_response
-from ..idempotency import Reservation
+from ...base.common import make_contract_router
+from ...base.deps import idempotent_request, record_receipt, replay_response
+from ...base.idempotency import Reservation
 from .schema import (
     EntryDeactivateReceipt,
     EntryDeactivateRequest,

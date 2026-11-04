@@ -1,4 +1,4 @@
-"""出站 HTTP 客户端集合：聊天模型 / 向量化 / 重排序。
+"""出站客户端集合：聊天模型 / 向量化 / 重排序 / 文件下载 / 对象存储。
 
 放在 core 层是因为知识库（向量化）与 AI 问答（检索生成）两个业务域都要用，
 放任一业务域内都会迫使其反向依赖，违反「业务域之间不互相 import」的约定。
@@ -9,6 +9,9 @@ HTTP 类客户端统一的超时/重试/错误归一链见 ``base.BaseHttpClient
 每 new 一个实例就多一套 httpx 连接池（且永远不会被关闭），高频接口下会把端口和内存一起耗掉；
 关停时由 ``close_clients()`` 统一 ``aclose()``（见 ``app/__init__.py`` 的 lifespan）。
 单例只在事件循环内取用，取的过程中没有 await，因此不需要加锁也不会出现半初始化实例。
+
+``S3Client`` 是 boto3 的同步封装，单例在 ``s3.py`` 内维护（无需连接池，也不参与关停）；
+调用方用 ``asyncio.to_thread`` 包住上传/下载这类会走网络的调用。
 """
 
 from typing import Any
@@ -18,6 +21,7 @@ from .embedding import EmbeddingClient
 from .llm import ChatMessage, ChatStreamChunk, LlmClient
 from .mineru import MineruClient, MineruDocument, MineruImage
 from .rerank import RerankClient, RerankHit
+from .s3 import S3Client, S3ClientError, get_s3_client, reset_s3_client
 
 __all__ = [
     "BaseHttpClient",
@@ -30,10 +34,14 @@ __all__ = [
     "MineruImage",
     "RerankClient",
     "RerankHit",
+    "S3Client",
+    "S3ClientError",
     "close_clients",
     "get_embedding_client",
     "get_llm_client",
     "get_rerank_client",
+    "get_s3_client",
+    "reset_s3_client",
 ]
 
 

@@ -3,12 +3,12 @@
 合并原 ``knowledge`` 子模块后，本文件包含两个服务类：
 
 - **KbEntryService**：契约写入链路（03.1 首发 / 03.2 基线读取 / 03.3 修订 / 03.4 删除），
-  由 ``modules_api/contract/knowledge/service.py`` 调用；
+  由 ``modules_api/kb/knowledge/service.py`` 调用；
 - **KbPublicationService**：管理端维护链路（列表 / 详情 / 新增 / 编辑 / 状态 / 删除 / 版本 / 切片），
   由 ``modules/kb/publication/controller.py`` 调用。
 
 设计要点：
-1. 契约校验在 ``app/modules_api/contract/knowledge/service.py``；本层只做业务状态机与落库；
+1. 契约校验在 ``app/modules_api/kb/knowledge/service.py``；本层只做业务状态机与落库；
 2. **向量化先于事务**：embedding 失败时不产生任何半成品行；
 3. 写入是「全量替换 + 指针切换」：新快照整体写入，旧快照保留，检索只认当前指针；
 4. 并发安全靠数据库 CAS（``KbPublicationCRUD.advance``）+ 唯一键兜底；

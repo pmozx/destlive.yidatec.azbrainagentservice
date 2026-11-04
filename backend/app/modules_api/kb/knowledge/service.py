@@ -37,7 +37,7 @@ from app.modules.kb.retrieval.service import (
     RetrievalEmbeddingUnavailable,
 )
 
-from ..errors import (
+from ...base.errors import (
     AUTHORIZATION_UNAVAILABLE,
     CONTEXT_OUT_OF_SCOPE,
     INVALID_REQUEST,

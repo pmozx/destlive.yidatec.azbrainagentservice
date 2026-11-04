@@ -2,6 +2,11 @@
 
 统一封装上传、下载、预签名、桶管理等能力；通过 S3_PROVIDER 适配不同厂商差异。
 boto3 客户端线程安全，模块级单例即可。
+
+放在 core 层的原因与其它出站客户端一致：解析页图（kb 域）与后续文档原件归档都要用，
+放任一业务域内都会迫使其它域反向依赖。**boto3 是同步阻塞实现**：上传/下载/桶管理请在
+调用方用 ``asyncio.to_thread`` 包一层；``presign_get`` / ``presign_put`` 只做本地签名计算，
+不发网络请求，可直接在事件循环里调用。
 """
 
 from __future__ import annotations
@@ -62,6 +67,11 @@ class S3Client:
             read_timeout=settings.S3_TIMEOUT,
             s3={"addressing_style": addressing_style},
             signature_version="s3v4",
+            # boto3 ≥1.36 默认给上传附加 aws-chunked 尾校验（CRC32），华为云 OBS 等
+            # S3 兼容实现不认这个流式签名，PutObject 会报 XAmzContentSHA256Mismatch；
+            # 改为仅在操作必填时才计算校验值。
+            request_checksum_calculation="when_required",
+            response_checksum_validation="when_required",
         )
 
         self._client = boto3.client(
@@ -401,6 +411,104 @@ class S3Client:
             return result
         except ClientError as e:
             raise S3ClientError(f"列出对象失败: {e}") from e
+
+    def list_dir(
+        self,
+        prefix: str = "",
+        delimiter: str = "/",
+        max_keys: int = 100,
+        continuation_token: str | None = None,
+    ) -> dict:
+        """按分隔符列目录：只返回当前层的子目录与文件（支持续传）。
+
+        与 ``list_objects`` 的差别：``prefix`` 按原始键前缀使用（不强制补尾斜杠），
+        目录浏览时由调用方自行补 ``/``，做名称过滤时可直接拼半截键（如 ``page-1``）。
+
+        Args:
+            prefix: 键前缀过滤（不含全局前缀）
+            delimiter: 分隔符，``/`` 表示按目录折叠
+            max_keys: 单次返回上限（S3 上限 1000，含子目录条目）
+            continuation_token: 上一页返回的 ``next_token``
+
+        Returns:
+            ``{"folders": [{"prefix", "name"}], "files": [{"key", "name", "size", "last_modified"}],
+            "next_token": str | None, "is_truncated": bool}``；键均已去掉全局前缀。
+        """
+        if prefix:
+            full_prefix = self._full_key(prefix)
+        else:
+            full_prefix = f"{self._key_prefix}/" if self._key_prefix else ""
+
+        params: dict = {
+            "Bucket": self._bucket,
+            "Prefix": full_prefix,
+            "Delimiter": delimiter,
+            "MaxKeys": max_keys,
+        }
+        if continuation_token:
+            params["ContinuationToken"] = continuation_token
+
+        try:
+            response = self._client.list_objects_v2(**params)
+        except ClientError as e:
+            raise S3ClientError(f"列出目录失败: {e}") from e
+
+        root = f"{self._key_prefix}/" if self._key_prefix else ""
+
+        def _relative(key: str) -> str:
+            return key[len(root) :] if root and key.startswith(root) else key
+
+        folders = []
+        for item in response.get("CommonPrefixes") or []:
+            rel = _relative(item["Prefix"])
+            folders.append({"prefix": rel, "name": rel.rstrip("/").rsplit("/", 1)[-1]})
+
+        files = []
+        for obj in response.get("Contents") or []:
+            key = obj["Key"]
+            rel = _relative(key)
+            name = rel.rsplit("/", 1)[-1]
+            # 以 / 结尾的是目录占位对象（控制台建目录时产生），不算文件
+            if not name or key.endswith("/"):
+                continue
+            files.append(
+                {
+                    "key": rel,
+                    "name": name,
+                    "size": obj["Size"],
+                    "last_modified": obj["LastModified"],
+                }
+            )
+
+        is_truncated = bool(response.get("IsTruncated"))
+        return {
+            "folders": folders,
+            "files": files,
+            "next_token": response.get("NextContinuationToken") if is_truncated else None,
+            "is_truncated": is_truncated,
+        }
+
+    def stat_object(self, object_key: str) -> dict:
+        """获取对象元信息（大小 / MIME / 最后修改 / ETag / 自定义元数据）。
+
+        Args:
+            object_key: 对象键（不含前缀）
+
+        Returns:
+            ``{"size", "content_type", "last_modified", "etag", "metadata"}``
+        """
+        full_key = self._full_key(object_key)
+        try:
+            response = self._client.head_object(Bucket=self._bucket, Key=full_key)
+        except ClientError as e:
+            raise S3ClientError(f"读取对象元信息失败: {e}") from e
+        return {
+            "size": int(response.get("ContentLength") or 0),
+            "content_type": response.get("ContentType"),
+            "last_modified": response.get("LastModified"),
+            "etag": str(response.get("ETag") or "").strip('"'),
+            "metadata": response.get("Metadata") or {},
+        }
 
     def get_object_url(self, object_key: str) -> str:
         """获取对象的直接访问 URL（非预签名，需桶策略允许公开读）。

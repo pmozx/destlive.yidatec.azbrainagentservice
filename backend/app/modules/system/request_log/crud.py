@@ -1,7 +1,7 @@
 """结果台账数据层（表 ``sbp_ai_system_request_log``）。
 
 只做两件事：按 ``request_id`` 读写台账行，以及过期行清理。
-状态机的语义在 ``service.py``，契约错误码映射在 ``modules_api/contract``。
+状态机的语义在 ``service.py``，契约错误码映射在 ``modules_api/base``。
 """
 
 from datetime import datetime

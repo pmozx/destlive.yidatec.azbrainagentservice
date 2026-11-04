@@ -8,10 +8,12 @@ from pydantic import BaseModel, Field
 
 from app.common.constant import DATE_DISPLAY_FMT, DATETIME_DISPLAY_FMT, TIME_DISPLAY_FMT
 from app.common.enums import RET
+from app.utils.time_util import format_datetime
 
-# 裸 datetime/date/time（未走 Pydantic 的 dict 等）JSON 输出与 constant 中展示格式一致
+# 裸 datetime/date/time（未走 Pydantic 的 dict 等）JSON 输出与 constant 中展示格式一致：
+# datetime 必须换算到业务时区，否则把 UTC 墙上时间当本地时间展示会差 8 小时
 _JSON_DATETIME_CUSTOM_ENCODER: dict[type[Any], Any] = {
-    datetime: lambda d: d.strftime(DATETIME_DISPLAY_FMT),
+    datetime: lambda d: format_datetime(d, DATETIME_DISPLAY_FMT),
     date: lambda d: d.strftime(DATE_DISPLAY_FMT),
     time: lambda t: t.strftime(TIME_DISPLAY_FMT),
 }

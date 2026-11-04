@@ -19,7 +19,7 @@ from typing import Any
 
 from app.config.setting import settings
 from app.modules.kb.retrieval.service import _score, _snippet, _tokenize
-from app.modules_api.contract import errors as contract_errors
+from app.modules_api.base import errors as contract_errors
 
 from tests.support import requires_db
 

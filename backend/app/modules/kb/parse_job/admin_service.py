@@ -6,7 +6,7 @@ from app.core.base_schema import PageResultSchema
 from app.utils.common_util import search_to_dict
 
 from ..parse_result.crud import KbParseResultCRUD
-from ..parse_result.preview import pages_with_public_base
+from ..parse_result.preview import refresh_pages
 from .crud import KbParseJobCRUD
 from .schema import (
     KbParseJobDetailOutSchema,
@@ -46,8 +46,8 @@ class KbParseJobAdminService:
         result = await KbParseResultCRUD(self.db).get(job_id=job_id)
         result_out = KbParseResultOutSchema.model_validate(result) if result else None
         if result_out is not None:
-            # 管理端同样用当前对外基址，旧任务存的 127.0.0.1 地址也能直接预览
-            result_out.pages = pages_with_public_base(result_out.pages)
+            # 页图是对象存储的预签名 URL，按当前配置重签，避免历史任务回放过期链接
+            result_out.pages = refresh_pages(result_out.pages)
         out = KbParseJobDetailOutSchema(
             id=job.id,
             uuid=job.uuid,

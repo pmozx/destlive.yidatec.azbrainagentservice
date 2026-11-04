@@ -3,7 +3,7 @@
 - **§一 领域层 dataclass**：服务层入参/结果投影，不依赖 Pydantic，服务层可脱离 FastAPI 单测；
 - **§二 管理端 Pydantic Schema**：``/kb/retrieval`` 的请求/响应模型，HTTP 校验只在这一层。
 
-契约 #07 的 HTTP 模型仍在 ``app/modules_api/contract/knowledge/schema.py``，两边不复用：
+契约 #07 的 HTTP 模型仍在 ``app/modules_api/kb/knowledge/schema.py``，两边不复用：
 契约带签名五头与 ``authorization`` 时效块，管理端走登录态，字段集合本就不同。
 """
 

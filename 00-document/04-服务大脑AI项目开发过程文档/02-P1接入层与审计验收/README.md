@@ -33,7 +33,7 @@
 
 ## 三、代码与迁移（`backend/`）
 
-### 3.1 接入层：`app/modules_api/contract/`
+### 3.1 接入层：`app/modules_api/base/`
 
 正式 `/v1` 与 `/api/v1`（管理台 JWT）分离；POC 验证骨架已按 `../01-POC验证/03-POC下线与契约迁移方案.md` 阶段 0 下线（2026-10-30），`/v1` 只有本模块一份实现。`CONTRACT_V1_ENABLE=false` 表示 `/v1` 完全不挂载（404），不再提供 POC 回退。
 
@@ -58,7 +58,7 @@ POC 与 contract 曾各持一份验签实现：7 行原文拼装、±5 分钟窗
 | --- | --- | --- |
 | `app/core/security_signature.py` | **唯一算法实现**：五头常量与 `SIGNATURE_HEADERS` 清单、7 行原文与 HMAC 计算、时间窗、nonce 格式与防重放**时序**（先验签再登记）、`authorization` 跨度判定、OpenAPI 签名说明文案（`signature_rule_doc`）；失败抛中性的 `SignatureCheckError` / `AuthorizationCheckError`（带 `reason` 枚举），**不认识任何错误体** | 被 contract 依赖，不反向依赖接入层 |
 | `setting.py` 的 `CONTRACT_*` 一组（5 项） | **唯一配置口径**：调用方标识、HMAC 共享密钥、时钟窗口、nonce TTL、`authorization` 跨度；contract 与 `mock_gsi` 都直读这一组，不再有第二份自签密钥/窗口；不另设值对象层 | 读 `Settings` |
-| `app/modules_api/contract/signature.py` | 适配层：`SignatureCheckError.reason` → 大写契约码；nonce 落库仍由 `nonce.py` 在 `deps.py` 里编排（同一时序） | → 公共层 |
+| `app/modules_api/base/signature.py` | 适配层：`SignatureCheckError.reason` → 大写契约码；nonce 落库仍由 `nonce.py` 在 `deps.py` 里编排（同一时序） | → 公共层 |
 
 口径边界（刻意不合并）：
 
@@ -172,7 +172,7 @@ rem 3) 单测与静态检查
 5. **`security_check.failure_code` 在出口补记**：验签依赖只能记签名阶段的失败；`authorization` 超时效、幂等异正文、参数校验这些「签名已通过才失败」的请求，由 `ContractApiRoute` 出口统一补 `failure_code`，否则审计里只有 4xx 没有原因。
 6. **幂等回放的 HTTP 演示要等业务落地**：骨架期 501 属失败，依赖退出会 `release` 预约（否则 ID 被永久锁在 `processing`），所以 HTTP 层无法演示「同 ID 回放」。M1 用**台账直连校验**（`reserve → complete → replay → 冲突 → 墓碑 → 释放`）钉住口径，M2 起在 #01 真实受理链路上补 HTTP 级回放用例。
 7. **POC 测试已随下线处置（2026-10-30）**：`tests/test_poc_docs.py` 删除，其断言（签名头可选、7 行说明、错误体模型）已由 `tests/test_v1_contract.py` 完整覆盖；`tests/test_poc_signature.py` 删除，citation 用例迁为 `tests/test_chat_cite.py`，验签用例由 `tests/test_v1_contract.py` + `tests/test_security_signature.py` 覆盖。
-8. **签名实现已收口为一份（2026-10-30）**：不要再往 `app/modules_api/contract/signature.py` 里加算法（原文拼装、时间窗、nonce 格式、`authorization` 跨度），改口径只改 `app/core/security_signature.py`；适配层只允许改“失败原因 → 错误码”的映射。签名参数也只有一组（`CONTRACT_*` 5 项），新增接入方复用同一组配置，而不是复制一套验签代码或另起一份密钥。
+8. **签名实现已收口为一份（2026-10-30）**：不要再往 `app/modules_api/base/signature.py` 里加算法（原文拼装、时间窗、nonce 格式、`authorization` 跨度），改口径只改 `app/core/security_signature.py`；适配层只允许改“失败原因 → 错误码”的映射。签名参数也只有一组（`CONTRACT_*` 5 项），新增接入方复用同一组配置，而不是复制一套验签代码或另起一份密钥。
 
 ---
 

@@ -47,11 +47,11 @@ class AccessTraceOutSchema(BaseModel):
 
 
 class AccessTraceDetailOutSchema(AccessTraceOutSchema):
-    """调用详情：补请求/响应体与 UA，用于在页面上直接看原始报文。"""
+    """调用详情：补请求/响应报文与 UA，用于在页面上直接看原始 JSON。"""
 
     request_query: str | None = Field(default=None, description="查询字符串")
-    request_payload: str | None = Field(default=None, description="请求参数")
-    response_json: str | None = Field(default=None, description="响应体")
+    request_payload: dict[str, Any] | None = Field(default=None, description="请求参数（JSON）")
+    response_json: Any = Field(default=None, description="响应报文（JSON）")
     user_agent: str | None = Field(default=None, description="浏览器 UA")
 
 

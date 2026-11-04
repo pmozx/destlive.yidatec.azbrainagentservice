@@ -68,6 +68,39 @@ def _truncate(text: str, limit: int) -> str:
     return f"{text[:limit]}...(已截断, 原长 {len(text)} 字符)"
 
 
+def _truncate_strings(obj: Any, limit: int) -> Any:
+    """递归截断 JSON 里的字符串字段（结构保持完整，页面才能按 JSON 展开）。"""
+    if isinstance(obj, str):
+        return _truncate(obj, limit)
+    if isinstance(obj, dict):
+        return {k: _truncate_strings(v, limit) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_truncate_strings(item, limit) for item in obj]
+    return obj
+
+
+def _limit_json(obj: Any, limit: int) -> Any:
+    """把结构化载荷压进 ``limit`` 字符，且保证落库后仍是合法 JSON。
+
+    口径从「整串截断」改为「单个字符串字段截断」：整串截断会留下半截 JSON——既存不进
+    ``JSONB`` 列，也没法在详情页展开。字段太多怎么也压不下来时，退化成带 preview 的骨架，
+    宁可丢结构，也不让单行审计把库拖大。
+    """
+    if limit <= 0:
+        return obj
+    original = len(json.dumps(obj, ensure_ascii=False, default=str))
+    if original <= limit:
+        return obj
+
+    budget = limit
+    while budget > 0:
+        shrunk = _truncate_strings(obj, budget)
+        if len(json.dumps(shrunk, ensure_ascii=False, default=str)) <= limit:
+            return shrunk
+        budget //= 2
+    return {"_truncated": True, "_original_length": original, "preview": json.dumps(obj, ensure_ascii=False, default=str)[:limit]}
+
+
 def _get_client_ip(request: Request) -> str | None:
     """取客户端 IP：默认只认 TCP 对端地址，代理头仅在配置了可信跳数后才使用。"""
     peer = request.client.host if request.client else None
@@ -127,9 +160,9 @@ class ApiLogRecord(TypedDict):
     request_path: str
     request_method: str
     request_query: str | None
-    request_payload: str | None
+    request_payload: dict[str, Any] | None
     response_code: int
-    response_json: str | None
+    response_json: Any
     process_time: str
     request_ip: str | None
     user_agent: str | None
@@ -171,7 +204,7 @@ async def flush_pending_api_logs(timeout: float = 5.0) -> int:
     return len(pending)
 
 
-async def _extract_request_payload(request: Request) -> str | None:
+async def _extract_request_payload(request: Request) -> dict[str, Any] | None:
     """采集请求参数：JSON 复用已解析结果，表单/文件**只记元信息**。
 
     两条改进（原来这里对每个请求都重新 `json.loads`，且对 multipart 调 `request.form()`）：
@@ -219,10 +252,11 @@ async def _extract_request_payload(request: Request) -> str | None:
         oper_param["path_params"] = dict(request.path_params)
     if not oper_param:
         return None
-    return _truncate(json.dumps(oper_param, ensure_ascii=False), settings.API_LOG_MAX_PAYLOAD)
+    # 直接存结构化 dict（JSONB 列），不再先 json.dumps：页面要展开的就是这个结构
+    return _limit_json(oper_param, settings.API_LOG_MAX_PAYLOAD)
 
 
-def _extract_response_json(response: Response) -> str | None:
+def _extract_response_json(response: Response) -> Any | None:
     """采集响应体：仅处理 JSON，流式/文件响应不读（避免整包进内存）。"""
     if "application/json" not in response.headers.get("Content-Type", ""):
         return None
@@ -233,7 +267,7 @@ def _extract_response_json(response: Response) -> str | None:
         data = _redact_sensitive(json.loads(bytes(body).decode()))
     except (json.JSONDecodeError, UnicodeDecodeError):
         return None
-    return _truncate(json.dumps(data, ensure_ascii=False), settings.API_LOG_MAX_PAYLOAD)
+    return _limit_json(data, settings.API_LOG_MAX_PAYLOAD)
 
 
 def _route_summary(request: Request) -> str:
@@ -261,7 +295,7 @@ async def _build_log_data(
     status: int,
     response_code: int,
     description: str,
-    response_json: str | None,
+    response_json: Any | None,
     start: float,
 ) -> ApiLogRecord:
     """组装一条审计记录（耗时单位统一为毫秒）。"""
@@ -320,7 +354,7 @@ async def _record_failure(request: Request, exc: Exception, start: float) -> Non
             status=1,
             response_code=response_code,
             description=f"{summary} | {message}" if summary else message,
-            response_json=_truncate(json.dumps({"error": message}, ensure_ascii=False), settings.API_LOG_MAX_PAYLOAD),
+            response_json=_limit_json({"error": message}, settings.API_LOG_MAX_PAYLOAD),
             start=start,
         )
         _schedule_write(log_data)

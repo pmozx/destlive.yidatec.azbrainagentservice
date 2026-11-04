@@ -99,7 +99,7 @@
       </div>
     </SectionCard>
 
-    <el-dialog v-model="detailVisible" title="操作详情" width="720px">
+    <el-dialog v-model="detailVisible" title="操作详情" width="860px">
       <div v-loading="detailLoading">
         <template v-if="detail">
           <el-descriptions :column="2" border size="small">
@@ -124,10 +124,10 @@
           </el-descriptions>
 
           <div class="log-detail__block">
-            <JsonViewer title="请求参数" :data="detail.request_payload" max-height="220px" placeholder="无请求体（GET/HEAD 或空载荷）" />
+            <JsonViewer title="请求参数（JSON）" :data="detail.request_payload" max-height="300px" placeholder="无请求体（GET/HEAD 或空载荷）" />
           </div>
           <div class="log-detail__block">
-            <JsonViewer title="响应报文" :data="detail.response_json" max-height="220px" placeholder="无响应体" />
+            <JsonViewer title="响应报文（JSON）" :data="detail.response_json" max-height="300px" placeholder="无响应体（非 JSON 或流式响应不采集）" />
           </div>
         </template>
         <el-empty v-else description="未获取到日志详情" :image-size="80" />

@@ -28,7 +28,7 @@
 
 ## 二、能力地图
 
-按使用者视角分组，代码上分别落在 `kb` 域九个自模块与 `modules_api/contract` 四个能力包：
+按使用者视角分组，代码上分别落在 `kb` 域九个自模块与 `modules_api/kb` 四个能力包（协议基座在 `modules_api/base`）：
 
 | 能力 | 使用者 | 入口 | 涉及表 |
 | --- | --- | --- | --- |
@@ -56,7 +56,7 @@
 | `sbp_ai_kb_publication` | 发布单元 | 台账（状态机） | `kb.publication.service.KbEntryService.create/revise/delete/deactivate`、`KbPublicationService.create/update/update_status` | 永久；契约删除只置 `status='deleted'`，管理端整单删除物理删 |
 | `sbp_ai_kb_revision` | 版本快照 | 台账（墓碑） | `KbEntryService.revise/delete/deactivate` | 永久；删除留 `status='archived'` 墓碑行（`content_hash` 为空） |
 | `sbp_ai_kb_chunk` | 知识切片 | 明细（含向量） | `KbEntryService.create/revise`（向量先算后写）、`delete`（物理删） | 永久；删除即物理删，停用归档为 `archived` |
-| `sbp_ai_kb_parse_job` | 解析任务 | 台账（状态机） | `contract.parse.service.create_parse_job_record` → `KbParseJobService.create_job/start/complete/fail` | 永久，无清理任务 |
+| `sbp_ai_kb_parse_job` | 解析任务 | 台账（状态机） | `kb.parse.service.create_parse_job_record` → `KbParseJobService.create_job/start/complete/fail` | 永久，无清理任务 |
 | `sbp_ai_kb_parse_result` | 解析产物 | 明细（不可变） | `KbParseJobService.complete`（与任务状态同事务） | 设计 90 天，**无清理实现** |
 | `sbp_ai_kb_dup_result` | 重复检测结果快照 | 缓存（30 分钟） | `kb.dup_result.service._store`（D02/D03 首查） | 30 分钟（`expires_at`）；过期只判不删 |
 | `sbp_ai_kb_dup_group` | 重复分组 | 台账（治理物化） | `kb.dup_result.service._materialize`、`_save_preview`、管理端 `KbDupGroupService.update_status` | 永久 |
@@ -103,11 +103,12 @@
 | `app/modules/kb/dup_result/service.py` | 检测、快照存取、物化治理行、合并预览 | 常量在 `dup_result/schema.py`（30 分钟、1000 项、0.65 阈值） |
 | `app/modules/kb/parse_job/service.py` + `parse_result/service.py` | 任务四态与产物落库 | `reset_unfinished` 在启动期把未完成任务改判 `failed` |
 | `app/modules/kb/chat_session/service.py` + `chat_message/` | 会话与消息的读写、软删 | 管理端不校验归属，契约按 `user_id` 收窄 |
-| `app/modules_api/contract/{parse,knowledge,duplicate,chat}/` | 契约 20 个端点：controller（薄）+ service（编排）+ schema（字段约束） | controller 只做「回放→调用→登记回执」 |
-| `app/modules_api/contract/deps.py` | 五头验签、nonce 防重放、三类幂等预约、授权时效校验 | `verified_signature` 必须在 Pydantic 之前拿到原始 body |
-| `app/modules_api/contract/errors.py` | 错误码常量、码→HTTP 状态映射、`ContractApiRoute` | 所有契约错误码的唯一来源 |
+| `app/modules_api/kb/{parse,knowledge,duplicate,chat}/` | 契约 20 个端点：controller（薄）+ service（编排）+ schema（字段约束） | controller 只做「回放→调用→登记回执」 |
+| `app/modules_api/base/` | 契约基座：`deps.py`（验签/nonce/幂等）、`errors.py`（错误码+路由类）、`signature.py`、`audit.py`、`common.py`（`make_contract_router`）、`test_utils/` | 新增对外接口直接复用，业务包不复制协议口径 |
+| `app/modules_api/base/deps.py` | 五头验签、nonce 防重放、三类幂等预约、授权时效校验 | `verified_signature` 必须在 Pydantic 之前拿到原始 body |
+| `app/modules_api/base/errors.py` | 错误码常量、码→HTTP 状态映射、`ContractApiRoute` | 所有契约错误码的唯一来源 |
 | `app/api/v1/routers.py` + `app/modules_api/router.py` | 两组前缀的挂载点 | `/api/v1` 下 7 个管理端 Router；`/v1` 下 4 个契约 Router |
-| `app/__init__.py`（lifespan） | 建扩展/建表/补关键词索引/改判未完成解析任务 | 页图预览路由 `/previews/parse/{job_id}/{file_name}` 也在这里注册 |
+| `app/__init__.py`（lifespan） | 建扩展/建表/补关键词索引/改判未完成解析任务/确保对象存储桶 | 页图改由对象存储预签名 URL 提供，本地 `/previews/parse` 路由已下线 |
 | `frontend/src/views/module_kb/`、`api/module_kb/` | 6 个页面 + 6 个接口封装 | 页面不做本地过滤，全部下推后端 |
 
 ---

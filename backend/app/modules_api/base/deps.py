@@ -15,7 +15,7 @@
 """
 
 import asyncio
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from typing import Annotated, Any
 
 from fastapi import Header, Request
@@ -228,8 +228,33 @@ async def enforced_authorization(request: Request) -> None:
     verify_authorization(payload.get("authorization") or payload.get("scope"))
 
 
-def _idempotent_guard(scope: str):
+# 业务对象存活校验：入参是幂等业务 ID，返回它对应的业务行是否还在
+VerifyExisting = Callable[[str], Awaitable[bool]]
+
+
+async def _reserve_with_verify(
+    *,
+    scope: str,
+    biz_id: str,
+    digest: str,
+    verify_existing: VerifyExisting | None,
+) -> Reservation:
+    """预约幂等键；回放前先确认业务行还在，否则作废台账按首次请求重跑。"""
+    reservation = await reserve(scope=scope, biz_id=biz_id, body_hash=digest)
+    if reservation.is_replay and verify_existing is not None and not await verify_existing(biz_id):
+        # 台账在、业务行没了：不回放，否则回执与业务永远脉络不对（#02 会一直 404）
+        logger.warning("幂等回放目标已不存在，作废台账重新受理: scope={} biz_id={}", scope, biz_id)
+        await release(scope=scope, biz_id=biz_id, body_hash=digest)
+        reservation = await reserve(scope=scope, biz_id=biz_id, body_hash=digest)
+    return reservation
+
+
+def idempotent_guard(scope: str, *, verify_existing: VerifyExisting | None = None):
     """按幂等域生成依赖：预约 → 交给路由 → 成功登记结果 / 失败释放。
+
+    ``verify_existing`` 是可选的业务存活校验：台账保留 90 天，而业务行可能被清库/迁库
+    带走——不校验就会一直回放首次回执（而对应的 #02 永远 404）。校验不通过时作废该条台账，
+    按首次请求重新受理。
 
     失败有**两条出口**，都必须释放预约，否则该 ID 会被锁在 `processing`（重试全部 409）：
 
@@ -251,7 +276,9 @@ def _idempotent_guard(scope: str):
             )
 
         digest = canonical_json_sha256(payload)
-        reservation = await reserve(scope=scope, biz_id=biz_id, body_hash=digest)
+        reservation = await _reserve_with_verify(
+            scope=scope, biz_id=biz_id, digest=digest, verify_existing=verify_existing
+        )
         request.state.idempotency_reservation = reservation
 
         if reservation.is_replay:
@@ -340,9 +367,9 @@ def replay_response(reservation: Reservation) -> JSONResponse | None:
 
 
 # 三类幂等域各一个依赖实例（scope 在生成时固定，路由用哪个域一目了然）
-idempotent_job = _idempotent_guard(SCOPE_JOB)
-idempotent_request = _idempotent_guard(SCOPE_REQUEST)
-idempotent_event = _idempotent_guard(SCOPE_EVENT)
+idempotent_job = idempotent_guard(SCOPE_JOB)
+idempotent_request = idempotent_guard(SCOPE_REQUEST)
+idempotent_event = idempotent_guard(SCOPE_EVENT)
 
 
 async def contract_store_ready() -> None:

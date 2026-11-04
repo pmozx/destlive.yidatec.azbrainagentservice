@@ -15,7 +15,7 @@
 import { computed } from 'vue'
 import { ElMessage } from 'element-plus'
 
-import { prettyJson } from '@/utils/format'
+import { prettyJson, prettyJsonString } from '@/utils/format'
 
 defineOptions({ name: 'JsonViewer' })
 
@@ -28,7 +28,8 @@ const props = defineProps({
 
 const text = computed(() => {
   if (props.data === null || props.data === undefined) return ''
-  if (typeof props.data === 'string') return props.data
+  // 历史审计行与部分契约场景存的是 JSON 字符串，能与对象一样展开才能读
+  if (typeof props.data === 'string') return prettyJsonString(props.data)
   return prettyJson(props.data)
 })
 

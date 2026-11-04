@@ -25,7 +25,7 @@ from app.core.clients import EmbeddingClient, RerankClient, RerankHit
 from app.core.exceptions import CustomException
 from app.modules.kb.retrieval.crud import ChunkCandidate
 from app.modules.kb.retrieval.service import _rerank, _rrf_fuse
-from app.modules_api.contract import errors as contract_errors
+from app.modules_api.base import errors as contract_errors
 
 from tests.support import requires_db
 

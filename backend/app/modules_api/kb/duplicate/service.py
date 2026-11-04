@@ -43,7 +43,7 @@ from app.modules.kb.dup_result.service import KbDupResultService
 from app.modules_gsi.km.doc_publication.schema import SbpKmDocPublicationBrief, publication_subtitle
 from app.modules_gsi.km.doc_publication.service import SbpKmDocPublicationService
 
-from ..errors import (
+from ...base.errors import (
     GOVERNANCE_SCOPE_DENIED,
     INTERNAL_ERROR,
     INVALID_REQUEST,

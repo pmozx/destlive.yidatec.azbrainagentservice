@@ -12,79 +12,79 @@
           "width": 1088,
           "height": 1486,
           "page_no": 1,
-          "image_url": "http://192.168.29.2:8002/previews/parse/parse-doc-100001/page-1.png?expires=1794290117&sig=0ddb2bd2970a68f948c20e19dbd0cb0b52723a95bb9fbf1312ee0f2d20e93047"
+          "image_url": "https://service-brain-dev.obs.cn-north-4.myhuaweicloud.com/gsi/dev/agent/parse-previews/parse-doc-100001/page-1.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=EORO303I4QWO1A481FZ9%2F20261104%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20261104T094653Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=a25f62e7e61b68dda2fde0198739f10fd9f9d3b703a6e367883bb235aff023e6"
         },
         {
           "width": 1088,
           "height": 1486,
           "page_no": 2,
-          "image_url": "http://192.168.29.2:8002/previews/parse/parse-doc-100001/page-2.png?expires=1794290117&sig=7e1c1992ecb880d7aba83ae7d3bab2423152ff9a2685947523f67b8e6b812d4b"
+          "image_url": "https://service-brain-dev.obs.cn-north-4.myhuaweicloud.com/gsi/dev/agent/parse-previews/parse-doc-100001/page-2.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=EORO303I4QWO1A481FZ9%2F20261104%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20261104T094653Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=f31e05469736d6280a62c3757f633dd5f11e0d21f9f2252c424c4d906bef839f"
         },
         {
           "width": 1088,
           "height": 1486,
           "page_no": 3,
-          "image_url": "http://192.168.29.2:8002/previews/parse/parse-doc-100001/page-3.png?expires=1794290117&sig=12bd8973407e1ad96d8cc87ca915697c6c4623feaf61989f9a625dafbf3571eb"
+          "image_url": "https://service-brain-dev.obs.cn-north-4.myhuaweicloud.com/gsi/dev/agent/parse-previews/parse-doc-100001/page-3.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=EORO303I4QWO1A481FZ9%2F20261104%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20261104T094653Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=1770d12980375887f094825339856656794d51b94ac067af25f81b22da0fd919"
         },
         {
           "width": 1088,
           "height": 1486,
           "page_no": 4,
-          "image_url": "http://192.168.29.2:8002/previews/parse/parse-doc-100001/page-4.png?expires=1794290117&sig=a060dd6c9003201fdf0205c23e7a641e6aae8bf30216c9ea766d293d0299c393"
+          "image_url": "https://service-brain-dev.obs.cn-north-4.myhuaweicloud.com/gsi/dev/agent/parse-previews/parse-doc-100001/page-4.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=EORO303I4QWO1A481FZ9%2F20261104%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20261104T094653Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=f16df68355d509e274dec394f2802146a8b9e0d9eb23438b3681396ff666dcde"
         },
         {
           "width": 1088,
           "height": 1486,
           "page_no": 5,
-          "image_url": "http://192.168.29.2:8002/previews/parse/parse-doc-100001/page-5.png?expires=1794290117&sig=e5f2d68a262985e27b5651bd65a7659cc27df66d5719c5b3785d4f898593d52b"
+          "image_url": "https://service-brain-dev.obs.cn-north-4.myhuaweicloud.com/gsi/dev/agent/parse-previews/parse-doc-100001/page-5.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=EORO303I4QWO1A481FZ9%2F20261104%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20261104T094653Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=e0d7ed2311f67281a0929b5af496038a628eaf462396557f250329dc5bd421fa"
         },
         {
           "width": 1088,
           "height": 1486,
           "page_no": 6,
-          "image_url": "http://192.168.29.2:8002/previews/parse/parse-doc-100001/page-6.png?expires=1794290117&sig=345caee2d976d9e6a892203da21fc4b5a06d1c1c0fab64a403f17b3bf13c68aa"
+          "image_url": "https://service-brain-dev.obs.cn-north-4.myhuaweicloud.com/gsi/dev/agent/parse-previews/parse-doc-100001/page-6.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=EORO303I4QWO1A481FZ9%2F20261104%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20261104T094653Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=ebf7148af1026388651e95a5303272bf46d08ab74e21f25d3ef1458ba30c10f4"
         },
         {
           "width": 1088,
           "height": 1486,
           "page_no": 7,
-          "image_url": "http://192.168.29.2:8002/previews/parse/parse-doc-100001/page-7.png?expires=1794290117&sig=583227b02fad34fc6c5f7cc59c28ac0b98d12ec26e21d601aa2d329c6abf7be5"
+          "image_url": "https://service-brain-dev.obs.cn-north-4.myhuaweicloud.com/gsi/dev/agent/parse-previews/parse-doc-100001/page-7.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=EORO303I4QWO1A481FZ9%2F20261104%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20261104T094653Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=dc13e96dd6f4c2789077705257a72c7520b80350b3eaa6bcefd8102888e11419"
         },
         {
           "width": 1088,
           "height": 1486,
           "page_no": 8,
-          "image_url": "http://192.168.29.2:8002/previews/parse/parse-doc-100001/page-8.png?expires=1794290117&sig=ecbcfe61d6c1bc3dd3c265d40edaab63d7bbeb9fbbb53b0851395c777fcd61fd"
+          "image_url": "https://service-brain-dev.obs.cn-north-4.myhuaweicloud.com/gsi/dev/agent/parse-previews/parse-doc-100001/page-8.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=EORO303I4QWO1A481FZ9%2F20261104%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20261104T094653Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=9fea101392752f71e3e619c0a7fc9234f1c05708a4fdbcd8536a0bbb0e19f8ce"
         },
         {
           "width": 1088,
           "height": 1486,
           "page_no": 9,
-          "image_url": "http://192.168.29.2:8002/previews/parse/parse-doc-100001/page-9.png?expires=1794290117&sig=f225bd3d14f6dfbe4320f959f4b2dedb1f349eda48acc37602ee709a57cbf263"
+          "image_url": "https://service-brain-dev.obs.cn-north-4.myhuaweicloud.com/gsi/dev/agent/parse-previews/parse-doc-100001/page-9.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=EORO303I4QWO1A481FZ9%2F20261104%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20261104T094653Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=348f73250a6f055eec22eb0d1a83ea642c8b7e103d0bb1dcc0f99b541389b1dc"
         },
         {
           "width": 1088,
           "height": 1486,
           "page_no": 10,
-          "image_url": "http://192.168.29.2:8002/previews/parse/parse-doc-100001/page-10.png?expires=1794290117&sig=ce0a32a4be07e3b1564a3e9e17819f45315626859fd9c65f949594cc97927336"
+          "image_url": "https://service-brain-dev.obs.cn-north-4.myhuaweicloud.com/gsi/dev/agent/parse-previews/parse-doc-100001/page-10.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=EORO303I4QWO1A481FZ9%2F20261104%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20261104T094653Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=548a0bae25d31848e40d9a6b9caf5f51cb94baa0f40b33c6197fe12935519fe0"
         },
         {
           "width": 1088,
           "height": 1486,
           "page_no": 11,
-          "image_url": "http://192.168.29.2:8002/previews/parse/parse-doc-100001/page-11.png?expires=1794290117&sig=57f643273bfa8188616e694e6dc1530a03c3b6480ec131910031075d2d385f6b"
+          "image_url": "https://service-brain-dev.obs.cn-north-4.myhuaweicloud.com/gsi/dev/agent/parse-previews/parse-doc-100001/page-11.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=EORO303I4QWO1A481FZ9%2F20261104%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20261104T094653Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=7560a50892b406e8958d2c055aa2b2a490e213de7abf9dd8e9ded8e28271bc0b"
         },
         {
           "width": 1088,
           "height": 1486,
           "page_no": 12,
-          "image_url": "http://192.168.29.2:8002/previews/parse/parse-doc-100001/page-12.png?expires=1794290117&sig=5a3fd2a6bbfecc7c4c67d953857332470f22a05146d4e561dc83dbf8d70bc807"
+          "image_url": "https://service-brain-dev.obs.cn-north-4.myhuaweicloud.com/gsi/dev/agent/parse-previews/parse-doc-100001/page-12.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=EORO303I4QWO1A481FZ9%2F20261104%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20261104T094653Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=acaadcb415ac59e1b560dff32952c5a87929df7fd32276b96c5a848aa8b3cc57"
         },
         {
           "width": 1088,
           "height": 1486,
           "page_no": 13,
-          "image_url": "http://192.168.29.2:8002/previews/parse/parse-doc-100001/page-13.png?expires=1794290117&sig=f30935afd4b099577a0b31c73e3100b8d11d4a59d6898e6f1ba1a6114b904755"
+          "image_url": "https://service-brain-dev.obs.cn-north-4.myhuaweicloud.com/gsi/dev/agent/parse-previews/parse-doc-100001/page-13.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=EORO303I4QWO1A481FZ9%2F20261104%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20261104T094653Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=1d4bb2727199601cbec74585b360e54958e723ee76d688f1cfd2956564e27ee2"
         }
       ],
       "chunks": [

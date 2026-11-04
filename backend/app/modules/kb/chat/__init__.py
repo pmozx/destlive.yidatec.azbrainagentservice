@@ -8,5 +8,5 @@
 `00-document/03-…/02-AI对话SSE流式输出规范.md`；
 `admin_service.py` + `controller.py` 是管理端「AI 对话」试问台（`/kb/chat/ask` 与
 `/kb/chat/ask/stream`），只做身份与异常转换，编排仍走 `service.py`；
-契约字段投影（Pydantic / 错误码）在 `app/modules_api/contract/chat`。
+契约字段投影（Pydantic / 错误码）在 `app/modules_api/kb/chat`。
 """
