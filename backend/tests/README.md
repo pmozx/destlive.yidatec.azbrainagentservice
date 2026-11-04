@@ -11,7 +11,7 @@ tests/
 ├── conftest.py               # 模块级连接池隔离（全包共用）
 ├── support.py                # 共享装置：常量、签名头、进程内调用、requires_db
 ├── core/                     # 基座能力：与业务语义无关
-├── contract/                 # 契约接入层（app/modules_api/contract + 对外 API 行为）
+├── contract/                 # 契约出入参回归脚本（已无 pytest 用例）
 ├── modules/
 │   ├── kb/                   # 业务域：知识库
 │   └── system/               # 业务域：系统管理
@@ -24,7 +24,7 @@ tests/
 | 包 | 判据 | 典型内容 |
 |---|---|---|
 | `core/` | 换成任何业务域都成立 | 基座模型与索引口径、CRUD 条件构造、事务出口、请求体缓存、向量纯函数、配置校验 |
-| `contract/` | 只对"按契约接入的调用方"有意义 | 错误码表、签名算法与拒绝原因、幂等台账、审计留痕、路由鉴权行为 |
+| `contract/` | **已无 pytest 用例**，只存对真实服务发签名请求的回归脚本 | `run_*_tests.py`、`client.py`、`case_data.py`、`debug_signed_headers.py` |
 | `modules/<域>/` | 只对某个业务域成立 | 发布单元 CAS、归属校验、解析任务状态机、写入链路 |
 | `stages/<里程碑>/` | **只对某个阶段成立，会过期** | 路由清单锁定、骨架 501 占位、阶段性的字段迁移验收 |
 
@@ -33,7 +33,7 @@ tests/
 - **包名 = 被测对象所在层**：`modules/kb/` 对应 `app/modules/kb/`，一一对应，不发明新层级；
 - **文件名 = 被测对象**，不是缺陷编号、不是批次号、不是里程碑：
   `test_publication.py`（不是 `test_publication_cas.py` + `test_entry_fields.py` 两个），
-  `test_signature.py`（不是 `test_security_signature.py` + 契约文件里的签名节）；
+  `test_access_trace.py`（不是 `test_trace_p1.py` 这种批次名）；
 - **一个对象一个文件**：同一对象的 CAS、校验、字段落点放一起，读者要一次看全；
 - **类/函数名说清断言什么**：`test_scope_rejects_cross_tenant_write` 优于 `test_scope_2`。
 
@@ -81,9 +81,9 @@ cd backend && uv run python -m tests.contract.debug_signed_headers
 | `test_base_crud_conditions.py` | `core/test_base_crud.py` + `core/test_settings.py` |
 | `test_db_getter_transaction.py` | `core/test_db_getter.py` |
 | `test_vector_store_sql.py` | `core/test_vector_store.py` |
-| `test_security_signature.py` + `test_v1_contract.py` 的签名节 | `contract/test_signature.py` |
-| `test_idempotent_guard_release.py` + `test_v1_contract.py` 的幂等/nonce 节 | `contract/test_idempotency.py` |
-| `test_v1_contract.py` 的错误码 / 审计 / 路由节 | `contract/test_error_codes.py` / `test_audit.py` / `test_routes.py` |
+| `test_security_signature.py` + `test_v1_contract.py` 的签名节 | 曾为 `contract/test_signature.py`（已删除） |
+| `test_idempotent_guard_release.py` + `test_v1_contract.py` 的幂等/nonce 节 | 曾为 `contract/test_idempotency.py`（已删除） |
+| `test_v1_contract.py` 的错误码 / 审计 / 路由节 | 曾为 `contract/test_error_codes.py` / `test_audit.py` / `test_routes.py`（已删除） |
 | `test_v1_contract.py` 的骨架与路由清单节 | `stages/m1_contract/test_skeleton.py` |
 | `test_v1_contract.py` 的解析链路节 | `modules/kb/test_parse_job.py` |
 | `test_publication_cas.py` + `test_entry_fields.py` | `modules/kb/test_publication.py` |
@@ -93,12 +93,12 @@ cd backend && uv run python -m tests.contract.debug_signed_headers
 ## 七、当前基线
 
 ```bash
-cd backend && uv run pytest -q     # 243 passed
+cd backend && uv run pytest -q     # 189 collected
 ```
 
 | 包 | 用例数 | 文件 |
 |---|---|---|
 | `core/` | 101 | base_model 9 / base_crud 2 / settings 3 / db_getter 3 / request_body 5 / chat_cite 4 / chat_rerank 8 / chat_streaming 10 / sse 6 / vector_store 20 / embedding_client 5 / s3_client 26 |
-| `contract/` | 54 | signature 23 / idempotency 10 / routes 5 / audit 3 / error_codes 3 / chat_projection 10 |
+| `contract/` | 0 | 无 pytest 用例：`run_parse_tests.py` / `run_knowledge_tests.py` / `run_search_tests.py` 是对已启动服务发签名请求的回归脚本，pytest 不收集；`debug_signed_headers.py` 是手工调试脚本 |
 | `modules/` | 86 | kb 77（parse_job 11 / publication 10 / entry_write 12 / keyword_search 12 / natural_language_search 12 / knowledge_admin 3 / retrieval_admin 4 / chat_admin 6 / chat_stream 7）；system 9（access_trace） |
 | `stages/` | 2 | m1_contract：路由清单 / 错误响应声明（501 骨架断言已于 #07 上线时删除） |

@@ -12,15 +12,14 @@
 
 签名 = ``HMAC-SHA256(共享密钥, 原文)`` 的 64 位小写十六进制。
 
-为什么抽成公共模块（`app/poc` 与 `app/modules_api/contract` 同源）：
+为什么抽成公共模块：
 1. **算法只有一份**：原文拼装、时间窗、nonce 格式、`authorization` 跨度这四处任一处写歪，
    联调时都会以「签名失败」的形式暴露却很难定位；两份拷贝迟早会漂移，改一处忘一处。
 2. 本模块**不认识任何错误体**：失败一律抛 `SignatureCheckError` / `AuthorizationCheckError`，
-   由 `app/poc/signature.py`（小写码，401/400）与 `app/modules_api/contract/signature.py`（大写码，
-   密钥缺失 503 失败关闭）各自翻译。算法共享，对外口径互不污染。
-3. nonce 的**时序**（先验签再登记，否则伪造请求可以抢占合法 nonce）在这里固定；**存储**由
-   调用方注入：POC 用进程内 `InMemoryNonceLedger`，契约层用落库的 `contract.nonce.NonceStore`
-   （异步，登记在 `deps.py` 里编排，仍遵守同一时序）。
+   由 `app/modules_api/contract/signature.py` 翻译成契约大写码（密钥缺失 503 失败关闭，
+   其余 401 `UNAUTHORIZED`）。算法共享，对外口径不污染。
+3. nonce 的**时序**（先验签再登记，否则伪造请求可以抢占合法 nonce）固定在此；**存储**由
+   调用方负责：契约层用落库的 `contract.nonce.NonceStore`（异步，登记在 `deps.py` 里编排）。
 4. 验签必须拿**原始字节**算摘要，不能先解析 JSON 再序列化（键序、空格、中文转义都会变），
    所以调用点在路由依赖里、在 Pydantic 之前。
 """
@@ -33,7 +32,7 @@ import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Final, Protocol
+from typing import Final
 
 SIGNATURE_VERSION = "v1"
 HEADER_VERSION = "X-AI-Signature-Version"
@@ -238,8 +237,8 @@ def check_signature(
 ) -> VerifiedSignature:
     """按契约顺序验签：密钥 → 缺头 → 版本/客户端 → 时间窗 → nonce 格式 → 签名比对。
 
-    **不含 nonce 防重放**：那一步要落台账（进程内或数据库），见 `verify_request_signature`
-    与 `contract.nonce.NonceStore`。先验签再登记，否则伪造请求可以抢占合法 nonce。
+    **不含 nonce 防重放**：那一步要落台账，由调用方在验签通过后执行（见 `contract.nonce.NonceStore`）。
+    先验签再登记，否则伪造请求可以抢占合法 nonce。
     """
     if not secret:
         # 缺密钥时绝不能放行：放行等于把 HMAC 鉴权关掉，且不会有任何异常提示
@@ -300,92 +299,6 @@ def check_signature(
         signature_hex=signature,
         headers_present=headers_present(headers),
     )
-
-
-# ── nonce 防重放：时序共享，存储可替换 ────────────────────────────────
-
-
-class NonceLedger(Protocol):
-    """nonce 首用登记（同步口径）：首次到达返回 True，窗口内重复返回 False。"""
-
-    def register(self, client_id: str, nonce: str, *, expires_at_ms: int, current_ms: int) -> bool: ...
-
-
-class InMemoryNonceLedger:
-    """进程内 nonce 台账：单实例够用。
-
-    局限（契约层已用落库的 `NonceStore` 替代）：多副本各存一份会漏判重放；重启即清零，
-    窗口内还能再放一次。因此只服务 POC 冒烟，不作为正式实现。
-    """
-
-    def __init__(self) -> None:
-        self._seen: dict[tuple[str, str], int] = {}
-
-    def register(self, client_id: str, nonce: str, *, expires_at_ms: int, current_ms: int) -> bool:
-        """登记成功返回 True；已存在（重放）返回 False。顺带清掉过期条目，避免字典无限增长。"""
-        self._sweep(current_ms)
-        key = (client_id, nonce)
-        if key in self._seen:
-            return False
-        self._seen[key] = expires_at_ms
-        return True
-
-    def clear(self) -> None:
-        """清空登记（单测与演示脚本复位用）。"""
-        self._seen.clear()
-
-    def size(self) -> int:
-        return len(self._seen)
-
-    def _sweep(self, current_ms: int) -> None:
-        expired = [key for key, expire_at in self._seen.items() if expire_at < current_ms]
-        for key in expired:
-            self._seen.pop(key, None)
-
-
-def verify_request_signature(
-    headers: Mapping[str, str],
-    *,
-    method: str,
-    path: str,
-    query: str,
-    body: bytes,
-    secret: str,
-    client_id: str,
-    clock_skew_ms: int,
-    current_ms: int | None = None,
-    ledger: NonceLedger | None = None,
-) -> VerifiedSignature:
-    """验签 + （可选）同步 nonce 登记：一次调用完成「验签 → 登记」的正确时序。
-
-    契约层的台账是异步落库，自己在 `deps.py` 里按同样顺序编排（验签通过后才登记），
-    因此不复用本函数；POC 直接用它，少一处手写顺序出错的机会。
-    """
-    stamp_now = current_ms if current_ms is not None else now_ms()
-    verified = check_signature(
-        headers,
-        method=method,
-        path=path,
-        query=query,
-        body=body,
-        secret=secret,
-        client_id=client_id,
-        clock_skew_ms=clock_skew_ms,
-        current_ms=stamp_now,
-    )
-    if ledger is not None:
-        first_use = ledger.register(
-            verified.client_id,
-            verified.nonce,
-            expires_at_ms=verified.timestamp_ms + clock_skew_ms,
-            current_ms=stamp_now,
-        )
-        if not first_use:
-            raise SignatureCheckError(
-                SignatureFailure.NONCE_REUSED,
-                "nonce 已使用（疑似重放请求），请重新生成。",
-            )
-    return verified
 
 
 # ── authorization 时效（请求正文里的短期授权块） ──────────────────────
