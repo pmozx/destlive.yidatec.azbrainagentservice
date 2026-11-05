@@ -1,9 +1,9 @@
 """知识检索管理端服务：检索调试台与通道配置投影。
 
-领域语义（授权先于召回、双通道、RRF、精排）全在 ``service.py``；本层只补管理端需要、
-而契约链路不需要的三件事：
+领域语义（授权先于召回、双通道、RRF、精排、``mode`` 分发）全在 ``service.py``；本层只补管理端
+需要、而契约链路不需要的三件事：
 
-1. **按 ``mode`` 分发并计时**：页面要看真实耗时，而不是去翻日志；
+1. **计时与出参投影**：页面要看真实耗时，而不是去翻日志；
 2. **领域异常 → HTTP 503**：授权数据 / 向量化不可用都如实报错，不用空 ``hits`` 冒充
    「库里没有依据」——那会把排障引到错的方向；
 3. **检索参数只读投影**：``settings`` 是运行时唯一来源，改配置走环境变量并重启，
@@ -23,7 +23,6 @@ from .schema import (
     KbRetrievalSearchOutSchema,
     KbRetrievalSearchSchema,
     SearchQuery,
-    SearchResult,
 )
 from .service import KbRetrievalService, RetrievalAuthorizationUnavailable, RetrievalEmbeddingUnavailable
 
@@ -59,15 +58,19 @@ class KbRetrievalAdminService:
     async def search(self, data: KbRetrievalSearchSchema) -> KbRetrievalSearchOutSchema:
         """执行一次检索：两条通道共用一个出口，耗时含向量化与精排。"""
         started = perf_counter()
-        result = await self._dispatch(
-            data.mode,
-            SearchQuery(
-                query=data.query,
-                tenant_id=data.tenant_id,
-                user_id=data.user_id,
-                limit=data.limit,
-            ),
-        )
+        try:
+            # ``mode`` 分发在领域层（与契约 #07 同一入口），本层只负责计时与异常翻译
+            result = await self.retrieval.search(
+                data.mode,
+                SearchQuery(
+                    query=data.query,
+                    tenant_id=data.tenant_id,
+                    user_id=data.user_id,
+                    limit=data.limit,
+                ),
+            )
+        except (RetrievalAuthorizationUnavailable, RetrievalEmbeddingUnavailable) as exc:
+            raise CustomException(msg=str(exc), status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE) from exc
         return KbRetrievalSearchOutSchema(
             mode=data.mode,
             query=data.query,
@@ -77,12 +80,3 @@ class KbRetrievalAdminService:
             authorized_publication_count=result.authorized_publication_count,
             hits=[KbRetrievalHitOutSchema.model_validate(hit) for hit in result.hits],
         )
-
-    async def _dispatch(self, mode: str, query: SearchQuery) -> SearchResult:
-        """``mode`` → 通道方法；依赖不可用统一转 503，不退化成纯关键词检索。"""
-        try:
-            if mode == "natural_language":
-                return await self.retrieval.natural_language_search(query)
-            return await self.retrieval.keyword_search(query)
-        except (RetrievalAuthorizationUnavailable, RetrievalEmbeddingUnavailable) as exc:
-            raise CustomException(msg=str(exc), status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE) from exc

@@ -57,16 +57,16 @@ export const constantRoutes = [
     meta: { title: '知识平台', icon: 'Collection' },
     children: [
       {
-        path: 'publication',
-        name: 'KbPublication',
-        component: () => import('@/views/module_kb/publication/index.vue'),
-        meta: { title: '发布单元', icon: 'Document' },
-      },
-      {
         path: 'parse-job',
         name: 'KbParseJob',
         component: () => import('@/views/module_kb/parseJob/index.vue'),
         meta: { title: '解析任务', icon: 'Files' },
+      },
+      {
+        path: 'publication',
+        name: 'KbPublication',
+        component: () => import('@/views/module_kb/publication/index.vue'),
+        meta: { title: '发布单元', icon: 'Document' },
       },
       {
         path: 'dup-group',

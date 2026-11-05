@@ -25,9 +25,14 @@ from app.core.database import async_session_factory
 from app.core.logger import logger
 from app.modules.kb.chat.schema import REASON_SOURCE_UNAVAILABLE, ChatTurn, HistoryMessage
 from app.modules.kb.chat.service import ChatTurnDiscardedError, KbChatService
-from app.modules.kb.chat_message.schema import MESSAGE_ACTIVE, MESSAGE_ASSISTANT, MessageRecord
+from app.modules.kb.chat_message.schema import MESSAGE_ACTIVE, MESSAGE_ASSISTANT
 from app.modules.kb.chat_session.schema import SessionRecord
-from app.modules.kb.chat_session.service import ChatSessionNotFoundError, KbChatSessionService
+from app.modules.kb.chat_session.service import (
+    ChatSessionNotFoundError,
+    ChatUserInvalidError,
+    KbChatSessionService,
+    parse_user_pk,
+)
 from app.modules.kb.retrieval.service import RetrievalAuthorizationUnavailable, RetrievalEmbeddingUnavailable
 from app.modules.system.request_log.service import (
     OPERATION_COMPLETION,
@@ -424,7 +429,7 @@ def _history_message(item: HistoryMessage) -> dict[str, Any]:
         # ``knowledge_deps`` 只存依赖三元组（用于失效判定），缺 resource_type / version_id，
         # 单靠它无法还原完整快照
         body["source_snapshots"] = [_project(citation, _SNAPSHOT_FIELDS) for citation in record.citations]
-        body["no_evidence"] = _is_no_evidence(record)
+        body["no_evidence"] = record.no_evidence
     return body
 
 
@@ -455,15 +460,6 @@ def _project(raw: dict[str, Any], fields: tuple[str, ...]) -> dict[str, Any]:
     return {field: raw.get(field) for field in fields}
 
 
-def _is_no_evidence(record: MessageRecord) -> bool:
-    """助手消息当时是否证据不足。
-
-    拒答路径写入的引用与依赖都是空集，正常路径至少有一条证据（``KB_GRADE_MIN_CHUNKS``），
-    所以「两者皆空」与 ``no_evidence=true`` 是同一件事，不需要为此多存一列。
-    """
-    return not record.citations and not record.knowledge_deps
-
-
 def _error_detail(code: str | None) -> dict[str, Any]:
     """失败分支的错误体：码不在册一律按 ``INTERNAL_ERROR``，话术与 retryable 同源推导。"""
     resolved = code if code in ERROR_CODE_STATUS else INTERNAL_ERROR
@@ -475,14 +471,15 @@ def _error_detail(code: str | None) -> dict[str, Any]:
 
 
 def _user_pk(payload: ChatBaseRequest) -> int:
-    """契约 ``user_id``（数字字符串）→ 会话表的 ``BIGINT`` 归属键。"""
+    """契约 ``user_id``（数字字符串）→ 会话表的 ``BIGINT`` 归属键。
+
+    校验在 ``chat_session.parse_user_pk``（同一份口径服务契约与管理端），本层只把领域异常
+    翻成契约码：``user_id`` 非数字属于请求格式错误，不能用 500 或静默建会话。
+    """
     try:
-        user_pk = int(str(payload.user_id).strip())
-    except (TypeError, ValueError) as exc:
-        raise ContractApiError(INVALID_REQUEST, "user_id 必须是 GSI 登录用户的数字主键（字符串形式）。") from exc
-    if user_pk <= 0:
-        raise ContractApiError(INVALID_REQUEST, "user_id 必须是正整数主键。")
-    return user_pk
+        return parse_user_pk(payload.user_id)
+    except ChatUserInvalidError as exc:
+        raise ContractApiError(INVALID_REQUEST, str(exc)) from exc
 
 
 def _validate_cursor(cursor: str | None) -> None:

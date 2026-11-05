@@ -169,6 +169,10 @@ class Settings(BaseSettings):
     PARSE_CHUNK_SIZE: int = Field(default=800, description="默认分片长度（字符数）")
     PARSE_CHUNK_OVERLAP: int = Field(default=120, description="默认相邻分片重叠字符数，须小于分片长度")
     PARSE_FAQ_MAX_CHARS: int = Field(default=30000, description="FAQ 提取时送给模型的文档正文上限（字符数），超出截断并告警")
+    PARSE_MAX_FILE_BYTES: int = Field(
+        default=10 * 1024 * 1024,
+        description="单文件解析上限（字节，默认 10MB）：声明大小与实拉字节都要校验，超限按 413 拒绝",
+    )
 
     # ---- 解析页图预览（#02 result.pages，T2.4）----
     # 仅 PDF 能被本地光栅化；Office/图片等仍返回 []，不伪造图像 URL。
@@ -213,6 +217,12 @@ class Settings(BaseSettings):
         default=15.0, description="SSE 心跳间隔（秒）：任何阶段空闲超过它发一次 ping 帧，防网关空闲断连"
     )
     KB_FOLLOWUP_COUNT: int = Field(default=3, description="问题拓展条数")
+
+    # ---- 重复治理（#16–#19）----
+    DUP_MAX_SCOPE_ITEMS: int = Field(
+        default=1000,
+        description="单次治理请求 scope.resources / scope.drafts 各自的上限，超限按 413 拒绝（不静默截断）",
+    )
 
     # ---- 集成期知识空间（文档上传 → 线程池解析 → 分片入库）----
     KB_SEED_ENABLE: bool = Field(

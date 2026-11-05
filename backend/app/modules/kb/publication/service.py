@@ -22,6 +22,7 @@ from typing import Any
 from uuid import uuid4
 
 from fastapi import status
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -32,9 +33,12 @@ from app.core.exceptions import CustomException
 from app.core.logger import logger
 from app.core.rag.vector_store import validate_embedding
 from app.utils.common_util import search_to_dict
+from app.utils.text_splitter import split_text
 
 from ..chunk.crud import KbChunkCRUD
+from ..parse_job.model import KbParseJobModel
 from ..revision.crud import KbRevisionCRUD
+from ..revision.model import REVISION_ONLINE
 from .crud import KbPublicationCRUD
 from .model import KbPublicationModel
 from .schema import (
@@ -53,23 +57,35 @@ from .schema import (
     KbPublicationChunkDetailOutSchema,
     KbPublicationChunkOutSchema,
     KbPublicationCreateSchema,
+    KbPublicationDeactivateOutSchema,
+    KbPublicationDeactivateSchema,
     KbPublicationDetailOutSchema,
+    KbPublicationEntryReviseSchema,
+    KbPublicationEntryWriteOutSchema,
+    KbPublicationEntryWriteSchema,
     KbPublicationOutSchema,
+    KbPublicationParseJobBriefOutSchema,
     KbPublicationQueryParam,
     KbPublicationRevisionDetailOutSchema,
     KbPublicationRevisionOutSchema,
     KbPublicationSnapshotDeleteOutSchema,
     KbPublicationSnapshotDeleteSchema,
+    KbPublicationSourceOutSchema,
     KbPublicationStatusSchema,
     KbPublicationUpdateSchema,
     PUBLICATION_ACTIVE,
     PUBLICATION_DELETED,
     PUBLICATION_INACTIVE,
+    canonical_content_hash,
 )
 
-# ── 状态常量（发布单元部分从 schema 导入，保持单一取值来源）──────────────────
-REVISION_ONLINE = "online"
-REVISION_ARCHIVED = "archived"
+# ── 状态常量（发布单元取自 schema，版本状态取自 revision 模型，保持单一取值来源）──
+
+# 管理端写入、停用、删除快照共用同一个操作人：快照的 user_id 仅用于留痕，不参与授权
+ADMIN_USER_ID: str = "admin"
+
+# 管理端生成的快照 ID 前缀：契约由 GSI 生成 record_id，靠这个前缀反向判定「谁写的」（来源溯源用）
+ADMIN_RECORD_PREFIX: str = "admin-"
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -455,7 +471,12 @@ class KbEntryService:
             raise EntryScopeError(f"切片 {sorted(foreign)} 属于其它发布单元，不能引用他人的 chunk_id。")
 
     async def _build_chunk_rows(self, data: EntryWriteData) -> list[dict[str, Any]]:
-        """切片 → 向量 → 行；向量条数不足/维度不符直接失败，不入库。"""
+        """切片 → 向量 → 行；向量条数不足/维度不符直接失败，不入库。
+
+        ``chunk_id`` 缺省时按 ``record_id:seq`` 确定性分配：规则必须确定性（同请求重试不能
+        换 ID），与 03.2 示例 ``record-demo-001:1`` 一致。分配属于领域（切片身份），
+        不放契约层——否则只有 ``/v1`` 一个入口有 ID 规则。
+        """
         chunks: tuple[EntryChunkData, ...] = data.chunks
         vectors = await self._embed(chunks)
         if len(vectors) != len(chunks):
@@ -465,7 +486,7 @@ class KbEntryService:
                 "publication_id": data.publication_id,
                 "record_id": data.record_id,
                 "revision": data.revision,
-                "chunk_id": chunk.chunk_id,
+                "chunk_id": chunk.chunk_id or f"{data.record_id}:{chunk.seq}",
                 "seq": chunk.seq,
                 "heading": chunk.heading,
                 "content": chunk.content,
@@ -552,6 +573,56 @@ class KbPublicationService:
             version_count=await self.crud.count_versions(publication_id),
             chunk_count=await self.crud.count_chunks(publication_id),
         )
+
+    async def source(self, publication_id: str) -> KbPublicationSourceOutSchema:
+        """来源与关联（只读）：判定写入渠道，并按 ``file_meta.doc_id`` 反查解析任务。
+
+        发布单元与解析任务之间没有库级关联（见 ``02-数据模型与表关系.md`` §1.2「内容与作业分离」）：
+        解析产物是「AI 看到什么」，知识切片是「审批后确认什么」。因此这里只回线索——
+        契约 #01 把 ``doc_id`` 落在 ``parse_job.file_meta`` 里，用它比对 ``publication.resource_id``；
+        管理台上传的任务没有 ``doc_id``，永远匹配不上，页面需按「仅供参考」展示。
+        """
+        publication = await self._ensure_publication(publication_id)
+        jobs: list[KbPublicationParseJobBriefOutSchema] = []
+        if publication.resource_id:
+            rows = await self.db.scalars(
+                select(KbParseJobModel)
+                .where(KbParseJobModel.file_meta["doc_id"].astext == publication.resource_id)
+                .order_by(KbParseJobModel.created_time.desc())
+                .limit(20)
+            )
+            jobs = [
+                KbPublicationParseJobBriefOutSchema(
+                    job_id=row.uuid,
+                    status=row.status,
+                    progress=row.progress,
+                    resource_type=row.resource_type,
+                    created_time=row.created_time,
+                )
+                for row in rows.all()
+            ]
+        return KbPublicationSourceOutSchema(
+            publication_id=publication.publication_id,
+            resource_type=publication.resource_type,
+            resource_id=publication.resource_id,
+            tenant_id=publication.tenant_id,
+            status=publication.status,
+            current_record_id=publication.current_record_id,
+            current_revision=publication.current_revision,
+            write_channel=self._write_channel(publication),
+            parse_jobs=jobs,
+            hint=(
+                "线索来源：解析任务的 file_meta.doc_id 与发布单元 resource_id 比对，不构成强关联；"
+                "管理台上传的解析任务没有 doc_id，不会出现在这里。"
+            ),
+        )
+
+    @staticmethod
+    def _write_channel(publication: KbPublicationModel) -> str:
+        """写入渠道：无快照 = pending，``admin-`` 前缀 = 管理台补录/修订，其余 = GSI 契约写入。"""
+        if not publication.current_record_id:
+            return "pending"
+        return "admin" if publication.current_record_id.startswith(ADMIN_RECORD_PREFIX) else "contract"
 
     async def list_revisions(
         self,
@@ -761,7 +832,7 @@ class KbPublicationService:
         payload = EntryDeleteData(
             request_id=f"admin-{uuid4().hex}",
             tenant_id=publication.tenant_id or "",
-            user_id="admin",
+            user_id=ADMIN_USER_ID,
             resource_type=publication.resource_type,
             resource_id=publication.resource_id or "",
             publication_id=publication_id,
@@ -770,16 +841,7 @@ class KbPublicationService:
             revision=next_revision,
             reason=data.reason,
         )
-        try:
-            receipt = await KbEntryService().delete(payload)
-        except EntryConflictError as exc:
-            raise CustomException(msg=str(exc), status_code=status.HTTP_409_CONFLICT) from exc
-        except EntryNotFoundError as exc:
-            raise CustomException(msg=str(exc), status_code=status.HTTP_404_NOT_FOUND) from exc
-        except EntryScopeError as exc:
-            raise CustomException(msg=str(exc), status_code=status.HTTP_403_FORBIDDEN) from exc
-        except EntryEmbeddingError as exc:
-            raise CustomException(msg=str(exc), status_code=status.HTTP_500_INTERNAL_SERVER_ERROR) from exc
+        receipt = await self._run_entry(KbEntryService().delete(payload))
         return KbPublicationSnapshotDeleteOutSchema(
             publication_id=receipt.publication_id,
             record_id=receipt.record_id,
@@ -789,11 +851,299 @@ class KbPublicationService:
         )
 
     async def delete(self, publication_id: str) -> None:
-        """整单删除：物理删除切片、版本与发布单元（不可恢复）。"""
-        await self._ensure_publication(publication_id)
-        await self.crud.delete_cascade(publication_id=publication_id)
+        """整单删除：逻辑删除（``status=deleted``），保留版本与切片供追溯。
+
+        与契约 03.4 同口径：检索与治理范围都只认 ``status=active``，所以逻辑删后
+        立刻不可召回。物理清理仍由 ``crud.delete_cascade`` 提供，留给内部脚本（页面
+        不提供不可恢复操作）；对已删除的行重复调用是幂等的。
+        """
+        publication = await self._ensure_publication(publication_id)
+        if publication.status == PUBLICATION_DELETED:
+            return
+        publication.status = PUBLICATION_DELETED
+        await self.db.flush()
+
+    # ── 03.1 / 03.3 正文写入与 #20 停用（管理端补录与纠正） ──────────────
+
+    async def write_entry(self, data: KbPublicationEntryWriteSchema) -> KbPublicationEntryWriteOutSchema:
+        """写入正文：发布单元不存在则首发（03.1），存在但还没有快照则补录首版。
+
+        「新增发布单元」建出的是空壳（``current_record_id`` 为空），此时不能用
+        ``KbEntryService.create``（它见到同 ID 一律 409），而要按「有没有快照」分流：
+        已有生效快照属误用，直接 409 提示改用修订。
+        """
+        publication_id = (data.publication_id or f"kb-{uuid4().hex[:12]}").strip()
+        chunks = self._entry_chunks(data.content)
+        publication = await self.crud.get(publication_id=publication_id)
+
+        if publication is not None and publication.current_record_id is not None:
+            raise CustomException(
+                msg="该发布单元已有生效快照，请使用「修订正文」写入新版本",
+                status_code=status.HTTP_409_CONFLICT,
+            )
+
+        metadata = self._entry_metadata(
+            title=data.title,
+            category=data.category,
+            summary=data.summary,
+            tags=data.tags,
+            owner=data.owner,
+        )
+        if publication is None:
+            receipt = await self._run_entry(
+                KbEntryService().create(
+                    self._entry_write_data(
+                        publication_id=publication_id,
+                        chunks=chunks,
+                        revision=1,
+                        base_record_id=None,
+                        resource_type=data.resource_type,
+                        tenant_id=data.tenant_id,
+                        resource_id=data.resource_id,
+                        knowledge_no=data.knowledge_no or publication_id,
+                        metadata=metadata,
+                    )
+                )
+            )
+            return self._entry_out(receipt, status=PUBLICATION_ACTIVE)
+
+        # 空壳补录：归属字段以库里已登记的值为准，否则 _assert_scope 会把本人操作判成越权
+        receipt = await self._run_entry(
+            KbEntryService().revise(
+                self._entry_write_data(
+                    publication_id=publication_id,
+                    chunks=chunks,
+                    revision=publication.current_revision + 1,
+                    base_record_id=None,
+                    resource_type=publication.resource_type or data.resource_type,
+                    tenant_id=publication.tenant_id or data.tenant_id,
+                    resource_id=publication.resource_id or data.resource_id,
+                    knowledge_no=data.knowledge_no or publication_id,
+                    metadata=metadata,
+                )
+            )
+        )
+        self._sync_display_fields(publication, data, fill_scope=True)
+        await self.db.flush()
+        await self.db.refresh(publication)
+        return self._entry_out(receipt, status=publication.status)
+
+    async def revise_entry(
+        self, publication_id: str, data: KbPublicationEntryReviseSchema
+    ) -> KbPublicationEntryWriteOutSchema:
+        """03.3 修订：整篇重新切分写入新快照，旧快照保留（基线一致才允许）。"""
+        publication = await self._ensure_publication(publication_id)
+        if publication.current_record_id is None:
+            raise CustomException(
+                msg="该发布单元还没有已批准快照，请先写入正文", status_code=status.HTTP_409_CONFLICT
+            )
+        if publication.status != PUBLICATION_ACTIVE:
+            raise CustomException(
+                msg="发布单元已停用或删除，不能继续修订", status_code=status.HTTP_409_CONFLICT
+            )
+        if data.base_record_id and data.base_record_id != publication.current_record_id:
+            raise CustomException(
+                msg=f"基线已变化（当前快照 {publication.current_record_id}），请刷新后重新修订",
+                status_code=status.HTTP_409_CONFLICT,
+            )
+
+        # 带上旧快照的 metadata：契约字段（trust 等）不在表单里，不能因为管理端改一次就丢
+        current = await KbRevisionCRUD(self.db).get_by_record(
+            publication_id=publication_id, record_id=publication.current_record_id
+        )
+        metadata = dict(current.metadata_ or {}) if current is not None else {}
+        metadata.update(
+            self._entry_metadata(
+                title=data.title,
+                category=data.category,
+                summary=data.summary,
+                tags=data.tags,
+                owner=data.owner,
+            )
+        )
+
+        receipt = await self._run_entry(
+            KbEntryService().revise(
+                self._entry_write_data(
+                    publication_id=publication_id,
+                    chunks=self._entry_chunks(data.content),
+                    revision=publication.current_revision + 1,
+                    base_record_id=publication.current_record_id,
+                    resource_type=publication.resource_type or "document",
+                    tenant_id=publication.tenant_id,
+                    resource_id=publication.resource_id,
+                    knowledge_no=(current.knowledge_no if current is not None else None) or publication_id,
+                    metadata=metadata,
+                )
+            )
+        )
+        self._sync_display_fields(publication, data, fill_scope=False)
+        await self.db.flush()
+        await self.db.refresh(publication)
+        return self._entry_out(receipt, status=publication.status)
+
+    async def deactivate(
+        self, publication_id: str, data: KbPublicationDeactivateSchema
+    ) -> KbPublicationDeactivateOutSchema:
+        """#20 停用（D05 同口径）：切片与版本归档、发布单元转 inactive，正文保留供审计。
+
+        与页面「下线」的区别：下线只切 ``status``（可再上线）；停用会把切片与版本行置为
+        ``archived``，检索的三处开关同时失效，**不能靠改状态恢复**。
+        """
+        publication = await self._ensure_publication(publication_id)
+        if publication.status == PUBLICATION_DELETED:
+            raise CustomException(msg="发布单元已删除，不能停用", status_code=status.HTTP_409_CONFLICT)
+        if publication.status == PUBLICATION_INACTIVE:
+            raise CustomException(msg="发布单元已停用，无需重复停用", status_code=status.HTTP_409_CONFLICT)
+        if publication.current_record_id is None:
+            raise CustomException(
+                msg="该发布单元还没有已批准快照，不能停用", status_code=status.HTTP_400_BAD_REQUEST
+            )
+
+        receipt = await self._run_entry(
+            KbEntryService().deactivate(
+                EntryDeactivateData(
+                    request_id=f"admin-{uuid4().hex}",
+                    tenant_id=publication.tenant_id or "",
+                    user_id=ADMIN_USER_ID,
+                    publication_id=publication_id,
+                    record_id=publication.current_record_id,
+                    revision=publication.current_revision + 1,
+                    reason=data.reason,
+                )
+            )
+        )
+        await self.db.refresh(publication)
+        return KbPublicationDeactivateOutSchema(
+            publication_id=receipt.publication_id,
+            record_id=receipt.record_id,
+            revision=receipt.revision,
+            deactivated=receipt.deactivated,
+            searchable=receipt.searchable,
+            status=publication.status,
+        )
 
     # ── 私有 ──────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _entry_chunks(content: str) -> tuple[EntryChunkData, ...]:
+        """整篇正文按解析链路同一口径切分（``PARSE_CHUNK_SIZE`` / ``PARSE_CHUNK_OVERLAP``）。
+
+        切片身份交给 ``KbEntryService`` 按 ``record_id:seq`` 分配，这里不造 chunk_id。
+        """
+        pieces = split_text(content)
+        if not pieces:
+            raise CustomException(msg="正文为空，无法写入", status_code=status.HTTP_400_BAD_REQUEST)
+        return tuple(
+            EntryChunkData(chunk_id=None, seq=index, content=piece.content, heading=piece.meta.get("section_title"))
+            for index, piece in enumerate(pieces, start=1)
+        )
+
+    @staticmethod
+    def _entry_metadata(
+        *,
+        title: str | None,
+        category: str | None,
+        summary: str | None,
+        tags: list[str] | None,
+        owner: str | None,
+    ) -> dict[str, Any]:
+        """表单字段 → 契约 metadata 快照：空值不落键，避免把已有值覆盖成 null。"""
+        metadata: dict[str, Any] = {"source": "admin"}
+        for name, value in (("title", title), ("category", category), ("summary", summary), ("owner", owner)):
+            if value:
+                metadata[name] = value
+        if tags:
+            metadata["tags"] = list(tags)
+        return metadata
+
+    @staticmethod
+    def _entry_write_data(
+        *,
+        publication_id: str,
+        chunks: tuple[EntryChunkData, ...],
+        revision: int,
+        base_record_id: str | None,
+        resource_type: str,
+        tenant_id: str | None,
+        resource_id: str | None,
+        knowledge_no: str,
+        metadata: dict[str, Any],
+    ) -> EntryWriteData:
+        """组装领域写入载荷：快照 ID 由管理端生成（管理端没有 GSI 的 request/snapshot 体系）。"""
+        token = uuid4().hex
+        return EntryWriteData(
+            request_id=f"admin-{token}",
+            tenant_id=tenant_id or "",
+            user_id=ADMIN_USER_ID,
+            resource_type=resource_type,
+            resource_id=resource_id or "",
+            publication_id=publication_id,
+            record_id=f"{ADMIN_RECORD_PREFIX}{token}",
+            version_id=f"admin-v{revision}-{token[:8]}",
+            revision=revision,
+            knowledge_no=knowledge_no,
+            content_hash=canonical_content_hash(
+                [
+                    {
+                        "seq": chunk.seq,
+                        "heading": chunk.heading,
+                        "content": chunk.content,
+                        "page_from": chunk.page_from,
+                        "page_to": chunk.page_to,
+                    }
+                    for chunk in chunks
+                ]
+            ),
+            metadata=metadata,
+            chunks=chunks,
+            base_record_id=base_record_id,
+        )
+
+    @staticmethod
+    def _entry_out(receipt: EntryReceipt, *, status: str) -> KbPublicationEntryWriteOutSchema:
+        return KbPublicationEntryWriteOutSchema(
+            publication_id=receipt.publication_id,
+            record_id=receipt.record_id,
+            version_id=receipt.version_id,
+            revision=receipt.revision,
+            content_hash=receipt.content_hash,
+            chunk_count=receipt.accepted_chunk_count,
+            searchable=receipt.searchable,
+            status=status,
+        )
+
+    @staticmethod
+    def _sync_display_fields(publication: KbPublicationModel, data: Any, *, fill_scope: bool) -> None:
+        """表单展示字段回写发布单元行（快照里的 metadata 只服务契约回读，不驱动页面）。"""
+        for name in ("title", "category", "summary", "owner"):
+            value = getattr(data, name, None)
+            if value is not None:
+                setattr(publication, name, value)
+        tags = getattr(data, "tags", None)
+        if tags is not None:
+            publication.tags = list(tags)
+        if fill_scope:
+            tenant_id = getattr(data, "tenant_id", None)
+            resource_id = getattr(data, "resource_id", None)
+            if publication.tenant_id is None and tenant_id:
+                publication.tenant_id = tenant_id
+            if publication.resource_id is None and resource_id:
+                publication.resource_id = resource_id
+
+    @staticmethod
+    async def _run_entry(awaitable: Any) -> Any:
+        """领域异常 → HTTP 状态：管理端只区分语义，不复刻契约错误码。"""
+        try:
+            return await awaitable
+        except EntryConflictError as exc:
+            raise CustomException(msg=str(exc), status_code=status.HTTP_409_CONFLICT) from exc
+        except EntryNotFoundError as exc:
+            raise CustomException(msg=str(exc), status_code=status.HTTP_404_NOT_FOUND) from exc
+        except EntryScopeError as exc:
+            raise CustomException(msg=str(exc), status_code=status.HTTP_403_FORBIDDEN) from exc
+        except EntryEmbeddingError as exc:
+            raise CustomException(msg=str(exc), status_code=status.HTTP_500_INTERNAL_SERVER_ERROR) from exc
 
     @staticmethod
     def _parse_cursor(cursor: str | None) -> int:

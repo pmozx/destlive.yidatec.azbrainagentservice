@@ -6,6 +6,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.base_model import ModelMixin
 
+#: 版本状态取值：表约束与业务判定（写入 / 删除 / 治理范围）共用一份，避免字面量漂移
+REVISION_ONLINE = "online"
+REVISION_ARCHIVED = "archived"
+
 
 class KbRevisionModel(ModelMixin):
     """发布单元版本快照（表 sbp_ai_kb_revision）。"""

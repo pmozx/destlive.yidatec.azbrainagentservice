@@ -38,6 +38,26 @@ class ChatSessionNotFoundError(Exception):
     """会话不存在、不属于该用户或已删除（三种情况对调用方是同一件事）。"""
 
 
+class ChatUserInvalidError(Exception):
+    """``user_id`` 不是可用于会话归属的正整数主键。"""
+
+
+def parse_user_pk(user_id: str) -> int:
+    """``user_id``（数字字符串）→ 会话表的 ``BIGINT`` 归属键。
+
+    会话归属与检索授权范围都以这个主键为键，所以校验只能有一份：契约 #08–#14 与管理端
+    两个入口此前各写一遍，改了一处就会让另一个入口算出不同的授权范围。
+    错误码映射仍留在调用方（契约 400 / 管理端 400），领域层只描述「为什么不行」。
+    """
+    try:
+        value = int(str(user_id).strip())
+    except (TypeError, ValueError) as exc:
+        raise ChatUserInvalidError("user_id 必须是 GSI 登录用户的数字主键（字符串形式）。") from exc
+    if value <= 0:
+        raise ChatUserInvalidError("user_id 必须是正整数主键。")
+    return value
+
+
 class KbChatSessionService:
     """问答会话服务（管理端维护 + 契约归属链路）。"""
 

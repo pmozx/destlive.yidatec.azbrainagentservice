@@ -3,12 +3,12 @@
 本层只做契约相关的事：
 1. ``content_hash`` 校验：按本侧固定序列化规则重算（Q9 尚未与 GSI 对齐）；
 2. 路径 ``publication_id`` 与正文一致性（03.3/03.4）；
-3. **切片 ID 分配**：新增切片未传 ``chunk_id`` 时按 ``record_id:seq`` 确定性生成，
-   既有切片沿用调用方传入的 ID（AI 校验归属由领域层完成）；
+3. 切片投影：``chunk_id`` 原样透传，缺省由领域层按 ``record_id:seq`` 确定性分配；
 4. ``cursor`` 解析：游标是不透明字符串，本侧按 ``seq`` 实现（``seq > cursor``）；
 5. 领域异常 → 契约错误码：冲突 409 `STALE_REVISION`、不存在 404、越权 403、依赖失败 500；
-6. #07 检索：``mode`` 分发与「无证据」语义；权限数据不可用 → 503（绝不降级全库），
-   自然语言通道的向量化不可用 → 依赖故障（不拿纯字面命中冒充语义结果）。
+6. #07 检索：``mode`` 分发下沉到 :meth:`KbRetrievalService.search`（与管理端调试台同一入口），
+   本层只做错误码映射：权限数据不可用 → 503（绝不降级全库）；自然语言通道的向量化
+   不可用 → 依赖故障（不拿纯字面命中冒充语义结果）。
 
 字段与切片集合的结构校验（非空、chunk_id 唯一、seq 连续、页码合法）在 ``schema.py``。
 """
@@ -94,13 +94,13 @@ def _to_write_data(payload: EntryWriteRequest) -> EntryWriteData:
 
 
 def _entry_chunks(payload: EntryWriteRequest) -> tuple[EntryChunkData, ...]:
-    """切片投影：未传 ``chunk_id`` 的新增切片按 ``record_id:seq`` 分配，已有切片沿用原 ID。
+    """切片投影：``chunk_id`` 原样透传，缺省由 :class:`KbEntryService` 按 ``record_id:seq`` 分配。
 
-    规则必须确定性（同请求重试不能换 ID），与 03.2 示例 ``record-demo-001:1`` 一致。
+    分配规则在领域层（切片身份），本层只做形状转换，避免第二处实现。
     """
     return tuple(
         EntryChunkData(
-            chunk_id=chunk.chunk_id or f"{payload.record_id}:{chunk.seq}",
+            chunk_id=chunk.chunk_id,
             seq=chunk.seq,
             content=chunk.content,
             heading=chunk.heading,
@@ -310,10 +310,7 @@ async def search_knowledge_base(payload: SearchRequest) -> dict[str, Any]:
         limit=payload.limit,
     )
     try:
-        if payload.mode == "natural_language":
-            result = await _RETRIEVAL.natural_language_search(query)
-        else:
-            result = await _RETRIEVAL.keyword_search(query)
+        result = await _RETRIEVAL.search(payload.mode, query)
     except RetrievalAuthorizationUnavailable as exc:
         raise ContractApiError(AUTHORIZATION_UNAVAILABLE, str(exc)) from exc
     except RetrievalEmbeddingUnavailable as exc:

@@ -52,6 +52,18 @@ class MessageRecord:
     status: str
     created_time: datetime
 
+    @property
+    def no_evidence(self) -> bool:
+        """这条助手消息当时是否证据不足。
+
+        拒答路径写入的引用与依赖都是空集，正常路径至少有一条证据（``KB_GRADE_MIN_CHUNKS``），
+        所以「两者皆空」与 ``no_evidence=true`` 是同一件事，不需要为此多存一列。
+
+        判定放在快照上：契约 #10 历史与 #15 回查都要这个字段，否则同一口径会在两个出口
+        各写一遍，改动时漏掉一处就会出现「列表说证据不足、回查说正常」。
+        """
+        return not self.citations and not self.knowledge_deps
+
 
 @dataclass(frozen=True)
 class MessagePage:

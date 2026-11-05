@@ -13,10 +13,10 @@ import pytest
 from app.config.setting import settings
 from app.core.rag.page_render import render_pdf_pages
 from app.core.security_signature import build_signed_headers
+from app.modules.kb.parse_job import pipeline
+from app.modules.kb.parse_job.pipeline import ParseFileTooLargeError, fetch_file
 from app.modules.kb.parse_result import preview
 from app.modules_api.base import errors as contract_errors
-from app.modules_api.kb.parse import service as parse_service
-from app.modules_api.kb.parse.service import MAX_FILE_BYTES, fetch_file
 from app.scripts.contract.mock_gsi import FileServer
 from app.utils.text_splitter import split_text
 
@@ -145,7 +145,7 @@ async def test_parse_job_rejects_invalid_requests() -> None:
     assert ".exe" in response.json()["error"]["message"]
 
     size_job = f"parse-{uuid.uuid4().hex[:12]}"
-    body = _parse_payload(size_job, "http://127.0.0.1:9/unused.md", file_size=MAX_FILE_BYTES + 1)
+    body = _parse_payload(size_job, "http://127.0.0.1:9/unused.md", file_size=settings.PARSE_MAX_FILE_BYTES + 1)
     response = await call(
         "POST", "/v1/parse/jobs", body=body, headers=_signed_headers("POST", "/v1/parse/jobs", body=body)
     )
@@ -156,9 +156,8 @@ async def test_parse_job_rejects_invalid_requests() -> None:
 async def test_fetch_file_stops_at_limit() -> None:
     """实际拉取超过上限立刻中断（不能等整个文件读完再判断，否则 10MB 限制形同虚设）。"""
     with FileServer() as server:
-        with pytest.raises(contract_errors.ContractApiError) as exc:
+        with pytest.raises(ParseFileTooLargeError):
             await fetch_file(server.url, max_bytes=64)
-        assert exc.value.code == contract_errors.PAYLOAD_TOO_LARGE
 
 
 def test_split_text_assigns_section_heading() -> None:
@@ -231,7 +230,7 @@ async def test_build_pages_uploads_previews_to_object_storage(monkeypatch) -> No
     document.close()
 
     warnings: list[str] = []
-    pages = await parse_service._build_pages("job-preview", "guide.pdf", buffer.getvalue(), warnings)
+    pages = await pipeline._build_pages("job-preview", "guide.pdf", buffer.getvalue(), warnings)
     assert warnings == []
     assert [(key, content_type) for key, _, content_type in fake.uploads] == [
         ("parse-previews/job-preview/page-1.png", "image/png")
@@ -250,7 +249,7 @@ async def test_build_pages_uploads_previews_to_object_storage(monkeypatch) -> No
 
 def test_build_suggested_prefers_page_metadata() -> None:
     """建议元数据优先复用页面已填值，缺失时从正文标题兜底。"""
-    suggested, doc_type = parse_service.build_suggested(
+    suggested, doc_type = pipeline.build_suggested(
         {"title": "VPN 申请操作手册", "summary": "开通说明", "tags": ["VPN", " "], "doc_type": "SOP"},
         "# 正文标题\n\n正文内容",
         "guide.md",
@@ -265,7 +264,7 @@ async def test_faq_parse_uses_prompt_and_returns_questions(monkeypatch) -> None:
     async def fake_chat(self, messages, **kwargs) -> str:
         return '[{"question": "如何申请 VPN？", "answer": "在服务台提交 VPN 申请，由负责人审核后开通账号。"}]'
 
-    monkeypatch.setattr("app.modules_api.kb.parse.service.LlmClient.chat", fake_chat)
+    monkeypatch.setattr("app.modules.kb.parse_job.pipeline.LlmClient.chat", fake_chat)
 
     job_id = f"parse-{uuid.uuid4().hex[:12]}"
     try:
@@ -302,7 +301,7 @@ async def test_parse_failure_is_task_result(monkeypatch) -> None:
     async def boom(*args, **kwargs):
         raise CustomException(msg="解析器不可用。", status_code=500)
 
-    monkeypatch.setattr(parse_service, "parse_and_chunk", boom)
+    monkeypatch.setattr(pipeline, "parse_and_chunk", boom)
 
     job_id = f"parse-{uuid.uuid4().hex[:12]}"
     try:
@@ -330,7 +329,7 @@ async def test_parse_result_persists_pages_and_suggested_doc_type() -> None:
     """成功产物把 pages 与 suggested_doc_type 一并落库，并能从 #02 快照读回。"""
     job_id = f"parse-{uuid.uuid4().hex[:12]}"
     try:
-        service = parse_service.PARSE_JOB_SERVICE
+        service = pipeline.PARSE_JOB_SERVICE
         await service.create_job(job_id=job_id, resource_type="document", file_meta={"file_name": "guide.pdf"})
         await service.complete(
             job_id,

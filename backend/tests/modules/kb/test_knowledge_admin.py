@@ -115,9 +115,17 @@ async def test_knowledge_admin_crud_flow() -> None:
         deleted = await call("DELETE", f"/api/v1/kb/publication/delete/{publication_id}")
         assert deleted.status_code == 200
 
-        missing = await call("GET", f"/api/v1/kb/publication/detail/{publication_id}")
-        assert missing.status_code == 404
-        assert await _count(publication_id) == {"chunks": 0, "revisions": 0, "publications": 0}
+        # 删除改为逻辑删（与契约 03.4 同口径）：行仍在、状态变 deleted，重复调用幂等
+        again = await call("DELETE", f"/api/v1/kb/publication/delete/{publication_id}")
+        assert again.status_code == 200
+
+        detail_after = await call("GET", f"/api/v1/kb/publication/detail/{publication_id}")
+        assert detail_after.status_code == 200
+        assert detail_after.json()["data"]["status"] == "deleted"
+
+        active_only = await call("GET", f"/api/v1/kb/publication/list?publication_id={publication_id}&status=active")
+        assert active_only.json()["data"]["total"] == 0
+        assert (await _count(publication_id))["publications"] == 1
     finally:
         await _cleanup(publication_id)
 
@@ -139,8 +147,8 @@ async def test_knowledge_create_rejects_duplicate_publication_id() -> None:
 
 
 @requires_db
-async def test_knowledge_delete_cascades_versions_and_chunks() -> None:
-    """删除条目要物理清掉版本与切片，不能留下无法召回的悬挂数据。"""
+async def test_knowledge_delete_keeps_versions_and_chunks() -> None:
+    """删除条目只改状态：版本与切片保留供追溯，检索与治理侧靠 status=active 过滤不再召回。"""
     await _prepare_tables()
     publication_id = f"kb-admin-{uuid.uuid4().hex[:12]}"
     try:
@@ -172,6 +180,6 @@ async def test_knowledge_delete_cascades_versions_and_chunks() -> None:
 
         deleted = await call("DELETE", f"/api/v1/kb/publication/delete/{publication_id}")
         assert deleted.status_code == 200
-        assert await _count(publication_id) == {"chunks": 0, "revisions": 0, "publications": 0}
+        assert await _count(publication_id) == {"chunks": 1, "revisions": 1, "publications": 1}
     finally:
         await _cleanup(publication_id)

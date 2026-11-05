@@ -48,6 +48,11 @@ class RetrievalEmbeddingUnavailable(Exception):
     """自然语言通道的向量化不可用：契约按依赖故障转 503，不退化成纯关键词检索。"""
 
 
+#: 检索通道取值（契约 #07 与管理端调试台同一枚举）
+MODE_KEYWORD = "keyword"
+MODE_NATURAL_LANGUAGE = "natural_language"
+
+
 def _tokenize(query: str) -> tuple[str, ...]:
     """切词去重保序并限流。
 
@@ -229,6 +234,17 @@ def _vector_window(limit: int) -> int:
 
 class KbRetrievalService:
     """知识检索服务：关键词通道与自然语言（向量 / RRF / 精排）通道共用同一授权前置。"""
+
+    async def search(self, mode: str, data: SearchQuery) -> SearchResult:
+        """按 ``mode`` 选通道：契约 #07 与管理端调试台共用一个入口。
+
+        分发写在这里而不是各出口各写一遍：两边对 ``mode`` 的处理一旦分叉，就会出现
+        「同一句 query 在契约走向量、在调试台走字面命中」——这恰恰是调试台最用来排查的事。
+        未知取值按关键词通道处理（与 ``Literal`` 枚举外的宽容口径一致，不凭拼写报错）。
+        """
+        if mode == MODE_NATURAL_LANGUAGE:
+            return await self.natural_language_search(data)
+        return await self.keyword_search(data)
 
     async def keyword_search(self, data: SearchQuery) -> SearchResult:
         """按关键词检索当前生效快照，返回授权范围内的 chunk 级命中。"""

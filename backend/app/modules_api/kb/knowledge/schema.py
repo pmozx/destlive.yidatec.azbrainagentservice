@@ -1,22 +1,31 @@
 """知识写入 / 基线读取 / 检索引擎 Schema（03.1 新增 / 03.2 读取基线 / 03.3 修改 / 03.4 删除 / #07 检索）。
 
-``content_hash`` 的规则尚未与 GSI 对齐（Q9），``canonical_content_hash`` 即本侧口径；
-对齐后如有变化，只改这一处并同步 ``app.scripts.contract.mock_gsi`` 的样例构造。
+``content_hash`` 的规则尚未与 GSI 对齐（Q9），实现已下沉到
+:func:`app.modules.kb.publication.schema.canonical_content_hash`：管理端正文写入与
+契约写入必须算出同一个摘要，两处各存一份实现会静默分叉。对齐后如有变化只改那一处，
+并同步 ``app.scripts.contract.mock_gsi`` 的样例构造。
 
 注意：v3 起 ``chunks[].chunk_id`` 变为可选（新增切片由 AI 分配），因此摘要只对
 调用方双方都能确定的字段计算，**不含 chunk_id**，否则 GSI 无法在提交前算出同一个摘要。
 """
 
-import hashlib
-import json
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.core.validator import ensure_non_blank
+from app.modules.kb.publication.schema import canonical_content_hash
 
-# content_hash 的固定序列化字段（顺序无关，JSON 键排序后拼接）；chunk_id 由 AI 分配，故不参与
-_HASH_FIELDS: tuple[str, ...] = ("seq", "heading", "content", "page_from", "page_to")
+__all__ = [
+    "EntryChunkInput",
+    "EntryWriteRequest",
+    "EntryDeactivateRequest",
+    "EntryDeleteRequest",
+    "EntryWriteReceipt",
+    "EntryDeleteReceipt",
+    "EntryDeactivateReceipt",
+    "canonical_content_hash",
+]
 
 
 class EntryChunkInput(BaseModel):
@@ -171,17 +180,6 @@ class EntryDeleteRequest(BaseModel):
         if value not in ("document", "faq"):
             raise ValueError("resource_type 只支持 document / faq")
         return value
-
-
-def canonical_content_hash(chunks: list[EntryChunkInput] | list[dict[str, Any]]) -> str:
-    """按固定规则计算整包摘要：按 ``seq`` 排序后对确定字段做 JSON（键排序、紧凑分隔符）。"""
-    rows: list[dict[str, Any]] = []
-    for chunk in chunks:
-        item = chunk.model_dump() if isinstance(chunk, BaseModel) else dict(chunk)
-        rows.append({field: item.get(field) for field in _HASH_FIELDS})
-    rows.sort(key=lambda row: int(row["seq"]))
-    serialized = json.dumps(rows, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    return "sha256:" + hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
 class EntryWriteReceipt(BaseModel):

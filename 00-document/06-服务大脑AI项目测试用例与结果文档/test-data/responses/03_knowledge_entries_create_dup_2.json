@@ -44,13 +44,18 @@
       }
     ]
   },
-  "response_status": 409,
+  "response_status": 201,
   "response_body": {
-    "error": {
-      "code": "STALE_REVISION",
-      "message": "publication_id pub-test-faq-dup-001 已存在，首次发布不允许隐式覆盖。",
-      "retryable": false
-    },
-    "request_id": "req-kb-faq-dup-2"
+    "request_id": "req-kb-faq-dup-2",
+    "resource_type": "faq",
+    "resource_id": "doc-lane2005-fdc",
+    "publication_id": "pub-test-faq-dup-001",
+    "record_id": "rec-faq-dup-v2",
+    "version_id": "v1",
+    "revision": 1,
+    "success": true,
+    "content_hash": "sha256:db044ad2110b420af9b09bf6278347bcf53ed93bf7352570703c54fe721af1a2",
+    "accepted_chunk_count": 3,
+    "searchable": true
   }
 }

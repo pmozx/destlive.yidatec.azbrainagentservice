@@ -52,11 +52,11 @@
     ],
     "base_record_id": "rec-wrong-base"
   },
-  "response_status": 409,
+  "response_status": 404,
   "response_body": {
     "error": {
-      "code": "STALE_REVISION",
-      "message": "base_record_id 与当前基线不一致，请读取最新内容后重新提交。",
+      "code": "NOT_FOUND",
+      "message": "发布单元 pub-test-conflict-001 不存在。",
       "retryable": false
     },
     "request_id": "req-conflict-revise"

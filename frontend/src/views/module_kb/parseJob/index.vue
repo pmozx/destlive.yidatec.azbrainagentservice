@@ -4,10 +4,14 @@
       <div>
         <h2 class="page-header__title">解析任务</h2>
         <p class="page-header__desc">
-          对接后端 /api/v1/kb/parse-jobs：查看契约链路写入的解析任务状态机、原始请求快照与解析产物（只读视图）
+          对接后端 /api/v1/kb/parse-jobs：页面自助上传并提交解析（与契约 #01 同一条流水线），查看任务状态机、原始请求快照与解析产物
         </p>
       </div>
       <div class="page-header__actions">
+        <el-button type="primary" size="small" @click="openCreate">
+          <el-icon><Upload /></el-icon>
+          <span>新建解析</span>
+        </el-button>
         <el-button size="small" :loading="loading" @click="load">
           <el-icon><Refresh /></el-icon>
           <span>刷新</span>
@@ -75,7 +79,7 @@
           </template>
         </el-table-column>
         <template #empty>
-          <el-empty description="暂无解析任务（由契约链路提交后生成）" :image-size="80" />
+          <el-empty description="暂无解析任务，点击右上角「新建解析」上传文件" :image-size="80" />
         </template>
       </el-table>
 
@@ -93,6 +97,70 @@
         />
       </div>
     </SectionCard>
+
+    <el-dialog v-model="createVisible" title="新建解析" width="620px" destroy-on-close>
+      <el-form :model="createForm" label-width="96px" size="small" @submit.prevent>
+        <el-form-item label="文件" required>
+          <el-upload
+            ref="uploadRef"
+            v-model:file-list="createFileList"
+            class="kb-upload"
+            drag
+            :auto-upload="false"
+            :limit="1"
+            accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.md,.markdown,.csv,.log,.json,.yaml,.yml,.html,.htm"
+            :on-exceed="handleFileExceed"
+          >
+            <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
+            <div class="el-upload__text">将文件拖到此处，或<em>点击选择</em></div>
+            <template #tip>
+              <div class="el-upload__tip">
+                单文件不超过 10MB；PDF/Office 需服务端启用 MinerU 解析器，文本类后缀始终可用
+              </div>
+            </template>
+          </el-upload>
+        </el-form-item>
+        <el-form-item label="资源类型">
+          <el-radio-group v-model="createForm.resource_type">
+            <el-radio v-for="item in resourceTypeOptions" :key="item.value" :value="item.value">
+              {{ item.label }}
+            </el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="生成切片">
+          <el-switch v-model="createForm.chunk" :disabled="createForm.resource_type === 'faq'" />
+          <span class="kb-form__tip">
+            {{ createForm.resource_type === 'faq' ? 'FAQ 按问答提取，忽略此项' : '按标题层级切分正文' }}
+          </span>
+        </el-form-item>
+        <el-form-item label="FAQ 语言">
+          <el-input
+            v-model="createForm.language"
+            maxlength="16"
+            :disabled="createForm.resource_type !== 'faq'"
+            style="width: 160px"
+          />
+        </el-form-item>
+        <el-form-item label="FAQ 提示词">
+          <el-input
+            v-model="createForm.prompt_text"
+            type="textarea"
+            :rows="3"
+            maxlength="4000"
+            show-word-limit
+            :disabled="createForm.resource_type !== 'faq'"
+            placeholder="留空使用默认问答提取提示词"
+          />
+        </el-form-item>
+        <el-form-item label="模型键">
+          <el-input v-model="createForm.model_key" maxlength="64" placeholder="留空使用默认模型" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button size="small" @click="createVisible = false">取消</el-button>
+        <el-button size="small" type="primary" :loading="creating" @click="submitCreate">提交解析</el-button>
+      </template>
+    </el-dialog>
 
     <el-drawer v-model="detailVisible" title="解析任务详情" size="900px" destroy-on-close>
       <div v-loading="detailLoading">
@@ -167,6 +235,30 @@
               </template>
               <el-empty v-else description="任务尚未产出解析结果" :image-size="80" />
             </el-tab-pane>
+
+            <el-tab-pane label="关联发布单元" name="publications">
+              <el-alert :title="relatedHint" type="info" :closable="false" show-icon />
+              <el-table
+                v-loading="related.loading"
+                :data="related.list"
+                size="small"
+                style="width: 100%"
+                class="kb-detail__block"
+              >
+                <el-table-column align="center" prop="publication_id" label="发布单元" min-width="170" show-overflow-tooltip />
+                <el-table-column align="center" prop="title" label="标题" min-width="180" show-overflow-tooltip />
+                <el-table-column align="center" prop="resource_id" label="资源 ID" min-width="140" show-overflow-tooltip />
+                <el-table-column align="center" label="状态" width="90">
+                  <template #default="{ row }">{{ row.status || '-' }}</template>
+                </el-table-column>
+                <el-table-column align="center" label="当前版本" width="90">
+                  <template #default="{ row }">v{{ row.current_revision ?? 0 }}</template>
+                </el-table-column>
+                <template #empty>
+                  <el-empty description="没有按 doc_id 匹配到发布单元" :image-size="70" />
+                </template>
+              </el-table>
+            </el-tab-pane>
           </el-tabs>
         </template>
         <el-empty v-else description="未获取到解析任务详情" :image-size="80" />
@@ -176,9 +268,11 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
+import { ElMessage, genFileId } from 'element-plus'
 
-import { getParseJobDetail, getParseJobList } from '@/api/module_kb/parseJob'
+import { getPublicationList } from '@/api/module_kb/publication'
+import { getParseJobDetail, getParseJobList, submitParseJob } from '@/api/module_kb/parseJob'
 import JsonViewer from '@/components/common/JsonViewer.vue'
 import SectionCard from '@/components/common/SectionCard.vue'
 import { useTable } from '@/hooks/useTable'
@@ -228,6 +322,67 @@ const { loading, list, total, pagination, query, load, search, reset, handlePage
   },
 )
 
+// ── 新建解析（管理端自助上传） ─────────────────────────────────────
+const createVisible = ref(false)
+const creating = ref(false)
+const uploadRef = ref()
+const createFileList = ref([])
+const createForm = reactive({
+  resource_type: 'document',
+  chunk: true,
+  language: 'zh-CN',
+  prompt_text: '',
+  model_key: '',
+})
+
+function openCreate() {
+  createFileList.value = []
+  Object.assign(createForm, {
+    resource_type: 'document',
+    chunk: true,
+    language: 'zh-CN',
+    prompt_text: '',
+    model_key: '',
+  })
+  createVisible.value = true
+}
+
+/** 只收单文件：超出时用新选中的文件替换已选文件（el-upload 默认会忽略第二次选择） */
+function handleFileExceed(files) {
+  uploadRef.value?.clearFiles()
+  const file = files[0]
+  file.uid = genFileId()
+  uploadRef.value?.handleStart(file)
+}
+
+/** multipart 提交：文件 + 解析选项；解析在响应后由后台任务执行，结果看列表状态 */
+async function submitCreate() {
+  const file = createFileList.value[0]?.raw
+  if (!file) {
+    ElMessage.warning('请先选择待解析文件')
+    return
+  }
+  const data = new FormData()
+  data.append('file', file)
+  data.append('resource_type', createForm.resource_type)
+  data.append('chunk', createForm.chunk ? 'true' : 'false')
+  data.append('language', createForm.language || 'zh-CN')
+  if (createForm.prompt_text) data.append('prompt_text', createForm.prompt_text)
+  if (createForm.model_key) data.append('model_key', createForm.model_key)
+
+  creating.value = true
+  try {
+    const job = await submitParseJob(data)
+    ElMessage.success(`解析任务已受理${job?.uuid ? `：${job.uuid}` : ''}`)
+    createVisible.value = false
+    load()
+  } catch {
+    // 请求拦截器已统一提示错误
+  } finally {
+    creating.value = false
+  }
+}
+
 // ── 详情 ──────────────────────────────────────────────────────────
 const detailVisible = ref(false)
 const detailLoading = ref(false)
@@ -238,11 +393,53 @@ const activeTab = ref('fileMeta')
 const pageItems = computed(() => (detail.value?.result?.pages || []).filter((page) => page?.image_url))
 const pageUrls = computed(() => pageItems.value.map((page) => page.image_url))
 
+// ── 关联发布单元（反向溯源：用 file_meta.doc_id 比对 publication.resource_id）───
+// 声明顺序：必须在 activeTab 之后（watch 在 setup 阶段立即读取它），且在 openDetail 之前
+const related = reactive({
+  loading: false,
+  data: null,
+  list: [],
+})
+
+/** 契约任务才有 doc_id；管理台上传的任务没有这个字段，因此不存在可匹配的发布单元 */
+const relatedHint = computed(() => {
+  const docId = detail.value?.file_meta?.doc_id
+  return docId
+    ? `按 doc_id=${docId} 匹配发布单元的 resource_id：线索，不构成强关联`
+    : '该任务没有 doc_id（管理台上传），不参与发布单元匹配'
+})
+
+async function loadRelated() {
+  const docId = detail.value?.file_meta?.doc_id
+  if (!docId) {
+    related.list = []
+    return
+  }
+  related.loading = true
+  try {
+    const result = await getPublicationList({ resource_id: docId, page_size: 20 })
+    related.data = result
+    related.list = result.items || []
+  } catch {
+    related.list = []
+  } finally {
+    related.loading = false
+  }
+}
+
+watch(activeTab, (name) => {
+  if (name === 'publications' && related.data === null) {
+    loadRelated()
+  }
+})
+
 async function openDetail(row) {
   detail.value = null
   detailVisible.value = true
   detailLoading.value = true
   activeTab.value = 'fileMeta'
+  related.data = null
+  related.list = []
   try {
     detail.value = await getParseJobDetail(row.uuid)
   } catch {
@@ -256,6 +453,20 @@ async function openDetail(row) {
 <style scoped lang="scss">
 .kb-toolbar {
   padding: 20px 26px 4px;
+}
+
+.kb-upload {
+  width: 100%;
+
+  :deep(.el-upload) {
+    width: 100%;
+  }
+}
+
+.kb-form__tip {
+  margin-left: 10px;
+  font-size: 12px;
+  color: var(--app-text-secondary);
 }
 
 .kb-pagination {

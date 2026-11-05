@@ -20,13 +20,19 @@ from .schema import (
     KbPublicationChunkDetailOutSchema,
     KbPublicationChunkOutSchema,
     KbPublicationCreateSchema,
+    KbPublicationDeactivateOutSchema,
+    KbPublicationDeactivateSchema,
     KbPublicationDetailOutSchema,
+    KbPublicationEntryReviseSchema,
+    KbPublicationEntryWriteOutSchema,
+    KbPublicationEntryWriteSchema,
     KbPublicationOutSchema,
     KbPublicationQueryParam,
     KbPublicationRevisionDetailOutSchema,
     KbPublicationRevisionOutSchema,
     KbPublicationSnapshotDeleteOutSchema,
     KbPublicationSnapshotDeleteSchema,
+    KbPublicationSourceOutSchema,
     KbPublicationStatusSchema,
     KbPublicationUpdateSchema,
 )
@@ -220,3 +226,58 @@ async def delete_publication_snapshot_controller(
 ) -> JSONResponse:
     result = await KbPublicationService(db).delete_snapshot(publication_id, data)
     return SuccessResponse(data=result, msg="删除已批准切片集合成功")
+
+
+@KbPublicationRouter.post(
+    "/entry",
+    summary="13-写入知识正文（03.1）",
+    response_model=ResponseSchema[KbPublicationEntryWriteOutSchema],
+)
+async def write_publication_entry_controller(
+    db: Annotated[AsyncSession, Depends(db_getter)],
+    data: Annotated[KbPublicationEntryWriteSchema, Body(description="正文与展示字段")],
+) -> JSONResponse:
+    result = await KbPublicationService(db).write_entry(data)
+    return SuccessResponse(data=result, msg="写入知识正文成功")
+
+
+@KbPublicationRouter.put(
+    "/entry/{publication_id}",
+    summary="14-修订知识正文（03.3）",
+    response_model=ResponseSchema[KbPublicationEntryWriteOutSchema],
+)
+async def revise_publication_entry_controller(
+    db: Annotated[AsyncSession, Depends(db_getter)],
+    publication_id: Annotated[str, Path(description="发布单元 ID", min_length=1, max_length=64)],
+    data: Annotated[KbPublicationEntryReviseSchema, Body(description="修订后的正文与展示字段")],
+) -> JSONResponse:
+    result = await KbPublicationService(db).revise_entry(publication_id, data)
+    return SuccessResponse(data=result, msg="修订知识正文成功")
+
+
+@KbPublicationRouter.post(
+    "/deactivate/{publication_id}",
+    summary="15-停用已生效知识（#20）",
+    response_model=ResponseSchema[KbPublicationDeactivateOutSchema],
+)
+async def deactivate_publication_controller(
+    db: Annotated[AsyncSession, Depends(db_getter)],
+    publication_id: Annotated[str, Path(description="发布单元 ID", min_length=1, max_length=64)],
+    data: Annotated[KbPublicationDeactivateSchema, Body(description="停用原因")],
+) -> JSONResponse:
+    result = await KbPublicationService(db).deactivate(publication_id, data)
+    return SuccessResponse(data=result, msg="停用发布单元成功")
+
+
+@KbPublicationRouter.get(
+    "/source/{publication_id}",
+    summary="16-来源与关联（只读溯源）",
+    response_model=ResponseSchema[KbPublicationSourceOutSchema],
+)
+async def publication_source_controller(
+    db: Annotated[AsyncSession, Depends(db_getter)],
+    publication_id: Annotated[str, Path(description="发布单元 ID", min_length=1, max_length=64)],
+) -> JSONResponse:
+    """写入渠道 + 按 ``file_meta.doc_id`` 反查的解析任务（线索，不构成强关联）。"""
+    result = await KbPublicationService(db).source(publication_id)
+    return SuccessResponse(data=result, msg="查询来源与关联成功")

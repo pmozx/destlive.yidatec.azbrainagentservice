@@ -1,12 +1,13 @@
-"""重复治理契约服务（#16–#19）：范围投影 → 领域编排 → 契约投影与错误码映射。
+"""重复治理契约服务（#16–#19）：请求投影 → 领域编排 → 契约投影与错误码映射。
 
-本层只做「契约相关」的三件事，检测算法与存储都在 ``app.modules.kb.dup_result``：
+请求投影与容量校验已下沉到 ``app.modules.kb.dup_result``（``ScopeData.from_payload`` /
+``GovernanceItem.from_payload``，容量取 ``settings.DUP_MAX_SCOPE_ITEMS``），检测算法与存储本来就在
+那里。本层只剩三件事：
 
-1. **请求投影**：Pydantic 正文 → 领域 dataclass；容量（>1000 项）在这里判 413，
-   因为 Pydantic 层只能给 400，而契约明确要求「过大返回 413，不静默截断」；
-2. **错误码映射**：领域异常 → 契约码（403/404/409/400），领域层不感知 HTTP；
-3. **业务数据补齐**：``items[].subtitle`` 需要 GSI 的受众团队（``modules_gsi``），
-   两个领域包不互相 import，只在契约层汇合。
+1. **错误码映射**：领域异常 → 契约码（400/403/404/409/413），领域层不感知 HTTP；
+2. **业务数据补齐**：``items[].subtitle`` 需要 GSI 的受众团队（``modules_gsi``），
+   两个领域包不互相 import，只在契约层汇合；
+3. **响应投影**：``to_payload`` 与 ``subtitle`` 的插入位置。
 
 ``subtitle`` 是可选的展示字段：GSI 表读失败只丢副标题并记日志，**不能让治理请求失败**——
 治理范围与内容一致性已经由领域层保证，展示信息缺失不影响“有没有重复”的结论。
@@ -21,11 +22,10 @@ from app.modules.kb.dup_result.errors import (
     DupResultExpiredError,
     DupResultNotFoundError,
     DupScopeDeniedError,
+    DupScopeTooLargeError,
     DupSourceChangedError,
 )
 from app.modules.kb.dup_result.schema import (
-    MAX_SCOPE_ITEMS,
-    SCORE_PROFILE,
     DuplicateCheckData,
     DuplicateGroup,
     DuplicateGroupQuery,
@@ -35,9 +35,6 @@ from app.modules.kb.dup_result.schema import (
     MergeActionData,
     MergePreviewData,
     ScopeData,
-    SpotChunk,
-    SpotDraft,
-    SpotResource,
 )
 from app.modules.kb.dup_result.service import KbDupResultService
 from app.modules_gsi.km.doc_publication.schema import SbpKmDocPublicationBrief, publication_subtitle
@@ -54,80 +51,16 @@ from ...base.errors import (
     ContractApiError,
 )
 from .schema import (
-    CandidateInput,
     DuplicateCheckRequest,
     DuplicateGroupQueryRequest,
     DuplicateGroupsQueryRequest,
-    GovernanceResourceInput,
-    GovernanceScope,
     MergePreviewRequest,
-    SpotChunkInput,
 )
 
 _SERVICE = KbDupResultService()
 
 
-# ── 请求投影 ─────────────────────────────────────────────────────────
-
-
-def _resource(resource: GovernanceResourceInput) -> SpotResource:
-    return SpotResource(
-        resource_type=resource.resource_type,
-        resource_id=resource.resource_id,
-        record_id=resource.record_id,
-        content_hash=resource.content_hash,
-        publication_ids=tuple(resource.publication_ids),
-        entry_mode=resource.entry_mode,
-    )
-
-
-def _chunk(chunk: SpotChunkInput) -> SpotChunk:
-    return SpotChunk(seq=chunk.seq, content=chunk.content, chunk_id=chunk.chunk_id, title=chunk.title)
-
-
-def _scope(scope: GovernanceScope) -> ScopeData:
-    """范围投影；容量超限直接 413，绝不做截断（截断等于少比了内容还报成功）。"""
-    if len(scope.resources) > MAX_SCOPE_ITEMS or len(scope.drafts) > MAX_SCOPE_ITEMS:
-        raise ContractApiError(
-            PAYLOAD_TOO_LARGE,
-            f"scope.resources / scope.drafts 最多 {MAX_SCOPE_ITEMS} 项，本次请求超过上限，请缩小范围后重试。",
-        )
-    return ScopeData(
-        scope_id=scope.scope_id,
-        resources=tuple(_resource(resource) for resource in scope.resources),
-        drafts=tuple(
-            SpotDraft(
-                resource=_resource(draft.resource),
-                title=draft.title,
-                content=draft.content,
-                summary=draft.summary,
-                chunks=tuple(_chunk(chunk) for chunk in draft.chunks),
-            )
-            for draft in scope.drafts
-        ),
-    )
-
-
-def _candidate(candidate: CandidateInput) -> GovernanceItem:
-    """候选内容只参与本次比较：``is_draft=True`` 保证不落任何正式表。"""
-    return GovernanceItem(
-        resource=_resource(candidate.resource),
-        title=candidate.title,
-        content=candidate.content,
-        summary=candidate.summary,
-        chunks=tuple(_chunk(chunk) for chunk in candidate.chunks),
-        is_draft=True,
-    )
-
-
-def _score_profile(value: str) -> str:
-    """策略版本必须与实现一致：静默按 v1 计算再把 v2 回给调用方，等于让相似度不可解释。"""
-    if value != SCORE_PROFILE:
-        raise ContractApiError(
-            INVALID_REQUEST,
-            f"score_profile 只支持 {SCORE_PROFILE}，收到 {value}：不同策略的相似度不可比较。",
-        )
-    return SCORE_PROFILE
+# ── 游标与错误码映射 ─────────────────────────────────────────────────
 
 
 def _after_cursor(cursor: str | None) -> int:
@@ -145,6 +78,9 @@ def _after_cursor(cursor: str | None) -> int:
 
 def _map_domain_error(exc: Exception) -> ContractApiError:
     """领域异常 → 契约错误码（§九）：只在契约层做映射，领域层不感知 HTTP。"""
+    if isinstance(exc, DupScopeTooLargeError):
+        # 容量超限：契约要求 413 且不静默截断，不能退化成 400
+        return ContractApiError(PAYLOAD_TOO_LARGE, str(exc))
     if isinstance(exc, DupScopeDeniedError):
         return ContractApiError(GOVERNANCE_SCOPE_DENIED, str(exc))
     if isinstance(exc, DupSourceChangedError):
@@ -239,16 +175,16 @@ def _group_payload(
 
 async def check_duplicates(payload: DuplicateCheckRequest) -> dict[str, Any]:
     """D01：候选内容 vs 授权范围，只报命中，不写任何表、不阻止保存。"""
-    data = DuplicateCheckData(
-        request_id=payload.request_id,
-        tenant_id=payload.tenant_id,
-        user_id=payload.user_id,
-        candidate=_candidate(payload.candidate),
-        scope=_scope(payload.scope),
-        score_profile=_score_profile(payload.score_profile),
-        kinds=tuple(payload.kinds),
-    )
     try:
+        data = DuplicateCheckData(
+            request_id=payload.request_id,
+            tenant_id=payload.tenant_id,
+            user_id=payload.user_id,
+            candidate=GovernanceItem.from_payload(payload.candidate),
+            scope=ScopeData.from_payload(payload.scope),
+            score_profile=payload.score_profile,
+            kinds=tuple(payload.kinds),
+        )
         outcome = await _SERVICE.check(data)
     except Exception as exc:
         raise _map_domain_error(exc) from exc
@@ -267,18 +203,19 @@ async def check_duplicates(payload: DuplicateCheckRequest) -> dict[str, Any]:
 
 async def query_duplicate_groups(payload: DuplicateGroupsQueryRequest) -> dict[str, Any]:
     """D02：首查全量检测并落 30 分钟只读快照，翻页只读同一份快照。"""
-    data = DuplicateGroupsQuery(
-        request_id=payload.request_id,
-        tenant_id=payload.tenant_id,
-        user_id=payload.user_id,
-        scope=_scope(payload.scope),
-        kinds=tuple(payload.kinds),
-        score_profile=_score_profile(payload.score_profile),
-        result_id=payload.result_id,
-        cursor=_after_cursor(payload.cursor),
-        limit=payload.limit,
-    )
+    cursor = _after_cursor(payload.cursor)
     try:
+        data = DuplicateGroupsQuery(
+            request_id=payload.request_id,
+            tenant_id=payload.tenant_id,
+            user_id=payload.user_id,
+            scope=ScopeData.from_payload(payload.scope),
+            kinds=tuple(payload.kinds),
+            score_profile=payload.score_profile,
+            result_id=payload.result_id,
+            cursor=cursor,
+            limit=payload.limit,
+        )
         page = await _SERVICE.groups(data)
     except Exception as exc:
         raise _map_domain_error(exc) from exc
@@ -306,7 +243,7 @@ async def query_duplicate_group_detail(group_id: str, payload: DuplicateGroupQue
         user_id=payload.user_id,
         result_id=payload.result_id,
         group_id=group_id,
-        scope=_scope(payload.scope),
+        scope=ScopeData.from_payload(payload.scope),
     )
     try:
         detail = await _SERVICE.group_detail(data)
@@ -332,7 +269,7 @@ async def generate_merge_preview(payload: MergePreviewRequest) -> dict[str, Any]
         user_id=payload.user_id,
         result_id=payload.result_id,
         group_id=payload.group_id,
-        scope=_scope(payload.scope),
+        scope=ScopeData.from_payload(payload.scope),
         keep_hit_id=payload.keep_hit_id,
         actions=tuple(
             MergeActionData(

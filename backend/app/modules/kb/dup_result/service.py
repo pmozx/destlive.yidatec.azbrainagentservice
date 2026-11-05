@@ -62,6 +62,7 @@ from .schema import (
     MergePreviewData,
     MergePreviewOutcome,
     ScopeData,
+    assert_score_profile,
     content_digest,
     scope_digest,
     scope_payload,
@@ -126,6 +127,7 @@ class KbDupResultService:
 
     async def check(self, data: DuplicateCheckData) -> DuplicateCheckOutcome:
         """候选内容 vs 授权范围：只报命中，不落库（保存动作由 GSI 自己决定）。"""
+        assert_score_profile(data.score_profile)
         async with async_session_factory() as session:
             items = await KbDupSource(session).load(scope=data.scope, tenant_id=data.tenant_id)
         matches, similarity = check_candidate(data.candidate, list(items.values()), data.kinds)
@@ -148,6 +150,7 @@ class KbDupResultService:
 
     async def groups(self, data: DuplicateGroupsQuery) -> DuplicateGroupsPage:
         """首查做全量检测并落快照；带 ``result_id`` 则只在同一份快照上翻页。"""
+        assert_score_profile(data.score_profile)
         async with async_session_factory() as session, session.begin():
             if data.result_id:
                 row = await self._load_result(

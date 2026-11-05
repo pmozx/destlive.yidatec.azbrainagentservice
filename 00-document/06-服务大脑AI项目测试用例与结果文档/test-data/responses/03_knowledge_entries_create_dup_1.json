@@ -46,17 +46,17 @@
   },
   "response_status": 201,
   "response_body": {
-    "request_id": "req-kb-faq-dup-1",
-    "resource_type": "faq",
-    "resource_id": "doc-lane2005-fdc",
-    "publication_id": "pub-test-faq-dup-001",
-    "record_id": "rec-faq-dup-v1",
-    "version_id": "v1",
-    "revision": 1,
     "success": true,
+    "revision": 1,
+    "record_id": "rec-faq-dup-v1",
+    "request_id": "req-kb-faq-dup-1",
+    "searchable": true,
+    "version_id": "v1",
+    "resource_id": "doc-lane2005-fdc",
     "content_hash": "sha256:db044ad2110b420af9b09bf6278347bcf53ed93bf7352570703c54fe721af1a2",
-    "accepted_chunk_count": 3,
-    "searchable": true
+    "resource_type": "faq",
+    "publication_id": "pub-test-faq-dup-001",
+    "accepted_chunk_count": 3
   },
   "purpose": "铺场：先建立 FAQ 基线，供本次重复创建复现 409"
 }

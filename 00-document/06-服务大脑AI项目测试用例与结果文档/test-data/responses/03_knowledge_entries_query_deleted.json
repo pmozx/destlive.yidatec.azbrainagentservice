@@ -12,7 +12,7 @@
   "response_body": {
     "error": {
       "code": "NOT_FOUND",
-      "message": "快照 rec-test-crud-001-v2 不存在或已删除。",
+      "message": "发布单元 pub-test-crud-001 不存在。",
       "retryable": false
     },
     "request_id": "req-kb-query-deleted"

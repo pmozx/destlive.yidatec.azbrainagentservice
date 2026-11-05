@@ -9,11 +9,15 @@
 """
 
 import hashlib
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
+from app.config.setting import settings
 from app.utils.common_util import canonical_json_sha256
+
+from .errors import DupInvalidRequestError, DupScopeTooLargeError
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # §一  策略常量（score_profile 的算法与阈值版本，改这里等于换策略版本）
@@ -57,8 +61,8 @@ METHOD_CHUNK_EXACT = "chunk_exact_v1"
 SIMILARITY_THRESHOLD = 0.65
 
 # 结果快照保留时长与范围容量（§九：保留 30 分钟、最多 1000 个资源、超限 413）
+# 容量上限取配置 ``DUP_MAX_SCOPE_ITEMS``（默认 1000），不在这里再写一个数字
 RESULT_TTL = timedelta(minutes=30)
-MAX_SCOPE_ITEMS = 1000
 DEFAULT_GROUP_PAGE = 20
 MAX_GROUP_PAGE = 100
 MAX_MATCHES = 50
@@ -74,6 +78,21 @@ SNIPPET_LIMIT = 120
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
+def _field(source: Any, name: str) -> Any:
+    """取字段：同时接受 Pydantic 模型与 dict（测试/脚本用 dict），不 import Pydantic。"""
+    if isinstance(source, Mapping):
+        return source.get(name)
+    return getattr(source, name)
+
+
+def assert_score_profile(value: str) -> None:
+    """策略版本必须与实现一致：静默按 v1 算再把 v2 回给调用方，等于让相似度不可解释。"""
+    if value != SCORE_PROFILE:
+        raise DupInvalidRequestError(
+            f"score_profile 只支持 {SCORE_PROFILE}，收到 {value}：不同策略的相似度不可比较。"
+        )
+
+
 @dataclass(frozen=True)
 class SpotChunk:
     """治理范围内的一个切片：``chunk_id`` 为空表示尚未入库的草稿切片。"""
@@ -82,6 +101,16 @@ class SpotChunk:
     content: str
     chunk_id: str | None = None
     title: str | None = None
+
+    @classmethod
+    def from_payload(cls, payload: Any) -> "SpotChunk":
+        """契约切片 → 领域切片（``chunk_id`` 为空即未入库的草稿切片）。"""
+        return cls(
+            seq=int(_field(payload, "seq")),
+            content=str(_field(payload, "content") or ""),
+            chunk_id=_field(payload, "chunk_id"),
+            title=_field(payload, "title"),
+        )
 
 
 @dataclass(frozen=True)
@@ -95,6 +124,20 @@ class SpotResource:
     content_hash: str
     publication_ids: tuple[str, ...] = ()
     entry_mode: str = "manual"
+
+    @classmethod
+    def from_payload(cls, payload: Any) -> "SpotResource":
+        """契约资源标识 → 领域标识（空 ``publication_ids`` 不参与后续展示补齐）。"""
+        return cls(
+            resource_type=_field(payload, "resource_type"),
+            resource_id=_field(payload, "resource_id"),
+            record_id=_field(payload, "record_id"),
+            content_hash=_field(payload, "content_hash"),
+            publication_ids=tuple(
+                str(item) for item in (_field(payload, "publication_ids") or ()) if item
+            ),
+            entry_mode=_field(payload, "entry_mode") or "manual",
+        )
 
     @property
     def identity(self) -> str:
@@ -112,6 +155,16 @@ class SpotDraft:
     summary: str | None = None
     chunks: tuple[SpotChunk, ...] = ()
 
+    @classmethod
+    def from_payload(cls, payload: Any) -> "SpotDraft":
+        return cls(
+            resource=SpotResource.from_payload(_field(payload, "resource")),
+            title=_field(payload, "title"),
+            content=_field(payload, "content"),
+            summary=_field(payload, "summary"),
+            chunks=tuple(SpotChunk.from_payload(item) for item in _field(payload, "chunks") or ()),
+        )
+
 
 @dataclass(frozen=True)
 class ScopeData:
@@ -120,6 +173,22 @@ class ScopeData:
     scope_id: str
     resources: tuple[SpotResource, ...] = ()
     drafts: tuple[SpotDraft, ...] = ()
+
+    @classmethod
+    def from_payload(cls, payload: Any) -> "ScopeData":
+        """请求的 scope → 领域范围；容量超限直接报错，绝不截断（截断等于少比了内容还报成功）。"""
+        raw_resources = list(_field(payload, "resources") or ())
+        raw_drafts = list(_field(payload, "drafts") or ())
+        limit = settings.DUP_MAX_SCOPE_ITEMS
+        if len(raw_resources) > limit or len(raw_drafts) > limit:
+            raise DupScopeTooLargeError(
+                f"scope.resources / scope.drafts 最多 {limit} 项，本次请求超过上限，请缩小范围后重试。"
+            )
+        return cls(
+            scope_id=_field(payload, "scope_id"),
+            resources=tuple(SpotResource.from_payload(item) for item in raw_resources),
+            drafts=tuple(SpotDraft.from_payload(item) for item in raw_drafts),
+        )
 
     @property
     def requested_resources(self) -> int:
@@ -137,6 +206,18 @@ class GovernanceItem:
     chunks: tuple[SpotChunk, ...] = ()
     is_draft: bool = False
     created_time: datetime | None = None
+
+    @classmethod
+    def from_payload(cls, payload: Any) -> "GovernanceItem":
+        """候选内容只参与本次比较：``is_draft=True`` 保证不落任何正式表。"""
+        return cls(
+            resource=SpotResource.from_payload(_field(payload, "resource")),
+            title=_field(payload, "title"),
+            content=_field(payload, "content"),
+            summary=_field(payload, "summary"),
+            chunks=tuple(SpotChunk.from_payload(item) for item in _field(payload, "chunks") or ()),
+            is_draft=True,
+        )
 
     @property
     def identity(self) -> str:

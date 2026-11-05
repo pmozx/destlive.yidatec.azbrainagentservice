@@ -23,7 +23,12 @@ from app.core.database import async_session_factory
 from app.core.exceptions import CustomException
 from app.core.logger import logger
 
-from ..chat_session.service import ChatSessionNotFoundError, KbChatSessionService
+from ..chat_session.service import (
+    ChatSessionNotFoundError,
+    ChatUserInvalidError,
+    KbChatSessionService,
+    parse_user_pk,
+)
 from ..retrieval.service import RetrievalAuthorizationUnavailable, RetrievalEmbeddingUnavailable
 from .schema import (
     ADMIN_DEFAULT_PROMPT_TEXT,
@@ -119,14 +124,12 @@ class KbChatAdminService:
 
     @staticmethod
     def _user_pk(user_id: str) -> int:
-        """``user_id``（数字字符串）→ 会话归属键；非数字在这里就 400，不到检索链路。"""
+        """``user_id``（数字字符串）→ 会话归属键。
+
+        校验在 ``chat_session.parse_user_pk``，与契约 #08–#14 同一份口径；这里只把领域异常
+        翻成管理端的 400。
+        """
         try:
-            value = int(str(user_id).strip())
-        except (TypeError, ValueError) as exc:
-            raise CustomException(
-                msg="用户 ID 必须是用户主键的数字字符串（如 1），非数字无法算出授权范围。",
-                status_code=http_status.HTTP_400_BAD_REQUEST,
-            ) from exc
-        if value <= 0:
-            raise CustomException(msg="用户 ID 必须是正整数。", status_code=http_status.HTTP_400_BAD_REQUEST)
-        return value
+            return parse_user_pk(user_id)
+        except ChatUserInvalidError as exc:
+            raise CustomException(msg=str(exc), status_code=http_status.HTTP_400_BAD_REQUEST) from exc

@@ -5,7 +5,8 @@
 ``DupSourceChangedError`` → 409 ``SOURCE_CHANGED``；
 ``DupResultExpiredError`` → 409 ``RESULT_EXPIRED``；
 ``DupResultNotFoundError`` → 404 ``NOT_FOUND``；
-``DupInvalidRequestError`` → 400 ``INVALID_REQUEST``。
+``DupInvalidRequestError`` → 400 ``INVALID_REQUEST``；
+``DupScopeTooLargeError`` → 413 ``PAYLOAD_TOO_LARGE``（过大不静默截断）。
 
 领域层不 import ``modules_api``：那会让基座依赖契约层，违反依赖方向（规范 R6）。
 """
@@ -38,3 +39,10 @@ class DupResultExpiredError(Exception):
 
 class DupInvalidRequestError(Exception):
     """请求与结果状态自相矛盾：主项不在分组内、处置动作不完整、切片不允许合并答案等。"""
+
+
+class DupScopeTooLargeError(Exception):
+    """治理范围超过容量上限（默认 1000 项）。
+
+    既不截断也不降级：截断等于「少比了一部分内容却报成功」，会让调用方误以为可以保存。
+    """

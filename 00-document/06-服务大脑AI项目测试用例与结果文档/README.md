@@ -42,6 +42,22 @@
 - **异常场景**：`natural_language` 返回 501（T4.2 未交付）、`authorization` 跨度超限 400、已过期 401、缺块 400、空白 `query` / `limit` 越界 / `mode` 非法均 400
 - 实测已交付用例 13/13 通过；`natural_language` 1 项因功能未交付标记未通过，待 T4.2 交付后重跑
 
+### 2.4 管理端管理能力（pytest，`backend/tests/modules/kb/`）
+
+管理端 `/api/v1/kb/*` 不走契约签名，用例用 `httpx.ASGITransport` 直接打 ASGI 应用并断言库内行。与前三份契约报告的区别：这里验的是**页面能看到的操作**（自助上传、主动治理、逻辑删），不是 GSI 的出入参。
+
+| 文件 | 覆盖 |
+| --- | --- |
+| `test_parse_job_admin.py` | 上传 md → 后台解析到 `succeeded`（含 `file_meta.submitted_by=admin` 与 `options` 快照）；空文件 / 非白名单后缀 / 超 `PARSE_MAX_FILE_BYTES` 均在**受理前**返回 400/413 且任务行不增长；同文件重复上传生成不同 `job_id` |
+| `test_dup_group_admin.py` | `detect → list → check → preview` 全链路（含 `preview_hash` 回写 `merged_preview`）；不存在的发布单元/空范围 400；手工造分组无快照时预览 409 |
+| `test_knowledge_admin.py` | 版本/切片/基线/删快照 + 发布单元**逻辑删**（`detail` 仍 200 且 `status=deleted`、重复删除幂等、`status=active` 过滤 total=0、版本与切片不减少） |
+| `test_publication_entry.py` | 管理台正文三件套（= 03.1 / 03.3 / #20）：正文自动切片后 `content_hash` 与 03.2 基线一致、`seq` 连续、`kb-` 前缀自生成、空壳补录（归属字段同步）、已生效再写入 409、修订保留旧快照（`v2` + 旧切片 online）、基线不符 409、无快照修订/停用 409·400、停用后切片 `archived` 且版本 `searchable=false`、二次停用 409、空白正文不落行 |
+| `test_publication_source.py` | 发布单元**来源与关联**（只读溯源）：写入渠道按 `record_id` 前缀判 `admin`/`contract`/`pending`；按 `parse_job.file_meta->>'doc_id'` 命中解析任务；无匹配回空列表 + `hint`；不存在 404；列表 `resource_id` 精确过滤（解析任务侧反查入口） |
+
+**前置条件**：需要 PostgreSQL（`db_reachable()` 探测 `DATABASE_HOST:DATABASE_PORT`）。库不可用时用例整体 `skip`，不会假通过；若连得上但库不可读，会以 `ConnectionRefusedError` 失败（先查网络与库进程）。
+
+**实测（2026-11-05，dev 库 192.168.29.120:39990）**：`pytest tests/modules/kb -q` → **106 passed**（含新增 10 条正文写入 + 5 条来源溯源用例）；`pytest tests -q` → **245 passed**，无失败无跳过。
+
 ---
 
 ## 三、测试辅助工具
@@ -79,6 +95,9 @@ cd backend
 
 # 4. 检索接口契约测试（03）：先铺场再检索，按同名规则回写 test-data/responses/（15 个请求 → 15 个响应）
 .venv\Scripts\python.exe -m tests.contract.run_search_tests
+
+# 5. 管理端管理能力（自助上传 / 主动治理 / 逻辑删）：库可用时真实执行，不可用时 skip
+.venv\Scripts\python.exe -m pytest tests/modules/kb -q
 ```
 
 需先启动服务（默认 `127.0.0.1:8002`）。改动 `test-data/requests/` 后要重跑对应脚本，否则 `responses/` 里的请求快照与实际入参不符。

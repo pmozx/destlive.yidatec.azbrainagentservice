@@ -15,15 +15,15 @@
   },
   "response_status": 200,
   "response_body": {
-    "request_id": "req-kb-delete-001",
-    "resource_type": "document",
-    "resource_id": "doc-lane2005-fdc",
-    "publication_id": "pub-test-crud-001",
-    "record_id": "rec-test-crud-001-v2",
-    "version_id": "v1",
-    "revision": 3,
-    "success": true,
     "deleted": true,
-    "searchable": false
+    "success": true,
+    "revision": 3,
+    "record_id": "rec-test-crud-001-v2",
+    "request_id": "req-kb-delete-001",
+    "searchable": false,
+    "version_id": "v1",
+    "resource_id": "doc-lane2005-fdc",
+    "resource_type": "document",
+    "publication_id": "pub-test-crud-001"
   }
 }

@@ -4,13 +4,17 @@
       <div>
         <h2 class="page-header__title">发布单元</h2>
         <p class="page-header__desc">
-          对接后端 /api/v1/kb/publication：维护发布单元元数据，查看 03.1/03.3 写入的版本快照与切片，读取 03.2 已批准基线并按 03.4 删除单个快照
+          对接后端 /api/v1/kb/publication：正文写入（03.1）/ 修订（03.3）由服务端切分入索引，可查看版本快照与切片、读取 03.2 基线、按 03.4 删快照，按 #20 停用归档
         </p>
       </div>
       <div class="page-header__actions">
-        <el-button type="primary" size="small" @click="openCreate">
+        <el-button type="primary" size="small" @click="openEntryWrite(null)">
+          <el-icon><EditPen /></el-icon>
+          <span>写入知识正文</span>
+        </el-button>
+        <el-button size="small" @click="openCreate">
           <el-icon><Plus /></el-icon>
-          <span>新增发布单元</span>
+          <span>新增空壳</span>
         </el-button>
       </div>
     </div>
@@ -72,10 +76,19 @@
         <el-table-column align="center" label="更新时间" width="165">
           <template #default="{ row }">{{ formatDateTime(row.updated_time) }}</template>
         </el-table-column>
-        <el-table-column align="center" label="操作" width="210" fixed="right">
+        <el-table-column align="center" label="操作" width="330" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="openDetail(row)">详情</el-button>
-            <el-button link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
+            <el-button
+              v-if="row.status !== 'deleted'"
+              link
+              type="primary"
+              size="small"
+              @click="openEntryWrite(row)"
+            >
+              {{ row.current_record_id ? '修订正文' : '写正文' }}
+            </el-button>
+            <el-button v-if="row.status !== 'deleted'" link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
             <el-button
               v-if="row.status === 'active'"
               link
@@ -83,12 +96,21 @@
               size="small"
               @click="changeStatus(row, 'inactive')"
             >
-              停用
+              下线
             </el-button>
             <el-button v-else-if="row.status === 'inactive'" link type="success" size="small" @click="changeStatus(row, 'active')">
-              启用
+              上线
             </el-button>
-            <el-button link type="danger" size="small" @click="remove(row)">删除</el-button>
+            <el-button
+              v-if="row.status === 'active' && row.current_record_id"
+              link
+              type="warning"
+              size="small"
+              @click="deactivate(row)"
+            >
+              停用归档
+            </el-button>
+            <el-button v-if="row.status !== 'deleted'" link type="danger" size="small" @click="remove(row)">删除</el-button>
           </template>
         </el-table-column>
         <template #empty>
@@ -154,6 +176,78 @@
       <template #footer>
         <el-button size="small" @click="dialogVisible = false">取消</el-button>
         <el-button size="small" type="primary" :loading="submitting" @click="submit">确定</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="entryVisible"
+      :title="entryMode === 'revise' ? '修订知识正文（03.3）' : '写入知识正文（03.1）'"
+      width="860px"
+      top="5vh"
+      destroy-on-close
+    >
+      <el-form ref="entryFormRef" :model="entryForm" :rules="entryRules" label-width="96px" size="small" @submit.prevent>
+        <el-form-item label="发布单元" prop="publication_id">
+          <el-input
+            v-model="entryForm.publication_id"
+            :disabled="entryMode === 'revise'"
+            placeholder="留空由服务端生成（kb-xxxxxxxx）；填写已存在的空壳则直接补录"
+          />
+        </el-form-item>
+        <el-form-item label="知识类型">
+          <el-select v-model="entryForm.resource_type" :disabled="entryMode === 'revise' || !!entryForm.publication_id" style="width: 100%">
+            <el-option v-for="item in resourceTypeOptions" :key="item.value" :label="item.label" :value="item.value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="标题" prop="title">
+          <el-input v-model="entryForm.title" maxlength="200" show-word-limit placeholder="请输入标题" />
+        </el-form-item>
+        <el-form-item label="分类">
+          <el-input v-model="entryForm.category" maxlength="64" placeholder="如：it / hr / 产品" />
+        </el-form-item>
+        <el-form-item label="标签">
+          <el-select
+            v-model="entryForm.tags"
+            multiple
+            filterable
+            allow-create
+            default-first-option
+            placeholder="输入后回车创建标签"
+            style="width: 100%"
+          />
+        </el-form-item>
+        <el-form-item label="维护人">
+          <el-input v-model="entryForm.owner" maxlength="64" placeholder="负责人" />
+        </el-form-item>
+        <el-form-item label="摘要">
+          <el-input v-model="entryForm.summary" type="textarea" :rows="2" placeholder="内容摘要" />
+        </el-form-item>
+        <el-form-item label="正文" prop="content">
+          <div class="kb-entry__bar">
+            <el-button
+              v-if="entryMode === 'revise'"
+              size="small"
+              :loading="entryLoadingContent"
+              @click="loadEntryContent"
+            >
+              载入当前正文
+            </el-button>
+            <span class="kb-muted">服务端按 PARSE_CHUNK_SIZE / PARSE_CHUNK_OVERLAP 切分，与解析链路同一口径</span>
+          </div>
+          <el-input
+            v-model="entryForm.content"
+            type="textarea"
+            :rows="14"
+            resize="vertical"
+            placeholder="支持 Markdown：小标题会写入切片标题路径"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button size="small" @click="entryVisible = false">取消</el-button>
+        <el-button size="small" type="primary" :loading="entrySubmitting" @click="submitEntry">
+          {{ entryMode === 'revise' ? '提交修订' : '写入并入库' }}
+        </el-button>
       </template>
     </el-dialog>
 
@@ -315,6 +409,47 @@
                 <el-button size="small" :disabled="!baseline.data?.next_cursor" @click="baselineNext">下一页</el-button>
               </div>
             </el-tab-pane>
+
+            <el-tab-pane label="来源与关联" name="source">
+              <div v-loading="origin.loading" class="kb-origin">
+                <el-alert
+                  :title="origin.data?.hint || '发布单元与解析任务没有库级关联，这里只展示可核对得上的线索'"
+                  type="info"
+                  :closable="false"
+                  show-icon
+                />
+
+                <el-descriptions v-if="origin.data" :column="2" border size="small" class="kb-origin__meta">
+                  <el-descriptions-item label="写入渠道">
+                    <el-tag :type="channelTagType(origin.data.write_channel)" size="small" effect="light">
+                      {{ channelLabel(origin.data.write_channel) }}
+                    </el-tag>
+                  </el-descriptions-item>
+                  <el-descriptions-item label="资源 ID">{{ origin.data.resource_id || '-' }}</el-descriptions-item>
+                  <el-descriptions-item label="租户 ID">{{ origin.data.tenant_id || '-' }}</el-descriptions-item>
+                  <el-descriptions-item label="当前记录">{{ origin.data.current_record_id || '-' }}</el-descriptions-item>
+                </el-descriptions>
+
+                <el-table :data="origin.data?.parse_jobs || []" size="small" style="width: 100%" class="kb-origin__table">
+                  <el-table-column align="center" prop="job_id" label="解析任务" min-width="170" show-overflow-tooltip />
+                  <el-table-column align="center" prop="status" label="状态" width="100" />
+                  <el-table-column align="center" label="进度" width="90">
+                    <template #default="{ row }">{{ row.progress }}%</template>
+                  </el-table-column>
+                  <el-table-column align="center" prop="resource_type" label="类型" width="90" />
+                  <el-table-column align="center" label="创建时间" width="165">
+                    <template #default="{ row }">{{ formatDateTime(row.created_time) }}</template>
+                  </el-table-column>
+                  <el-table-column align="center" prop="matched_by" label="匹配依据" width="150" show-overflow-tooltip />
+                  <template #empty>
+                    <el-empty
+                      description="未匹配到解析任务：契约任务才有 doc_id，管理台上传的任务不参与匹配"
+                      :image-size="70"
+                    />
+                  </template>
+                </el-table>
+              </div>
+            </el-tab-pane>
           </el-tabs>
         </template>
         <el-empty v-else description="未获取到发布单元详情" :image-size="80" />
@@ -329,15 +464,19 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 
 import {
   createPublication,
+  deactivatePublication,
   deletePublication,
   deletePublicationSnapshot,
   getPublicationBaseline,
   getPublicationChunks,
   getPublicationDetail,
   getPublicationList,
+  getPublicationSource,
   getPublicationVersions,
+  revisePublicationEntry,
   updatePublication,
   updatePublicationStatus,
+  writePublicationEntry,
 } from '@/api/module_kb/publication'
 import SectionCard from '@/components/common/SectionCard.vue'
 import { useTable } from '@/hooks/useTable'
@@ -494,9 +633,15 @@ async function submit() {
 
 // ── 状态 / 删除 ────────────────────────────────────────────────────
 async function changeStatus(row, status) {
-  const action = status === 'active' ? '启用' : '停用'
+  const action = status === 'active' ? '上线' : '下线'
   try {
-    await ElMessageBox.confirm(`确定${action}发布单元「${row.title}」吗？`, `${action}确认`, { type: 'warning' })
+    await ElMessageBox.confirm(
+      status === 'active'
+        ? `确定上线发布单元「${row.title}」吗？上线只切状态，切片仍为归档时要重新写入正文才能被召回。`
+        : `确定下线发布单元「${row.title}」吗？下线只切状态、可随时上线；要归档切片请用「停用归档」。`,
+      `${action}确认`,
+      { type: 'warning' },
+    )
   } catch {
     return
   }
@@ -512,7 +657,7 @@ async function changeStatus(row, status) {
 async function remove(row) {
   try {
     await ElMessageBox.confirm(
-      `确定删除发布单元「${row.title}」吗？将同时删除版本快照与切片，且不可恢复。`,
+      `确定删除发布单元「${row.title}」吗？将标记为已删除并立即不再被检索，版本快照与切片保留供追溯。`,
       '删除确认',
       { type: 'warning', confirmButtonText: '确定删除', cancelButtonText: '取消' },
     )
@@ -521,7 +666,7 @@ async function remove(row) {
   }
   try {
     await deletePublication(row.publication_id)
-    ElMessage.success('删除成功')
+    ElMessage.success('已标记为删除，该发布单元不再被检索')
     load()
   } catch {
     // 请求拦截器已统一提示错误
@@ -595,6 +740,161 @@ function viewBaseline(recordId) {
   loadBaseline(true)
 }
 
+// ── 03.1 / 03.3 正文写入与 #20 停用 ────────────────────────────────
+const entryVisible = ref(false)
+const entryMode = ref('create')
+const entrySubmitting = ref(false)
+const entryLoadingContent = ref(false)
+const entryFormRef = ref()
+const entryBaseRecordId = ref('')
+const entryForm = reactive({
+  publication_id: '',
+  resource_type: 'document',
+  title: '',
+  category: '',
+  tags: [],
+  owner: '',
+  summary: '',
+  content: '',
+})
+
+const entryRules = {
+  publication_id: [
+    {
+      validator: (_rule, value, callback) => {
+        if (value && !/^[A-Za-z0-9_.:-]+$/.test(value)) callback(new Error('仅支持字母、数字与 _ . : -'))
+        else callback()
+      },
+      trigger: 'blur',
+    },
+  ],
+  title: [
+    { required: true, message: '请输入标题', trigger: 'blur' },
+    { max: 200, message: '标题不能超过 200 个字符', trigger: 'blur' },
+  ],
+  content: [{ required: true, message: '请输入正文', trigger: 'blur' }],
+}
+
+/** 有快照 → 修订（03.3）；无快照（含空壳）→ 写入（03.1） */
+function openEntryWrite(row) {
+  entryMode.value = row?.current_record_id ? 'revise' : 'create'
+  entryBaseRecordId.value = row?.current_record_id || ''
+  Object.assign(entryForm, {
+    publication_id: row?.publication_id || '',
+    resource_type: row?.resource_type || 'document',
+    title: row?.title || '',
+    category: row?.category || '',
+    tags: [...(row?.tags || [])],
+    owner: row?.owner || '',
+    summary: row?.summary || '',
+    content: '',
+  })
+  entryFormRef.value?.clearValidate?.()
+  entryVisible.value = true
+}
+
+/** 把当前快照的切片拼回可编辑正文：纠正只需改差异，不用重敲一遍 */
+async function loadEntryContent() {
+  if (!entryForm.publication_id) return
+  entryLoadingContent.value = true
+  try {
+    const parts = []
+    let cursor = ''
+    do {
+      const page = await getPublicationBaseline(entryForm.publication_id, {
+        record_id: entryBaseRecordId.value || undefined,
+        cursor: cursor || undefined,
+        limit: 200,
+      })
+      parts.push(...page.chunks)
+      cursor = page.next_cursor || ''
+    } while (cursor)
+    entryForm.content = parts
+      .map((chunk) => [chunk.heading ? `## ${chunk.heading}` : '', chunk.content].filter(Boolean).join('\n\n'))
+      .join('\n\n')
+    ElMessage.success(`已载入 ${parts.length} 个切片，可直接编辑后提交`)
+  } catch {
+    // 请求拦截器已统一提示错误
+  } finally {
+    entryLoadingContent.value = false
+  }
+}
+
+function buildEntryPayload() {
+  const payload = {
+    title: entryForm.title.trim(),
+    category: entryForm.category?.trim() || null,
+    tags: entryForm.tags,
+    owner: entryForm.owner?.trim() || null,
+    summary: entryForm.summary?.trim() || null,
+    content: entryForm.content,
+  }
+  if (entryMode.value === 'revise') {
+    payload.base_record_id = entryBaseRecordId.value || null
+  } else {
+    payload.publication_id = entryForm.publication_id?.trim() || null
+    payload.resource_type = entryForm.resource_type
+  }
+  return payload
+}
+
+async function submitEntry() {
+  try {
+    await entryFormRef.value.validate()
+  } catch {
+    return
+  }
+  entrySubmitting.value = true
+  try {
+    const payload = buildEntryPayload()
+    const result =
+      entryMode.value === 'revise'
+        ? await revisePublicationEntry(entryForm.publication_id, payload)
+        : await writePublicationEntry(payload)
+    ElMessage.success(`写入成功：v${result.revision}，${result.chunk_count} 个切片`)
+    entryVisible.value = false
+    load()
+    if (detailVisible.value && detail.value?.publication_id === result.publication_id) {
+      detail.value = await getPublicationDetail(result.publication_id)
+      versions.load()
+      chunks.load()
+      baseline.data = null
+    }
+  } catch {
+    // 请求拦截器已统一提示错误
+  } finally {
+    entrySubmitting.value = false
+  }
+}
+
+/** #20 停用归档：切片与版本转 archived，三处开关同时失效，不能靠「上线」恢复 */
+async function deactivate(row) {
+  let reason = ''
+  try {
+    const result = await ElMessageBox.prompt(
+      `确定停用「${row.title}」吗？停用会把当前快照的切片与版本归档，检索立即失效，且不能靠「上线」恢复（需重新写入正文）。`,
+      '停用已生效知识（#20）',
+      {
+        type: 'warning',
+        confirmButtonText: '确定停用',
+        cancelButtonText: '取消',
+        inputPlaceholder: '请输入停用原因（必填）',
+        inputValidator: (value) => (value && value.trim() ? true : '停用原因必填'),
+      },
+    )
+    reason = result.value.trim()
+  } catch {
+    return
+  }
+  try {
+    await deactivatePublication(row.publication_id, { reason })
+    ElMessage.success('已停用并归档，检索不再召回')
+    load()
+  } catch {
+    // 请求拦截器已统一提示错误
+  }
+}
+
 // ── 03.4 删除单个快照 ─────────────────────────────────────────────
 async function removeSnapshot(row) {
   let reason = ''
@@ -628,10 +928,40 @@ async function removeSnapshot(row) {
   }
 }
 
+// ── 来源与关联（只读溯源：写入渠道 + 按 file_meta.doc_id 反查解析任务）───
+const origin = reactive({
+  loading: false,
+  data: null,
+})
+
+/** 写入渠道中文名：按 record_id 前缀判定（无快照 / 管理台 / GSI 契约） */
+function channelLabel(channel) {
+  return { admin: '管理台写入', contract: 'GSI 契约写入', pending: '无快照' }[channel] || channel || '-'
+}
+
+function channelTagType(channel) {
+  return { admin: 'warning', contract: 'success', pending: 'info' }[channel] || 'info'
+}
+
+async function loadOrigin() {
+  if (!currentPublicationId.value) return
+  origin.loading = true
+  try {
+    origin.data = await getPublicationSource(currentPublicationId.value)
+  } catch {
+    origin.data = null
+  } finally {
+    origin.loading = false
+  }
+}
+
 watch(activeTab, (name) => {
   if (name === 'baseline' && baseline.data === null && detail.value?.current_record_id) {
     baseline.recordId = detail.value.current_record_id
     loadBaseline(true)
+  }
+  if (name === 'source' && origin.data === null) {
+    loadOrigin()
   }
 })
 
@@ -645,6 +975,7 @@ async function openDetail(row) {
   baseline.recordId = ''
   baseline.cursorStack = []
   baseline.currentCursor = ''
+  origin.data = null
   try {
     detail.value = await getPublicationDetail(row.publication_id)
     versions.load()
@@ -675,6 +1006,14 @@ async function openDetail(row) {
   color: var(--app-text-muted);
 }
 
+.kb-origin__meta {
+  margin: 12px 0;
+}
+
+.kb-origin__table {
+  margin-bottom: 8px;
+}
+
 .kb-detail__tabs {
   margin-top: 16px;
 }
@@ -693,5 +1032,11 @@ async function openDetail(row) {
   font-family: var(--app-font-mono, monospace);
   font-size: 12px;
   word-break: break-all;
+}
+
+.kb-entry__bar {
+  @include flex($justify: flex-start, $gap: 10px);
+  flex-wrap: wrap;
+  margin-bottom: 8px;
 }
 </style>

@@ -1,6 +1,7 @@
 """`/v1` 解析接口（#01 / #02）：controller 只做参数接收、调 service、包响应。
 
-业务编排在 ``service.py``；状态机与落库在 ``app.modules.kb.parse_job.service``。
+业务编排（请求投影 + 错误码映射）在 ``service.py``；解析流水线在
+``app.modules.kb.parse_job.pipeline``，任务状态机与落库在 ``app.modules.kb.parse_job.service``。
 """
 
 from typing import Annotated
@@ -57,18 +58,7 @@ async def create_parse_job(
     snapshot, created = await create_parse_job_record(payload)
     if created or snapshot.status == "queued":
         # 任务行已提交后再挂后置任务：否则后台读不到未提交的行（POC 期坑）
-        background.add_task(
-            run_parse_job,
-            job_id=payload.job_id,
-            file_name=payload.file_name,
-            data=content,
-            chunk_enabled=payload.options.chunk,
-            resource_type=payload.resource_type,
-            prompt_text=payload.prompt_text,
-            model_key=payload.model_key,
-            metadata=payload.metadata,
-            language=payload.options.language,
-        )
+        background.add_task(run_parse_job, payload=payload, content=content)
     receipt = accepted_response(payload, snapshot)
     await record_receipt(request, reservation, status_code=status.HTTP_202_ACCEPTED, body=receipt)
     return receipt

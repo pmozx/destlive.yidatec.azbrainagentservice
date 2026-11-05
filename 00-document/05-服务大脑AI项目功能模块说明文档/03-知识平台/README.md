@@ -1,7 +1,7 @@
 # 03 · 知识平台
 
 > **一句话定位**：GSI 交付的文档与 FAQ 在这里解析成切片、落成发布单元，再被检索、问答与重复治理复用。
-> 归属域 `kb`（九个一表一目录的子模块）· 数据表 9 张 · 接口 48 个（契约 `/v1` 20 + 管理端 `/api/v1/kb` 28）· 前端页面 6 个 · 版本 v1.0（2026-11-03）
+> 归属域 `kb`（九个一表一目录的子模块）· 数据表 9 张 · 接口 56 个（契约 `/v1` 20 + 管理端 `/api/v1/kb` 36）· 前端页面 6 个 · 版本 v1.3（2026-11-05）
 
 ---
 
@@ -10,18 +10,19 @@
 **这个模块做**
 
 - 接收 GSI 的解析任务：按 `job_id` 幂等受理，同步校验文件（类型白名单、10MB 上限），后台解析出**无向量的切片产物**（`chunks` / `pages` / `suggested` / `warnings`），四态进度可查。
-- 保存知识：只有 GSI 编辑人员审批通过的切片才会写入本侧（03.1 新增 / 03.3 修订 / 03.4 删除 / #20 停用），写入时同步向量化，并做「全量替换 + 指针切换 + 版本号单调」。
+- 保存知识：GSI 编辑人员审批通过的切片通过契约写入（03.1 新增 / 03.3 修订 / 03.4 删除 / #20 停用）；管理台也能直接写正文（整篇正文自动切片，走同一套 `KbEntryService`），写入时同步向量化，并做「全量替换 + 指针切换 + 版本号单调」。
 - 检索：按签名身份的授权范围先下推再召回，关键词与自然语言两条通道共用 RRF 融合与精排闸门，返回 chunk 级命中与相对分。
 - 问答：检索 → 拼上下文 → 调 Chat 模型 → 落会话与消息（含引用九字段与来源六元组），支持非流式（契约）与 SSE 流式（管理端）两种出口。
 - 重复治理：保存前查重（只看不写）、重复分组查询/详情、合并预览（只产草稿态），并把治理结论物化成 `dup_group` 行供管理台跟踪。
-- 管理台维护：发布单元/版本/切片的 CRUD、解析任务查询、重复分组状态标记、检索调试台与通道配置、会话与消息浏览。
+- 管理台维护：发布单元/版本/切片的 CRUD、**正文写入与修订（03.1/03.3 等价）**、**停用归档（#20 等价）**、**来源与关联溯源**（写入渠道 + 按 `file_meta.doc_id` 反查解析任务）、解析任务查询、重复分组状态标记、检索调试台与通道配置、会话与消息浏览。
+- 管理台自助作业：自己上传文件发起解析（不必先落到 GSI 的桶），自己写正文入库；并把「保存前查重 / 全量检测 / 合并预览」搬到页面上——范围用 `publication_ids` 表达，后端反查生成正式 `scope`，检测与预览与契约 #16/#17/#19 共用同一条链路；查重台还可以从发布单元**载入已批准切片**逐条比对（D06 等价）。
 
 **这个模块不做**
 
-- 不做知识录入界面与审批流：切片由 GSI 编辑人员确认后才下发，本侧没有「草稿知识」表，`dup_result` 里的草稿只是检测时随请求带进来的内存快照。
+- 不做审批流与草稿知识表：契约侧仍只收 GSI 审批通过的切片，本侧没有「草稿知识」表（`dup_result` 里的草稿只是检测时随请求带进来的内存快照）；管理台写正文是运维补录/纠错入口，不代替 GSI 的审批。
 - 不解析 Office/图片的页图：页图预览只对 PDF 生效，其余类型返回 `pages=[]`，不伪造图片 URL。
 - 不做流式契约：`/v1/chat/completions` 收到 `stream=true` 直接 400 `UNSUPPORTED_STREAM`，SSE 只在管理端 `/kb/chat/ask/stream` 提供。
-- 不实现 v3 手册新增的 **D06 单篇知识切片查重**（`chunk-check`）：代码里没有该路由，前端也没有入口，属未实现能力（见 `04-实现与运维说明.md` §八）。
+- 不对齐 v3 手册的 **D06 单篇知识切片查重** 独立路由（`chunk-check`）：契约侧无此路径，能力由管理端 `POST /kb/dup-groups/check` 的 `candidate.chunks[]` 承接（见 `04-实现与运维说明.md` §八 K1）。
 - 不做多租户隔离的库级约束：`tenant_id` 是业务列，隔离靠每次查询显式带条件，没有 RLS。
 
 ---
@@ -44,8 +45,10 @@
 | 保存前查重 | GSI 编辑人员（契约） | `/v1/duplicates/check` | 读 `chunk` / `publication`，不写表 |
 | 重复分组清单与详情 | GSI 编辑人员（契约） | `/v1/duplicates/groups*` | `dup_result` / `dup_group` |
 | 合并预览 | GSI 编辑人员（契约） | `/v1/duplicates/merge-preview` | `dup_result` / `dup_group` |
-| 治理结论跟踪与状态标记 | 管理台 | `/kb/dup-groups/*` | `dup_group` |
-| 发布单元 / 版本 / 切片的维护浏览 | 管理台 | `/kb/publication/*` | 三张内容表 |
+| 治理结论跟踪与状态标记 | 管理台 | `/kb/dup-groups/{list,detail,status}` | `dup_group` |
+| 自助上传解析 | 管理台 | `/kb/parse-jobs/upload` | `parse_job` / `parse_result` |
+| 主动治理（检测/查重/预览） | 管理台 | `/kb/dup-groups/{detect,check,preview}` | `dup_result` / `dup_group` |
+| 发布单元 / 版本 / 切片的维护浏览、正文写入与修订、停用归档 | 管理台 | `/kb/publication/*`（含 `entry` / `deactivate`） | 三张内容表 |
 
 ---
 
@@ -72,7 +75,7 @@
 两组前缀，鉴权方式完全不同（详细约定见 [`03-接口清单.md`](03-接口清单.md) §一）：
 
 - 契约侧 `/v1`：HMAC 五头 + 裸 JSON（不套 `code/msg/data`），20 个端点，写操作走幂等台账；
-- 管理端 `/api/v1/kb`：管理台 JWT + 统一 `ResponseSchema`，28 个端点。
+- 管理端 `/api/v1/kb`：管理台 JWT + 统一 `ResponseSchema`，36 个端点。
 
 | 组 | 方法 | 路径 | 用途 | 数量 |
 | --- | --- | --- | --- | --- |
@@ -82,9 +85,9 @@
 | 会话 | POST / PATCH / DELETE | `/v1/chat/sessions`、`/sessions/query`、`/sessions/{id}/query`、`/sessions/{id}`、`/sessions/{id}/messages` | #08–#13 六操作 | 6 |
 | 生成 | POST | `/v1/chat/completions`、`/chat/requests/{target_request_id}/query` | #14 生成、#15 超时结果查询 | 2 |
 | 重复治理 | POST | `/v1/duplicates/check`、`/groups/query`、`/groups/{group_id}/query`、`/merge-preview` | #16–#19 | 4 |
-| 发布单元 | GET/POST/PUT/PATCH/DELETE | `/api/v1/kb/publication/*` | 列表/详情/增改/状态/删除/版本/切片/基线/删快照 | 12 |
-| 解析任务 | GET | `/api/v1/kb/parse-jobs/list`、`/detail/{job_id}` | 任务列表与详情（含产物） | 2 |
-| 重复分组 | GET / PATCH | `/api/v1/kb/dup-groups/list`、`/detail/{group_id}`、`/status/{group_id}` | 治理结论浏览与状态标记 | 3 |
+| 发布单元 | GET/POST/PUT/PATCH/DELETE | `/api/v1/kb/publication/*` | 列表/详情/增改/状态/删除/版本/切片/基线/删快照 + **正文写入/修订/停用归档** + 来源溯源（`/source/{id}`） | 16 |
+| 解析任务 | GET / POST | `/api/v1/kb/parse-jobs/list`、`/detail/{job_id}`、`/upload` | 任务列表与详情（含产物）+ 自助上传提交 | 3 |
+| 重复分组 | GET / PATCH / POST | `/api/v1/kb/dup-groups/list`、`/detail/{group_id}`、`/status/{group_id}`、`/detect`、`/check`、`/preview/{group_id}` | 治理结论浏览与状态标记 + 主动检测/查重/合并预览 | 6 |
 | 检索 | GET / POST | `/api/v1/kb/retrieval/config`、`/search` | 通道配置、检索调试 | 2 |
 | 会话 | GET / PUT / DELETE | `/api/v1/kb/chat-session/*` | 列表/详情/改名/清空/删除 | 5 |
 | 消息 | GET | `/api/v1/kb/chat-message/list`、`/detail/{message_id}` | 历史消息浏览 | 2 |
@@ -96,11 +99,13 @@
 
 | 路径 | 职责 | 备注 |
 | --- | --- | --- |
-| `app/modules/kb/publication/service.py` | 两个服务类：`KbEntryService`（契约写入）+ `KbPublicationService`（管理端 12 个动作） | 840 行，写入链路的核心；向量化在事务之前 |
+| `app/modules/kb/publication/service.py` | 两个服务类：`KbEntryService`（契约写入引擎）+ `KbPublicationService`（管理端 16 个动作，含正文写入/修订/停用/溯源） | 1190 行，写入链路的核心；向量化在事务之前；管理端正文入口先切片再交给同一引擎 |
 | `app/modules/kb/retrieval/service.py` | 授权下推、关键词打分、向量召回、RRF 融合、精排闸门 | 335 行；`authorized_publication_ids` 被契约/管理端/问答三处共用 |
 | `app/modules/kb/chat/service.py` + `sse.py` | 问答编排（检索→生成→落库）与 SSE 帧协议 | `sse.py` 只有事件定义，编排在 `service.py` |
 | `app/modules/kb/chat/admin_service.py` | 管理端两个出口：`ask` 与 `open_stream` | 自己开会话（无请求级事务），首轮自动建会话 |
 | `app/modules/kb/dup_result/service.py` | 检测、快照存取、物化治理行、合并预览 | 常量在 `dup_result/schema.py`（30 分钟、1000 项、0.65 阈值） |
+| `app/modules/kb/dup_group/` | 治理行读写 + 管理端主动治理三端点（`controller.py` / `service.py`） | `_scope` 把 `publication_ids` 反查成正式 `scope`；`ADMIN_USER_ID` 保证检测与预览读同一快照 |
+| `app/modules/kb/parse_job/admin_service.py` | 自助上传：边读边判（400/413）→ 存原件（失败降级）→ 建任务 | 与契约 `#01` 共用 `pipeline.run_parse_job` |
 | `app/modules/kb/parse_job/service.py` + `parse_result/service.py` | 任务四态与产物落库 | `reset_unfinished` 在启动期把未完成任务改判 `failed` |
 | `app/modules/kb/chat_session/service.py` + `chat_message/` | 会话与消息的读写、软删 | 管理端不校验归属，契约按 `user_id` 收窄 |
 | `app/modules_api/kb/{parse,knowledge,duplicate,chat}/` | 契约 20 个端点：controller（薄）+ service（编排）+ schema（字段约束） | controller 只做「回放→调用→登记回执」 |
@@ -140,5 +145,5 @@
 | --- | --- |
 | [`01-业务功能说明.md`](01-业务功能说明.md) | 谁在什么场景用什么功能；解析/写入/检索/问答/治理五条主流程；状态如何判定；数据留多久；现在做不到什么 |
 | [`02-数据模型与表关系.md`](02-数据模型与表关系.md) | 九张表每列的含义；键与索引；表与表怎么对上（R1–R10）；谁写谁读；删除一条知识后行还在不在 |
-| [`03-接口清单.md`](03-接口清单.md) | 48 个端点怎么调；字段、错误码、示例；契约编号与代码编号的对应；前端函数映射 |
-| [`04-实现与运维说明.md`](04-实现与运维说明.md) | 代码在哪；六个关键实现决策；配置项与调错的后果；按症状排障；测试覆盖与已知限制 |
+| [`03-接口清单.md`](03-接口清单.md) | 56 个端点怎么调；字段、错误码、示例；契约编号与代码编号的对应；前端函数映射 |
+| [`04-实现与运维说明.md`](04-实现与运维说明.md) | 代码在哪；十个关键实现决策；配置项与调错的后果；按症状排障；测试覆盖与已知限制 |

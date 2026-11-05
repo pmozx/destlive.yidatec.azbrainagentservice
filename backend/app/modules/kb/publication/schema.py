@@ -5,6 +5,9 @@
 - **管理端 Pydantic Schema**（§二）：HTTP 请求/响应模型，含校验规则。
 """
 
+import hashlib
+import json
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -17,12 +20,31 @@ from app.core.validator import DateTimeStr, ensure_non_blank
 # §一  领域层 dataclass（契约写入/删除/回执/基线查询）
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+# content_hash 的固定序列化字段（顺序无关，JSON 键排序后拼接）；chunk_id 由 AI 分配，故不参与。
+# 契约 03.1/03.3 与管理端正文写入共用这一份口径：各写一版会让同一份切片算出不同摘要。
+ENTRY_HASH_FIELDS: tuple[str, ...] = ("seq", "heading", "content", "page_from", "page_to")
+
+
+def canonical_content_hash(chunks: Iterable[Any]) -> str:
+    """按固定规则计算整包摘要：按 ``seq`` 排序后对确定字段做 JSON（键排序、紧凑分隔符）。"""
+    rows: list[dict[str, Any]] = []
+    for chunk in chunks:
+        item = chunk.model_dump() if isinstance(chunk, BaseModel) else dict(chunk)
+        rows.append({name: item.get(name) for name in ENTRY_HASH_FIELDS})
+    rows.sort(key=lambda row: int(row["seq"]))
+    serialized = json.dumps(rows, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return "sha256:" + hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
 
 @dataclass(frozen=True)
 class EntryChunkData:
-    """一个已批准的切片（不含向量，向量由服务层生成）。"""
+    """一个已批准的切片（不含向量，向量由服务层生成）。
 
-    chunk_id: str
+    ``chunk_id`` 为空表示新增切片：由 :class:`KbEntryService` 按 ``record_id:seq``
+    确定性分配（同一次写入重试不能换 ID），调用方无需自己造 ID。
+    """
+
+    chunk_id: str | None
     seq: int
     content: str
     heading: str | None = None
@@ -265,6 +287,38 @@ class KbPublicationDetailOutSchema(KbPublicationOutSchema):
     chunk_count: int = Field(default=0, description="切片总数")
 
 
+class KbPublicationParseJobBriefOutSchema(BaseModel):
+    """疑似同源的解析任务（只读线索，不构成强关联）。"""
+
+    job_id: str = Field(..., description="契约 job_id（= parse_job.uuid）")
+    status: str = Field(..., description="queued/running/succeeded/failed")
+    progress: int = Field(default=0, description="进度 0–100")
+    resource_type: str = Field(default="", description="document/faq")
+    created_time: DateTimeStr | None = Field(default=None, description="任务创建时间")
+    matched_by: str = Field(default="file_meta.doc_id", description="匹配依据（只支持 doc_id）")
+
+
+class KbPublicationSourceOutSchema(BaseModel):
+    """发布单元来源与关联（只读溯源）。
+
+    发布单元与解析任务之间没有库级关联（见 ``02-数据模型与表关系.md`` §1.2「内容与作业分离」），
+    这里只回「可以核对得上的线索」：写入渠道 + 按 ``file_meta.doc_id`` 反查的解析任务。
+    """
+
+    publication_id: str = Field(..., description="发布单元 ID")
+    resource_type: str | None = Field(default=None, description="document / faq")
+    resource_id: str | None = Field(default=None, description="GSI 原始资源 ID（03.1 的 resource_id）")
+    tenant_id: str | None = Field(default=None, description="租户 ID")
+    status: str | None = Field(default=None, description="发布单元状态")
+    current_record_id: str | None = Field(default=None, description="当前生效记录")
+    current_revision: int | None = Field(default=None, description="当前生效版本号")
+    write_channel: str = Field(..., description="admin（管理台写入）/ contract（GSI 契约写入）/ pending（无快照）")
+    parse_jobs: list[KbPublicationParseJobBriefOutSchema] = Field(
+        default_factory=list, description="疑似同源的解析任务（按创建时间倒序，最多 20 条）"
+    )
+    hint: str = Field(..., description="口径提醒：线索来源与局限性")
+
+
 class KbPublicationQueryParam(BaseQueryParam):
     """发布单元查询参数（``q`` 标记决定 CRUD 层的比较方式）。"""
 
@@ -273,6 +327,7 @@ class KbPublicationQueryParam(BaseQueryParam):
     category: str | None = Field(None, description="知识分类", json_schema_extra={"q": "eq"})
     owner: str | None = Field(None, description="维护人", json_schema_extra={"q": "like"})
     resource_type: str | None = Field(None, description="知识类型", json_schema_extra={"q": "eq"})
+    resource_id: str | None = Field(None, description="GSI 原始资源 ID（按解析任务 doc_id 反查时用）", json_schema_extra={"q": "eq"})
     status: str | None = Field(None, description="发布单元状态", json_schema_extra={"q": "eq"})
 
 
@@ -372,3 +427,95 @@ class KbPublicationSnapshotDeleteOutSchema(BaseModel):
     revision: int = Field(..., description="删除事件的修订号")
     deleted: bool = Field(default=True, description="是否删除成功")
     searchable: bool = Field(default=False, description="删除后不可检索")
+
+
+class KbPublicationEntryWriteSchema(BaseModel):
+    """管理端写入正文（03.1 首发 / 空壳补录）：切片由服务层按 ``PARSE_CHUNK_SIZE`` 切分。"""
+
+    publication_id: str | None = Field(
+        default=None, min_length=1, max_length=64, description="发布单元 ID，省略则自动生成"
+    )
+    resource_type: Literal["document", "faq"] = Field(default="document", description="知识类型")
+    tenant_id: str | None = Field(default=None, max_length=64, description="租户 ID")
+    resource_id: str | None = Field(default=None, max_length=64, description="原始资源 ID")
+    title: str = Field(..., min_length=1, max_length=200, description="标题")
+    category: str | None = Field(default=None, max_length=64, description="知识分类")
+    summary: str | None = Field(default=None, description="内容摘要")
+    tags: list[str] = Field(default_factory=list, description="标签")
+    owner: str | None = Field(default=None, max_length=64, description="维护人")
+    knowledge_no: str | None = Field(default=None, max_length=64, description="知识编号，省略取发布单元 ID")
+    content: str = Field(..., description="正文（Markdown/纯文本），服务端自动切分并向量化")
+
+    @field_validator("publication_id", "title", "content")
+    @classmethod
+    def validate_required_text(cls, value: str | None) -> str | None:
+        return ensure_non_blank(value) if value is not None else None
+
+    @field_validator("tags")
+    @classmethod
+    def validate_tags(cls, value: list[str]) -> list[str]:
+        return _normalize_tags(value)
+
+
+class KbPublicationEntryReviseSchema(BaseModel):
+    """管理端修订正文（03.3）：整篇重新切分写入新快照，旧快照保留。"""
+
+    content: str = Field(..., description="修订后的正文（整篇），服务端自动切分并向量化")
+    base_record_id: str | None = Field(
+        default=None, min_length=1, max_length=64, description="进入修订时的快照 ID，省略取当前生效快照"
+    )
+    title: str | None = Field(default=None, min_length=1, max_length=200, description="标题")
+    category: str | None = Field(default=None, max_length=64, description="知识分类")
+    summary: str | None = Field(default=None, description="内容摘要")
+    tags: list[str] | None = Field(default=None, description="标签")
+    owner: str | None = Field(default=None, max_length=64, description="维护人")
+
+    @field_validator("content", "base_record_id")
+    @classmethod
+    def validate_required_text(cls, value: str | None) -> str | None:
+        return ensure_non_blank(value) if value is not None else None
+
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, value: str | None) -> str | None:
+        return ensure_non_blank(value) if value is not None else None
+
+    @field_validator("tags")
+    @classmethod
+    def validate_tags(cls, value: list[str] | None) -> list[str] | None:
+        return _normalize_tags(value) if value is not None else None
+
+
+class KbPublicationDeactivateSchema(BaseModel):
+    """#20 停用已生效知识（D05 同口径）：切片归档、停止召回，正文保留供审计。"""
+
+    reason: str = Field(..., min_length=1, max_length=200, description="停用原因（必填，落审计日志）")
+
+    @field_validator("reason")
+    @classmethod
+    def validate_reason(cls, value: str) -> str:
+        return ensure_non_blank(value)
+
+
+class KbPublicationEntryWriteOutSchema(BaseModel):
+    """正文写入回执：切片数、摘要与落库版本，前端据此刷新详情。"""
+
+    publication_id: str = Field(..., description="发布单元 ID")
+    record_id: str = Field(..., description="新快照 ID")
+    version_id: str = Field(..., description="契约版本 ID")
+    revision: int = Field(..., description="新修订号")
+    content_hash: str = Field(..., description="整包内容摘要（sha256:<hex>）")
+    chunk_count: int = Field(..., description="本次写入的切片数")
+    searchable: bool = Field(..., description="写入后是否可检索")
+    status: str = Field(..., description="写入后的发布单元状态")
+
+
+class KbPublicationDeactivateOutSchema(BaseModel):
+    """#20 停用回执：固定 ``deactivated=true`` / ``searchable=false``。"""
+
+    publication_id: str = Field(..., description="发布单元 ID")
+    record_id: str = Field(..., description="被停用的快照 ID")
+    revision: int = Field(..., description="停用事件的修订号")
+    deactivated: bool = Field(default=True, description="是否停用成功")
+    searchable: bool = Field(default=False, description="停用后不可检索")
+    status: str = Field(..., description="停用后的发布单元状态")
