@@ -9,7 +9,7 @@
 
 | 目录 | 内容 | 谁维护 |
 | --- | --- | --- |
-| [source_file/](source_file/) | 样例文档本体：PDF、MinerU 解析产出的 Markdown、人工译文 | 人工维护 |
+| [source_file/](source_file/) | 样例文档本体：PDF、MinerU 解析产出的 Markdown、人工译文（Markdown 稿与排版 PDF） | 人工维护 |
 | [requests/](requests/) | 每个用例一份请求正文，文件名 `{接口编号}_{场景}.json` | 人工维护 |
 | [responses/](responses/) | 与 `requests/` **同名**（含编号与场景后缀）的实测响应，一请求一文件 | 脚本自动覆盖 |
 
@@ -17,7 +17,7 @@
 - 请求与响应同名：`requests/01_parse_jobs_doc.json` 的实测响应就是 `responses/01_parse_jobs_doc.json`，编号与场景后缀一字不差，不在汇总文件里查 key
 - `02_*.json` 只承载 GET 的路径参数（`job_id`），无请求正文，因此不参与签名摘要
 - `03_` 前缀 = 知识接口（03.1 新增 / 03.2 读取 / 03.3 修改 / 03.4 删除）
-- 请求文件里的 `"content_hash": "__COMPUTED_AT_RUNTIME__"` 是占位符：由 `tests/contract/case_data.py` 的 `resolve_content_hash()` 按 `chunks` 实算后替换。摘要不写死在 JSON 里，避免改了切片内容却忘记改摘要。
+- 请求文件里的 `"content_hash": "__COMPUTED_AT_RUNTIME__"` 是占位符：由 `tests/contract/client.py` 的 `resolve_content_hash()` 调测试辅助接口 `POST /v1/test/content-hash`（按服务端唯一口径 `canonical_content_hash()` 实算）后替换。摘要不写死在 JSON 里，避免改了切片内容却忘记改摘要。
 - `03_*.json` 的 `chunks` 不另编样例：逐字取自 02 解析产物 —— 文档形态取 `responses/02_parse_jobs_doc.json`，FAQ 形态取 `responses/02_parse_jobs_faq.json`（`heading` / 正文 / 页码原样沿用），只在知识包内按 1..N 重编 `seq`；`metadata.source_parse_job_id` 记录来源解析任务（`parse-doc-100001` / `parse-faq-200001`），保证「解析产物 → 审批写入」可追溯。
 - `04_` 前缀 = 检索接口（#07 `POST /v1/knowledge/search`）
 - `04_*.json` 的 `authorization` 时效写占位符：`__AUTH_ISSUED_AT__` / `__AUTH_EXPIRES_120S__` / `__AUTH_EXPIRES_300S__` / `__AUTH_EXPIRED_ISSUED__` / `__AUTH_EXPIRED_EXPIRES__`，由 `resolve_authorization()` 在发送前换算成当前时刻的毫秒值。静态值一落地就过期，区分不了「跨度超限」与「已过期」。
@@ -27,13 +27,14 @@
 
 ## 二、基线数据
 
-所有用例共用同一份样例文档（Lane et al., 2005，《流量历时曲线对造林的响应》，Journal of Hydrology）：
+所有用例共用同一份样例文档（Lane et al., 2005，《流量历时曲线对造林的响应》，Journal of Hydrology）。前两行是用例的取材来源，译文两行只供人工阅读与口径核对，接口用例不读：
 
 | 基线文件 | 用途 |
 | --- | --- |
 | [source_file/Lane_2005_造林与流量历时曲线.pdf](source_file/Lane_2005_造林与流量历时曲线.pdf) | 文档本体（336919 字节，请求里的 `file_size` 即取此值） |
 | [source_file/Lane_2005_造林与流量历时曲线.md](source_file/Lane_2005_造林与流量历时曲线.md) | MinerU 解析产物，`chunks` 正文、页码与章节标题的取材来源 |
 | [source_file/Lane_2005_造林与流量历时曲线_翻译.md](source_file/Lane_2005_造林与流量历时曲线_翻译.md) | 中文译文，`metadata.title` / `summary` / `content` / `tags` 的语义依据 |
+| [source_file/Lane_2005_造林与流量历时曲线_翻译.pdf](source_file/Lane_2005_造林与流量历时曲线_翻译.pdf) | 同一译文的排版稿（A4 12 页，1296769 字节），供人工阅读、译文口径核对与后续审校标注 |
 | [requests/01_parse_jobs_doc.json](requests/01_parse_jobs_doc.json) | 文档解析基线（#01 用例 #1、幂等重试 #9） |
 | [requests/01_parse_jobs_faq.json](requests/01_parse_jobs_faq.json) | FAQ 解析基线（#01 用例 #2） |
 

@@ -12,7 +12,7 @@
 | `deps.py` | 验签依赖、授权时效、幂等预约依赖、启动自检 | T1.1 / T1.3 |
 | `common.py` | 统一路由构造、错误响应声明 | T1.5 |
 | `schema.py` | 通用请求体（`request_id` / `tenant_id` / `user_id`） | T1.5 |
-| `test_utils/` | 签名头生成辅助路由（受 `CONTRACT_TEST_ENABLE` 控制） | — |
+| `test_utils/` | 签名头生成 / 知识整包摘要计算辅助路由（受 `CONTRACT_TEST_ENABLE` 控制） | — |
 
 **新增对外接口时**：在 `app/modules_api/<域>/<功能>/` 下写 controller / service / schema，
 controller 用 `base.common.make_contract_router()` 构造 Router（审计 + 验签 + 错误体一次配齐），

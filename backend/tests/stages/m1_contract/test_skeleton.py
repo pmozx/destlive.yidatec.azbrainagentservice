@@ -46,7 +46,7 @@ def test_twenty_contract_routes_are_registered() -> None:
     actual = {
         (method.upper(), path)
         for path, operations in schema["paths"].items()
-        # `/v1/test/*` 是开发期签名头生成工具（CONTRACT_TEST_ENABLE），不属于契约接口
+        # `/v1/test/*` 是开发期测试辅助工具（签名头 / 整包摘要，CONTRACT_TEST_ENABLE），不属于契约接口
         if path.startswith("/v1/") and not path.startswith("/v1/test/")
         for method in operations
     }

@@ -11,7 +11,12 @@ from app.core.base_schema import PageResultSchema, PaginationQueryParam
 from app.core.dependencies import db_getter
 from app.core.router_class import ApiLogRoute
 
-from .schema import SbpSysOrgMemberOutSchema, SbpSysOrgMemberQueryParam
+from .schema import (
+    SbpSysOrgMemberOutSchema,
+    SbpSysOrgMemberQueryParam,
+    SbpSysOrgMemberWithOrgOutSchema,
+    SbpSysOrgMemberWithOrgQueryParam,
+)
 from .service import SbpSysOrgMemberService
 
 SbpSysOrgMemberRouter = APIRouter(
@@ -36,3 +41,21 @@ async def get_sbp_sys_org_member_list_controller(
         order_by=page.order_by,
     )
     return SuccessResponse(data=result_dict, msg="查询GSI组织成员成功")
+
+
+@SbpSysOrgMemberRouter.get(
+    "/page-with-org",
+    summary="03-分页查询组织成员（含组织上下文）",
+    response_model=ResponseSchema[PageResultSchema[SbpSysOrgMemberWithOrgOutSchema]],
+)
+async def get_sbp_sys_org_member_page_with_org_controller(
+    db: Annotated[AsyncSession, Depends(db_getter)],
+    page: Annotated[PaginationQueryParam, Depends()],
+    search: Annotated[SbpSysOrgMemberWithOrgQueryParam, Query()],
+) -> JSONResponse:
+    result_dict = await SbpSysOrgMemberService(db).page_with_org(
+        page_no=page.page_no,
+        page_size=page.page_size,
+        search=search,
+    )
+    return SuccessResponse(data=result_dict, msg="查询组织成员（含组织上下文）成功")

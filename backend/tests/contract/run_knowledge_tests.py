@@ -1,24 +1,32 @@
 """知识写入接口（03.1 新增 / 03.2 读取 / 03.3 修改 / 03.4 删除）契约测试脚本。
 
 ```bash
+# 全量执行
 cd backend && .venv\\Scripts\\python.exe -m tests.contract.run_knowledge_tests
+
+# 只跑指定用例：位置参数按「用例标签 / 请求文件名」子串匹配，未命中的用例只打印跳过
+cd backend && .venv\\Scripts\\python.exe -m tests.contract.run_knowledge_tests 01_create
 ```
 
 入参一律来自 `00-document/06-.../test-data/requests/`：
-- 文件里的 `"content_hash": "__COMPUTED_AT_RUNTIME__"` 由 `case_data.resolve_content_hash()`
-  按 `chunks` 实算后替换，避免改了切片却忘记改摘要；
+- 文件里的 `"content_hash": "__COMPUTED_AT_RUNTIME__"` 由 `client.resolve_content_hash()`
+  调 `/v1/test/content-hash` 按 `chunks` 实算后替换（摘要口径只有服务端一份），
+  避免改了切片却忘记改摘要；
 - 实测结果按同名规则回写 `test-data/responses/{请求文件名}`：一个请求文件对应一个响应文件（含编号）。
 """
 
 import json
 import sys
 
-from tests.contract import case_data
+from tests.contract import case_data, client
 from tests.contract.client import call_api
 
 sys.stdout.reconfigure(encoding="utf-8")
 
 RESULTS: dict[str, dict] = {}
+
+# 用例过滤器：省略时全量执行；给了就只跑命中的用例（未跑到的 responses 文件保持原样）
+ONLY: str = sys.argv[1].strip() if len(sys.argv) > 1 else ""
 
 ENTRIES_PATH = "/v1/knowledge/entries"
 
@@ -36,13 +44,16 @@ def save(response_file: str, data: dict) -> None:
 
 def build_body(file_name: str) -> tuple[dict, bytes]:
     """读请求文件 → 替换摘要占位符 → 序列化为将要发出的字节。"""
-    payload = case_data.resolve_content_hash(case_data.load_request(file_name))
+    payload = client.resolve_content_hash(case_data.load_request(file_name))
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     return payload, body
 
 
 def run_case(case_label: str, method: str, path: str, file_name: str, purpose: str | None = None) -> dict:
     """执行一个用例：打印入参、发出请求、打印出参，按同名请求文件名记录结果。"""
+    if ONLY and ONLY not in case_label and ONLY not in file_name:
+        print(f"[跳过] {case_label}（用例标签与 {file_name} 均未匹配 ONLY={ONLY}）")
+        return {}
     payload, body = build_body(file_name)
     print(f"\n[请求] {case_label} | {method} {path}（数据：{file_name}）")
     print("\n[请求入参]")

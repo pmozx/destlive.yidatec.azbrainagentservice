@@ -1,10 +1,11 @@
-"""聊天模型客户端（LangChain ``ChatOpenAI``）：DeepSeek 直连、自建 vLLM、Azure 网关共用同一套请求体。
+"""聊天模型客户端：DeepSeek 直连、自建 vLLM、Azure 网关共用同一套请求体。
 
 设计取舍：
-1. 用 ``ChatOpenAI`` 而不是裸 httpx：SSE 解析、增量合并、用量字段、重试都由 langchain-openai 维护，
-   本层只保留业务口径（消息体、超时、内网直连、错误归一）；
-2. 只暴露 ``chat``（一次性返回）与 ``stream_chat`` / ``stream_chat_events``（SSE 增量），
-   提示词模板、工具调用、结果解析都不在这一层；
+1. **厂商类只出现在本文件**：模型由 ``init_chat_model`` 统一构造，业务侧只认 ``LlmClient``
+   与 LangChain 标准消息；换 provider 改这里 + 依赖即可（规范 L22）。用框架客户端而不是裸
+   httpx，是为了白拿 SSE 解析、增量合并、用量字段与重试，本层只留业务口径；
+2. 只暴露 ``chat`` / ``stream_chat`` / ``stream_chat_events`` 三种出口与 ``chat_model``
+   （``create_agent`` 等框架能力的取用口）；提示词模板、工具调用、结果解析都不在这一层；
 3. 内网/回环目标不读代理环境变量：自建的 vLLM 在局域网里，一旦被 ``HTTP_PROXY`` 劫持
    就只剩 502（见 :func:`app.core.clients.base.trust_env_for_url`），因此显式注入 httpx 客户端；
 4. 用量统计依赖 ``stream_usage=True``：网关支持时末帧带 usage，映射到 ``ChatStreamChunk`` 的
@@ -13,24 +14,18 @@
 
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
-from typing import Any, TypedDict
+from typing import Any
 
 import httpx
 from fastapi import status
-from langchain_core.messages import AIMessageChunk
-from langchain_openai import ChatOpenAI
+from langchain.chat_models import init_chat_model
+from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import AIMessageChunk, BaseMessage
 
 from app.config.setting import settings
 from app.core.exceptions import CustomException
 
 from .base import trust_env_for_url
-
-
-class ChatMessage(TypedDict):
-    """OpenAI 兼容消息体（role 取 system / user / assistant）。"""
-
-    role: str
-    content: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,14 +75,17 @@ class LlmClient:
         self.model = model or settings.LLM_MODEL
         self.timeout = settings.LLM_TIMEOUT if timeout is None else timeout
         self.max_retries = max(0, settings.LLM_MAX_RETRIES if max_retries is None else max_retries)
-        # 模型名随调用可变（多模型对比）：按模型名缓存已构造的 ChatOpenAI 实例
-        self._clients: dict[str, ChatOpenAI] = {}
-        # 每个 ChatOpenAI 自带的 httpx 客户端，关停时统一关闭
+        # 模型名随调用可变（多模型对比）：按模型名缓存已构造的模型实例
+        self._clients: dict[str, BaseChatModel] = {}
+        # 每个模型实例自带的 httpx 客户端，关停时统一关闭
         self._http_clients: list[httpx.AsyncClient] = []
 
     # ── 内部辅助 ──────────────────────────────────────────────────────
 
-    def _client(self, model: str | None) -> ChatOpenAI:
+    def chat_model(self, model: str | None = None) -> BaseChatModel:
+        """取模型实例（按模型名缓存）：既是 ``create_agent`` 等框架能力的取用口，
+        也是全仓唯一构造厂商客户端的地方。地址未配置时抛 503 可读异常。
+        """
         model_name = model or self.model
         if not self.base_url:
             raise CustomException(
@@ -105,8 +103,11 @@ class LlmClient:
         trust_env = trust_env_for_url(self.base_url)
         http_client = httpx.AsyncClient(timeout=self.timeout, trust_env=trust_env)
         self._http_clients.append(http_client)
-        client = ChatOpenAI(
-            model=model_name,
+        client = init_chat_model(
+            model_name,
+            # 只能用通用入口选模型：厂商类（ChatOpenAI / AzureChatOpenAI）不落在业务代码里。
+            # 当前链路都是 OpenAI 兼容协议；换 provider 时改这一处与依赖，不改调用方。
+            model_provider="openai",
             # 私有化 vLLM 常不带密钥，而 OpenAI SDK 不允许空 key（不是密钥校验，只是必填占位）
             api_key=self.api_key or "not-needed",
             base_url=self.base_url,
@@ -127,15 +128,9 @@ class LlmClient:
         self._http_clients.clear()
         self._clients.clear()
 
-    def messages_for(self, messages: Sequence[ChatMessage]) -> list[tuple[str, str]]:
-        """把 OpenAI 兼容消息体转成 LangChain 入参形式（保持顺序与角色）。"""
-        return [(str(message["role"]), str(message["content"])) for message in messages]
-
-    # ── 对外能力 ──────────────────────────────────────────────────────
-
     async def chat(
         self,
-        messages: Sequence[ChatMessage],
+        messages: Sequence[BaseMessage],
         *,
         temperature: float = 0.2,
         max_tokens: int | None = None,
@@ -143,11 +138,11 @@ class LlmClient:
     ) -> str:
         """一次性拿到完整回答（离线批量、评测脚本用）。"""
         try:
-            message = await self._client(model).ainvoke(
-                self.messages_for(messages),
-                temperature=temperature,
-                max_tokens=max_tokens,
+            message = await self.chat_model(model).ainvoke(
+                list(messages), temperature=temperature, max_tokens=max_tokens
             )
+        except CustomException:
+            raise  # 未配置/空回答：本层可读异常原样上抛，别被下面包成 502（与流式同口径）
         except Exception as exc:  # noqa: BLE001 客户端异常统一成可读的 502
             raise self._failure(exc) from exc
         content = _message_text(message.content).strip()
@@ -160,7 +155,7 @@ class LlmClient:
 
     async def stream_chat(
         self,
-        messages: Sequence[ChatMessage],
+        messages: Sequence[BaseMessage],
         *,
         temperature: float = 0.2,
         max_tokens: int | None = None,
@@ -175,7 +170,7 @@ class LlmClient:
 
     async def stream_chat_events(
         self,
-        messages: Sequence[ChatMessage],
+        messages: Sequence[BaseMessage],
         *,
         temperature: float = 0.2,
         max_tokens: int | None = None,
@@ -183,10 +178,8 @@ class LlmClient:
     ) -> AsyncIterator[ChatStreamChunk]:
         """流式产出「增量正文 + 用量」：需要落库 token 统计的调用方用这个入口。"""
         try:
-            stream = self._client(model).astream(
-                self.messages_for(messages),
-                temperature=temperature,
-                max_tokens=max_tokens,
+            stream = self.chat_model(model).astream(
+                list(messages), temperature=temperature, max_tokens=max_tokens
             )
             async for chunk in stream:
                 yield _to_stream_chunk(chunk)
@@ -213,4 +206,4 @@ def _to_stream_chunk(chunk: AIMessageChunk) -> ChatStreamChunk:
     )
 
 
-__all__ = ["ChatMessage", "ChatStreamChunk", "LlmClient"]
+__all__ = ["ChatStreamChunk", "LlmClient"]

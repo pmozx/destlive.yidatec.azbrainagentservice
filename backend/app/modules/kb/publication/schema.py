@@ -11,7 +11,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.core.base_schema import BaseQueryParam, BaseSchema
 from app.core.validator import DateTimeStr, ensure_non_blank
@@ -279,6 +279,12 @@ class KbPublicationOutSchema(BaseSchema):
     last_synced_at: DateTimeStr | None = Field(default=None, description="指针同步时间")
     status: str | None = Field(default=None, description="发布单元状态")
 
+    @field_validator("tags", mode="before")
+    @classmethod
+    def null_tags_as_empty(cls, value: list[str] | None) -> list[str]:
+        """库里的 NULL 统一当空列表：出参保证是数组，页面不用再判 null。"""
+        return value or []
+
 
 class KbPublicationDetailOutSchema(KbPublicationOutSchema):
     """发布单元详情响应（补充版本数/切片数，便于详情页首屏展示）。"""
@@ -382,6 +388,8 @@ class KbPublicationChunkDetailOutSchema(KbPublicationChunkOutSchema):
 class KbPublicationBaselineChunkOutSchema(BaseModel):
     """03.2 已批准基线中的一个正式切片（`chunk_id` 必返）。"""
 
+    model_config = ConfigDict(from_attributes=True)
+
     chunk_id: str = Field(..., description="AI 分配的正式切片 ID")
     seq: int = Field(..., description="切片序号")
     heading: str | None = Field(default=None, description="切片小标题")
@@ -392,6 +400,8 @@ class KbPublicationBaselineChunkOutSchema(BaseModel):
 
 class KbPublicationBaselineOutSchema(BaseModel):
     """03.2 读取知识修订基线响应（管理端只读）。"""
+
+    model_config = ConfigDict(from_attributes=True)
 
     publication_id: str = Field(..., description="发布单元 ID")
     resource_type: str = Field(..., description="document / faq")
@@ -420,12 +430,13 @@ class KbPublicationSnapshotDeleteSchema(BaseModel):
 
 
 class KbPublicationSnapshotDeleteOutSchema(BaseModel):
-    """03.4 删除回执。"""
+    """03.4 删除回执：与被物理删除的切片数一并返回，页面可直接告知删掉了多少段正文本。"""
 
     publication_id: str = Field(..., description="发布单元 ID")
     record_id: str = Field(..., description="被删除的快照 ID")
     revision: int = Field(..., description="删除事件的修订号")
     deleted: bool = Field(default=True, description="是否删除成功")
+    deleted_chunk_count: int = Field(default=0, description="本次物理删除的切片数")
     searchable: bool = Field(default=False, description="删除后不可检索")
 
 
@@ -447,6 +458,59 @@ class KbPublicationEntryWriteSchema(BaseModel):
     content: str = Field(..., description="正文（Markdown/纯文本），服务端自动切分并向量化")
 
     @field_validator("publication_id", "title", "content")
+    @classmethod
+    def validate_required_text(cls, value: str | None) -> str | None:
+        return ensure_non_blank(value) if value is not None else None
+
+    @field_validator("tags")
+    @classmethod
+    def validate_tags(cls, value: list[str]) -> list[str]:
+        return _normalize_tags(value)
+
+
+class KbPublicationEntryChunkSchema(BaseModel):
+    """一条已经人工审核的切片（03.1 等价写入用）：服务端不再切分。
+
+    ``seq`` 只用于排序：写入前统一重编号为 1..N，因为契约要求 seq 从 1 连续，
+    而页面上的产物可能因人工删改而出现断号。
+    """
+
+    seq: int = Field(..., ge=1, description="切片序号（用于排序，落库前重编号为 1..N）")
+    content: str = Field(..., min_length=1, max_length=20000, description="切片正文")
+    heading: str | None = Field(default=None, max_length=512, description="切片标题")
+    page_from: int | None = Field(default=None, ge=0, description="起始页（1 起）")
+    page_to: int | None = Field(default=None, ge=0, description="结束页（1 起）")
+
+    @field_validator("content")
+    @classmethod
+    def validate_content(cls, value: str) -> str:
+        return ensure_non_blank(value)
+
+
+class KbPublicationEntryChunksWriteSchema(BaseModel):
+    """按给定切片集合写入（03.1 等价，管理端页面已审过的切片直接入库）。
+
+    与 :class:`KbPublicationEntryWriteSchema` 的区别：正文不再由服务端 ``split_text``
+    切分——页面上的切片已含人工修订，重新切分会改掉边界与内容，也会让 ``content_hash``
+    与页面看到的不一致。首版/空壳补录的分流逻辑两者共用。
+    """
+
+    publication_id: str | None = Field(
+        default=None, min_length=1, max_length=64, description="发布单元 ID，省略则自动生成"
+    )
+    resource_type: Literal["document", "faq"] = Field(default="document", description="知识类型")
+    tenant_id: str | None = Field(default=None, max_length=64, description="租户 ID")
+    resource_id: str | None = Field(default=None, max_length=64, description="原始资源 ID")
+    title: str = Field(..., min_length=1, max_length=200, description="标题")
+    category: str | None = Field(default=None, max_length=64, description="知识分类")
+    summary: str | None = Field(default=None, description="内容摘要")
+    tags: list[str] = Field(default_factory=list, description="标签")
+    owner: str | None = Field(default=None, max_length=64, description="维护人")
+    knowledge_no: str | None = Field(default=None, max_length=64, description="知识编号，省略取发布单元 ID")
+    metadata: dict[str, Any] = Field(default_factory=dict, description="附加 metadata（如解析来源回溯字段）")
+    chunks: list[KbPublicationEntryChunkSchema] = Field(..., min_length=1, description="已批准切片集合")
+
+    @field_validator("publication_id", "title")
     @classmethod
     def validate_required_text(cls, value: str | None) -> str | None:
         return ensure_non_blank(value) if value is not None else None

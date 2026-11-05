@@ -11,6 +11,23 @@ export function getParseJobDetail(jobId) {
 }
 
 /**
+ * 编辑解析产物里的单条切片（PUT /api/v1/kb/parse-jobs/update-chunk/{job_id}）
+ * data: { seq, content }；只覆盖该条正文并打 edited 标记，不重算产物哈希
+ */
+export function updateParseChunk(jobId, data) {
+  return request.put(`/kb/parse-jobs/update-chunk/${jobId}`, data)
+}
+
+/**
+ * 把解析产物（含人工修订）的切片集合写成一份正式知识（POST /api/v1/kb/parse-jobs/publish/{job_id}）
+ * data: { publication_id?, title?, tenant_id?, resource_id?, category?, summary?, tags?, owner?, knowledge_no? }
+ * 切片取自服务端产物，不在前端重传；同一产物只能写一次，二次提交返回 409
+ */
+export function publishParseChunks(jobId, data) {
+  return request.post(`/kb/parse-jobs/publish/${jobId}`, data)
+}
+
+/**
  * 上传文件并提交解析（POST /api/v1/kb/parse-jobs/upload，multipart）
  * data 须为 FormData：拦截器会清掉实例默认的 Content-Type，交给浏览器补 boundary
  */

@@ -19,7 +19,7 @@ from typing import Any
 
 from fastapi import status
 
-from app.core.clients import EmbeddingClient
+from app.core.clients import EmbeddingClient, get_embedding_client
 from app.core.exceptions import CustomException
 from app.utils.page_locator import PageLocator
 from app.utils.text_splitter import TextChunk, split_text
@@ -150,10 +150,10 @@ async def embed_chunks(
     *,
     embedding_client: EmbeddingClient | None = None,
 ) -> list[list[float]]:
-    """批量向量化分片正文，返回与分片一一对应的向量列表。"""
+    """批量向量化分片正文，返回与分片一一对应的向量列表（缺省用进程级单例，见 F5/L1）。"""
     if not chunks:
         return []
-    client = embedding_client or EmbeddingClient()
+    client = embedding_client or get_embedding_client()
     return await client.embed_texts([chunk.content for chunk in chunks])
 
 

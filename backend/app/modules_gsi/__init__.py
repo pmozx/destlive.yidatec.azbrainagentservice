@@ -6,6 +6,7 @@
 
 - ``app.modules_gsi.sys``：``org`` / ``org_member`` / ``audience_team`` / ``audience_team_member`` / ``user``
 - ``app.modules_gsi.km``：``doc`` / ``doc_publication`` / ``doc_record``
+- ``app.modules_gsi.faq``：``faq`` / ``faq_publication`` / ``faq_record``
 
 每个业务目录固定为 ``model.py / crud.py / schema.py / service.py / controller.py``，
 严格遵循 controller → service → crud → model 分层；只读接口登记在

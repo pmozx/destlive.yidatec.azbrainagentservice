@@ -9,6 +9,9 @@
 
 from fastapi import APIRouter
 
+from app.modules_gsi.faq.faq.controller import SbpFaqRouter
+from app.modules_gsi.faq.faq_publication.controller import SbpFaqPublicationRouter
+from app.modules_gsi.faq.faq_record.controller import SbpFaqRecordRouter
 from app.modules_gsi.km.doc.controller import SbpKmDocRouter
 from app.modules_gsi.km.doc_publication.controller import SbpKmDocPublicationRouter
 from app.modules_gsi.km.doc_record.controller import SbpKmDocRecordRouter
@@ -54,6 +57,9 @@ DOMAIN_CONTROLLERS: dict[str, list[APIRouter]] = {
         SbpKmDocRouter,
         SbpKmDocPublicationRouter,
         SbpKmDocRecordRouter,
+        SbpFaqRouter,
+        SbpFaqPublicationRouter,
+        SbpFaqRecordRouter,
     ],
 }
 

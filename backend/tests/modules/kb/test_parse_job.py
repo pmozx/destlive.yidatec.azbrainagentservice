@@ -264,7 +264,7 @@ async def test_faq_parse_uses_prompt_and_returns_questions(monkeypatch) -> None:
     async def fake_chat(self, messages, **kwargs) -> str:
         return '[{"question": "如何申请 VPN？", "answer": "在服务台提交 VPN 申请，由负责人审核后开通账号。"}]'
 
-    monkeypatch.setattr("app.modules.kb.parse_job.pipeline.LlmClient.chat", fake_chat)
+    monkeypatch.setattr("app.core.clients.llm.LlmClient.chat", fake_chat)
 
     job_id = f"parse-{uuid.uuid4().hex[:12]}"
     try:

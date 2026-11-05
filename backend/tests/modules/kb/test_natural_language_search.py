@@ -124,7 +124,7 @@ async def test_rerank_window_caps_documents_and_returned_hits(monkeypatch: pytes
     seen: list[str] = []
 
     async def fake_rerank(
-        self: RerankClient, query: str, documents: Any, *, top_n: int | None = None, model: str | None = None
+        self: RerankClient, query: str, documents: Any, *, top_n: int | None = None, model: str | None = None, timeout: float | None = None
     ) -> list[RerankHit]:
         seen.extend(documents)
         return [
@@ -253,7 +253,7 @@ async def test_natural_language_uses_rerank_order_and_score(monkeypatch: pytest.
     """精排可用时按重排序相关度排序，`score` 是 logit 经 sigmoid 后的 0–1 值（覆盖融合序）。"""
 
     async def fake_rerank(
-        self: RerankClient, query: str, documents: Any, *, top_n: int | None = None, model: str | None = None
+        self: RerankClient, query: str, documents: Any, *, top_n: int | None = None, model: str | None = None, timeout: float | None = None
     ) -> list[RerankHit]:
         # 反转融合序：第二个候选更相关；分值按 llama.cpp 的真实口径给 logit（均高于闸门）
         return [
@@ -296,7 +296,7 @@ async def test_natural_language_feeds_document_title_and_truncates_content(
     seen: list[str] = []
 
     async def inspect_rerank(
-        self: RerankClient, query: str, documents: Any, *, top_n: int | None = None, model: str | None = None
+        self: RerankClient, query: str, documents: Any, *, top_n: int | None = None, model: str | None = None, timeout: float | None = None
     ) -> list[RerankHit]:
         seen.extend(documents)
         return [RerankHit(index=0, score=2.4, document=documents[0])]
@@ -338,7 +338,7 @@ async def test_natural_language_drops_hits_below_rerank_floor(monkeypatch: pytes
     """精排认为都不相关时（logit -3.0 归一后约 0.05，低于绝对下限）返回空结果而不是凑数。"""
 
     async def low_score_rerank(
-        self: RerankClient, query: str, documents: Any, *, top_n: int | None = None, model: str | None = None
+        self: RerankClient, query: str, documents: Any, *, top_n: int | None = None, model: str | None = None, timeout: float | None = None
     ) -> list[RerankHit]:
         return [RerankHit(index=index, score=-3.0, document=document) for index, document in enumerate(documents)]
 

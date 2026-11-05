@@ -12,7 +12,7 @@
 
 from time import perf_counter
 
-from fastapi import status as http_status
+from fastapi import status
 
 from app.config.setting import settings
 from app.core.exceptions import CustomException
@@ -70,7 +70,7 @@ class KbRetrievalAdminService:
                 ),
             )
         except (RetrievalAuthorizationUnavailable, RetrievalEmbeddingUnavailable) as exc:
-            raise CustomException(msg=str(exc), status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE) from exc
+            raise CustomException(msg=str(exc), status_code=status.HTTP_503_SERVICE_UNAVAILABLE) from exc
         return KbRetrievalSearchOutSchema(
             mode=data.mode,
             query=data.query,

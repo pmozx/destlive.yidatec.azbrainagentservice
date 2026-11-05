@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 def publication_subtitle(teams: Sequence[str]) -> str:
@@ -64,3 +64,45 @@ class SbpKmDocPublicationQueryParam(BaseModel):
     index_status: str | None = Field(
         default=None, description="索引同步状态", json_schema_extra={"q": "eq"}
     )
+
+
+class SbpKmDocPublicationWithTeamOutSchema(BaseModel):
+    """生效关系 + 团队标识解析结果。
+
+    ``team`` 存的是团队编码（``group_code``），页面必须能同时看到名称才知道是哪一支；
+    ``team_matched=false`` 说明该行 ``team`` 在受众团队表里没命中编码——典型的历史名称/
+    兼容标识数据，权限判定会直接落空，必验。
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str = Field(..., description="生效记录主键")
+    doc_id: str = Field(..., description="知识主键")
+    team: str = Field(..., description="获授权受众团队（存储值为 group_code）")
+    team_name: str | None = Field(default=None, description="团队名称")
+    team_ident: str | None = Field(default=None, description="受众团队兼容标识")
+    team_status: str | None = Field(default=None, description="团队状态：1启用 0停用")
+    team_deleted: int | None = Field(default=None, description="团队逻辑删除：0否 1是")
+    team_matched: bool = Field(default=False, description="team 是否在受众团队表中命中编码")
+    team_valid: bool = Field(default=False, description="命中且团队有效：status=1 且 deleted=0")
+    record_id: str = Field(..., description="当前生效的整篇送审快照")
+    index_status: str = Field(..., description="索引同步状态：pending/succeeded/failed")
+    updated_at: str | None = Field(default=None, description="生效更新时间（业务本地时间）")
+
+    @model_validator(mode="after")
+    def _derive_match_flag(self) -> "SbpKmDocPublicationWithTeamOutSchema":
+        self.team_matched = self.team_status is not None
+        self.team_valid = (
+            self.team_matched and self.team_status == "1" and self.team_deleted == 0
+        )
+        return self
+
+
+class SbpKmDocPublicationWithTeamQueryParam(BaseModel):
+    """生效关系（含团队名称）查询参数。"""
+
+    doc_id: str | None = Field(default=None, description="知识主键（精确）")
+    team: str | None = Field(default=None, description="团队编码（精确）")
+    record_id: str | None = Field(default=None, description="生效快照主键（精确）")
+    index_status: str | None = Field(default=None, description="索引同步状态")
+    team_name: str | None = Field(default=None, description="团队名称（模糊）")

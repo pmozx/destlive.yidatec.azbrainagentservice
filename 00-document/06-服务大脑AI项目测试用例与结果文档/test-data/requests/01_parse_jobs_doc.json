@@ -2,7 +2,7 @@
   "job_id": "parse-doc-100001",
   "doc_id": "doc-lane2005-fdc",
   "version_id": "v1",
-  "file_url": "https://cdn-mineru.openxlab.org.cn/demo/example.pdf",
+  "file_url": "http://192.168.29.120:39901/api/v1/buckets/service-brain-dev/objects/download?preview=true&prefix=share%2FLane_2005_%E9%80%A0%E6%9E%97%E4%B8%8E%E6%B5%81%E9%87%8F%E5%8E%86%E6%97%B6%E6%9B%B2%E7%BA%BF_%E7%BF%BB%E8%AF%91.pdf",
   "file_name": "Lane_2005_造林与流量历时曲线.pdf",
   "options": {
     "chunk": true,

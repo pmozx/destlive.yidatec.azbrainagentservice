@@ -5,7 +5,8 @@ cd backend && .venv\\Scripts\\python.exe -m tests.contract.run_search_tests
 ```
 
 入参一律来自 `00-document/06-.../test-data/requests/`：
-- `"content_hash": "__COMPUTED_AT_RUNTIME__"` 由 `case_data.resolve_content_hash()` 按 `chunks` 实算；
+- `"content_hash": "__COMPUTED_AT_RUNTIME__"` 由 `client.resolve_content_hash()` 调
+  `/v1/test/content-hash` 按 `chunks` 实算（摘要口径只有服务端一份）；
 - `authorization` 的 `issued_at` / `expires_at` 写占位符，由 `case_data.resolve_authorization()`
   在发送前换算成当前时刻的毫秒值（静态值一落地就过期，无法区分「跨度超限」与「已过期」）；
 - 实测结果按同名规则回写 `test-data/responses/{请求文件名}`：一个请求文件对应一个响应文件（含编号）。
@@ -22,7 +23,7 @@ cd backend && .venv\\Scripts\\python.exe -m tests.contract.run_search_tests
 import json
 import sys
 
-from tests.contract import case_data
+from tests.contract import case_data, client
 from tests.contract.client import call_api
 
 sys.stdout.reconfigure(encoding="utf-8")
@@ -50,7 +51,7 @@ def save(response_file: str, data: dict) -> None:
 def build_body(file_name: str) -> tuple[dict, bytes]:
     """读请求文件 → 替换摘要与授权时效占位符 → 序列化为将要发出的字节。"""
     payload = case_data.load_request(file_name)
-    payload = case_data.resolve_content_hash(payload)
+    payload = client.resolve_content_hash(payload)
     payload = case_data.resolve_authorization(payload)
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     return payload, body

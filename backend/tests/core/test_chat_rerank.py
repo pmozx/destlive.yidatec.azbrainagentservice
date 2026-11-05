@@ -71,7 +71,7 @@ async def test_rerank_candidates_normalizes_service_scores(monkeypatch: pytest.M
     """服务返回 logit，``Candidate.final_score`` 必须是归一后的 0–1。"""
 
     async def fake_rerank(
-        self: RerankClient, query: str, documents: Any, *, top_n: int | None = None, model: str | None = None
+        self: RerankClient, query: str, documents: Any, *, top_n: int | None = None, model: str | None = None, timeout: float | None = None
     ) -> list[RerankHit]:
         assert query == "造林对流量历时曲线有什么影响"
         assert documents[0] == "文档标题\n正文一"
@@ -102,7 +102,7 @@ async def test_rerank_candidates_degrades_on_timeout(monkeypatch: pytest.MonkeyP
     """精排超时只降级为召回序（used=False），不把异常抛给检索/问答链路。"""
 
     async def timeout_rerank(
-        self: RerankClient, query: str, documents: Any, *, top_n: int | None = None, model: str | None = None
+        self: RerankClient, query: str, documents: Any, *, top_n: int | None = None, model: str | None = None, timeout: float | None = None
     ) -> list[RerankHit]:
         raise TimeoutError("精排尾段预算用尽（测试桩）")
 

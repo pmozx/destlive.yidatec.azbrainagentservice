@@ -1,10 +1,12 @@
-"""契约接口调用客户端：签名头交给服务端测试辅助接口生成，脚本只负责组包、发送与断言。
+"""契约接口调用客户端：签名头与整包摘要都交给服务端测试辅助接口算，脚本只负责组包、发送与断言。
 
-为什么不在脚本里自己算签名：
+为什么不在脚本里自己算：
 1. 签名原文的拼接口径（大写方法、path+query、body 摘要）属于服务端契约，测试脚手架再算一遍
    就会出现「两份实现、各自都对」的假绿灯；
 2. `POST|GET /v1/test/signed-headers` 直接把请求体原始字节当作待签名正文，
-   这里只要把「同一个 bytes」既交给它签名、又原样发出去，就不会出现缩进/换行导致的签名漂移。
+   这里只要把「同一个 bytes」既交给它签名、又原样发出去，就不会出现缩进/换行导致的签名漂移；
+3. `POST /v1/test/content-hash` 用服务端那份 `canonical_content_hash` 算摘要，
+   测试侧不再自带一份口径。
 
 前置条件：服务已启动，且 `env/.env.dev` 中 `CONTRACT_TEST_ENABLE=true`、`CONTRACT_V1_SHARED_SECRET` 有值。
 """
@@ -15,6 +17,9 @@ from typing import Any
 import httpx
 
 BASE_URL = "http://127.0.0.1:8002"
+
+# 知识接口的整包摘要由运行期按 chunks 实算，JSON 里只写这个占位符
+CONTENT_HASH_PLACEHOLDER = "__COMPUTED_AT_RUNTIME__"
 
 
 def signed_headers(method: str, path: str, body: bytes = b"", query: str = "") -> dict[str, str]:
@@ -31,6 +36,24 @@ def signed_headers(method: str, path: str, body: bytes = b"", query: str = "") -
     )
     resp.raise_for_status()
     return resp.json()["headers"]
+
+
+def compute_content_hash(payload: dict[str, Any]) -> str:
+    """调测试辅助接口算知识整包摘要：口径只有服务端一份（canonical_content_hash）。"""
+    resp = httpx.post(
+        f"{BASE_URL}/v1/test/content-hash",
+        json={"chunks": payload["chunks"]},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()["content_hash"]
+
+
+def resolve_content_hash(payload: dict[str, Any]) -> dict[str, Any]:
+    """把 `__COMPUTED_AT_RUNTIME__` 换成实算摘要（已写死的摘要原样保留）。"""
+    if payload.get("content_hash") != CONTENT_HASH_PLACEHOLDER:
+        return payload
+    return {**payload, "content_hash": compute_content_hash(payload)}
 
 
 def call_api(method: str, path: str, body: bytes = b"", query: str = "", timeout: float = 120.0) -> dict[str, Any]:

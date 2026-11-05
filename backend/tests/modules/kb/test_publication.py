@@ -25,9 +25,9 @@ from app.config.setting import settings
 from app.core.database import async_session_factory
 from app.modules.kb.chunk.model import KbChunkModel
 from app.modules.kb.publication.crud import KbPublicationCRUD
+from app.modules.kb.publication.entry_service import EntryScopeError, KbEntryService
 from app.modules.kb.publication.model import KbPublicationModel
 from app.modules.kb.publication.schema import EntryChunkData, EntryWriteData
-from app.modules.kb.publication.service import EntryScopeError, KbEntryService
 from app.modules.kb.revision.model import KbRevisionModel
 
 from tests.support import requires_db

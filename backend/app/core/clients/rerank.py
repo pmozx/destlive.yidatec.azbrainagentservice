@@ -55,8 +55,9 @@ class RerankClient(BaseHttpClient):
         *,
         top_n: int | None = None,
         model: str | None = None,
+        timeout: float | None = None,
     ) -> list[RerankHit]:
-        """按相关度降序返回候选（top_n 缺省返回全部）。"""
+        """按相关度降序返回候选（top_n 缺省返回全部）；``timeout`` 覆盖单次调用预算。"""
         if not query or not query.strip():
             raise CustomException(msg="重排序 query 不能为空", status_code=status.HTTP_400_BAD_REQUEST)
         candidates = [str(document) for document in documents]
@@ -72,7 +73,7 @@ class RerankClient(BaseHttpClient):
         if model_name:
             payload["model"] = model_name
 
-        data = await self.post_json(settings.RERANK_PATH, payload)
+        data = await self.post_json(settings.RERANK_PATH, payload, timeout=timeout)
         results = data.get("results") or data.get("data") or []
         hits: list[RerankHit] = []
         for item in results:

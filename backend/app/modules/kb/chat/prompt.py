@@ -8,15 +8,17 @@
    绝不重排——重排会让正文里的 ``[2]`` 指向另一条证据，等于篡改引用。
 3. 上下文按 ``KB_CONTEXT_MAX_CHARS`` 累计截断，且**先砍证据后砍历史**：证据是答案依据，
    历史只是语气与指代；反过来会让模型拿着完整对话却无据可答。
-4. 历史只带最近 ``KB_HISTORY_TURNS`` 条：固定成本不随会话长度线性增长，也避免旧话题
-   把本轮证据挤出注意力。
+4. 历史只带最近 ``KB_HISTORY_TURNS`` 条（固定成本，不被旧话题挤出本轮证据），且产出标准消息
+   对象而非 ``{"role", "content"}`` 字典（规范 L23）。
 """
 
 from collections.abc import Sequence
 
-from app.config.setting import settings
-from app.core.clients.llm import ChatMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
+from app.config.setting import settings
+
+from ..chat_message.schema import MESSAGE_ASSISTANT
 from .schema import ChatEvidence
 
 #: 追加在 GSI 提示词之后的格式约束（业务约束由调用方给，这里只补输出格式与安全边界）
@@ -51,21 +53,21 @@ def build_messages(
     evidences: Sequence[ChatEvidence],
     history: Sequence[tuple[str, str]],
     question: str,
-) -> list[ChatMessage]:
+) -> list[BaseMessage]:
     """拼装消息体：``system(GSI 提示词 + 格式约束) → 历史 → user(证据 + 本轮问题)``。
 
     证据与问题放在**同一条** user 消息里且位于历史之后：模型对最近的输入最敏感，
     把证据甩在早期历史之前，长会话里会被当成背景知识而不是本轮依据。
     """
     system = f"{prompt_text.strip()}\n\n{_OUTPUT_RULES.format(language=language or '中文')}"
-    messages: list[ChatMessage] = [{"role": "system", "content": system}]
-    for role, content in history:
-        messages.append({"role": role, "content": content})
-
     block = _evidence_block(evidences)
     evidence_part = f"参考资料：\n{block}\n\n" if block else "参考资料：（本轮没有检索到可用资料）\n\n"
-    messages.append({"role": "user", "content": f"{evidence_part}问题：{question.strip()}"})
-    return messages
+    return [
+        SystemMessage(content=system),
+        # 角色→类映射只这一处：按库里的常量判定，避免裸字面量 "assistant" 写错就静默降级成用户发言
+        *(AIMessage(content=text) if role == MESSAGE_ASSISTANT else HumanMessage(content=text) for role, text in history),
+        HumanMessage(content=f"{evidence_part}问题：{question.strip()}"),
+    ]
 
 
 def history_turns(records: Sequence[tuple[str, str]]) -> list[tuple[str, str]]:

@@ -48,3 +48,29 @@ class SbpSysOrgQueryParam(BaseModel):
     deleted: int | None = Field(
         default=None, description="逻辑删除：0否 1是", json_schema_extra={"q": "eq"}
     )
+
+
+class SbpSysOrgTreeNodeSchema(BaseModel):
+    """组织树节点（children 递归）。
+
+    行政树与业务树共用一张表：``category`` 必须由调用方指定或页面分组展示，
+    两棵树不能合并成一棵——跨树拼接会得到「一个人挂两个部门」的错觉。
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int = Field(..., description="组织ID")
+    parent_id: int = Field(..., description="上级组织ID，0为顶级")
+    name: str = Field(..., description="组织名称")
+    code: str = Field(..., description="组织编码")
+    type: str = Field(..., description="节点类型")
+    category: str = Field(..., description="组织分类：admin行政 business业务")
+    source_org_id: int | None = Field(default=None, description="业务镜像对应的行政组织ID")
+    status: str = Field(..., description="状态：1启用 0停用")
+    deleted: int = Field(..., description="逻辑删除：0否 1是")
+    children: list["SbpSysOrgTreeNodeSchema"] = Field(
+        default_factory=list, description="子节点"
+    )
+
+
+SbpSysOrgTreeNodeSchema.model_rebuild()

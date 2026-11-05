@@ -17,7 +17,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from time import perf_counter
 from typing import Any
 
-from fastapi import status as http_status
+from fastapi import status
 
 from app.core.database import async_session_factory
 from app.core.exceptions import CustomException
@@ -57,12 +57,12 @@ class KbChatAdminService:
             )
         except ChatSessionNotFoundError as exc:
             # 会话不存在与「不属于该用户」同一个出口：页面改一下用户 ID 就看不到别人的会话
-            raise CustomException(msg=str(exc), status_code=http_status.HTTP_404_NOT_FOUND) from exc
+            raise CustomException(msg=str(exc), status_code=status.HTTP_404_NOT_FOUND) from exc
         except ChatTurnDiscardedError as exc:
-            raise CustomException(msg=str(exc), status_code=http_status.HTTP_409_CONFLICT) from exc
+            raise CustomException(msg=str(exc), status_code=status.HTTP_409_CONFLICT) from exc
         except (RetrievalAuthorizationUnavailable, RetrievalEmbeddingUnavailable) as exc:
             # 与 #07 同一口径：依赖故障如实 503，不拿空 citations 冒充「没有依据」
-            raise CustomException(msg=str(exc), status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE) from exc
+            raise CustomException(msg=str(exc), status_code=status.HTTP_503_SERVICE_UNAVAILABLE) from exc
 
         return KbChatAskOutSchema(
             session_id=turn.session_id,
@@ -96,7 +96,7 @@ class KbChatAdminService:
         if session_id:
             # 归属在首帧前就判掉：不属于自己的会话与不存在同一个出口，不泄露存在性
             if not await service.owns_session(session_id):
-                raise CustomException(msg="会话不存在", status_code=http_status.HTTP_404_NOT_FOUND)
+                raise CustomException(msg="会话不存在", status_code=status.HTTP_404_NOT_FOUND)
         else:
             # meta 帧要把 session_id 发出去，只能先建；失败时留下空会话壳，由会话记录页清理
             session_id = await self._create_session(user_pk)
@@ -132,4 +132,4 @@ class KbChatAdminService:
         try:
             return parse_user_pk(user_id)
         except ChatUserInvalidError as exc:
-            raise CustomException(msg=str(exc), status_code=http_status.HTTP_400_BAD_REQUEST) from exc
+            raise CustomException(msg=str(exc), status_code=status.HTTP_400_BAD_REQUEST) from exc

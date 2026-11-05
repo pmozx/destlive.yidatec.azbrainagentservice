@@ -23,7 +23,7 @@ from app.modules.kb.publication.schema import (
     EntryDeleteData,
     EntryWriteData,
 )
-from app.modules.kb.publication.service import (
+from app.modules.kb.publication.entry_service import (
     EntryConflictError,
     EntryEmbeddingError,
     EntryNotFoundError,

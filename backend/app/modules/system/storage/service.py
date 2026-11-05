@@ -13,6 +13,8 @@
 import asyncio
 import mimetypes
 
+from fastapi import status
+
 from app.config.setting import settings
 from app.core.clients.s3 import S3Client, S3ClientError, get_s3_client
 from app.core.exceptions import CustomException
@@ -55,11 +57,11 @@ class StorageService:
     def _client(self) -> S3Client:
         """取客户端单例；未启用/缺凭据时转 503（配置问题不是 500）。"""
         if not settings.S3_ENABLE:
-            raise CustomException(msg=DISABLED_MSG, status_code=503)
+            raise CustomException(msg=DISABLED_MSG, status_code=status.HTTP_503_SERVICE_UNAVAILABLE)
         try:
             return get_s3_client()
         except S3ClientError as exc:
-            raise CustomException(msg=str(exc), status_code=503) from exc
+            raise CustomException(msg=str(exc), status_code=status.HTTP_503_SERVICE_UNAVAILABLE) from exc
 
     def config(self) -> StorageConfigOutSchema:
         """配置回显：纯 settings 投影，不发网络请求（页面首屏不该被远端拖慢）。"""
@@ -94,7 +96,7 @@ class StorageService:
                 client.list_dir, s3_prefix, "/", min(page_size, MAX_PAGE_SIZE), continuation_token
             )
         except S3ClientError as exc:
-            raise CustomException(msg=f"浏览对象存储失败：{exc}", status_code=503) from exc
+            raise CustomException(msg=f"浏览对象存储失败：{exc}", status_code=status.HTTP_503_SERVICE_UNAVAILABLE) from exc
 
         return StorageBrowseOutSchema(
             prefix=dir_prefix,
@@ -121,7 +123,7 @@ class StorageService:
         try:
             url = client.presign_get(object_key)
         except S3ClientError as exc:
-            raise CustomException(msg=f"生成下载链接失败：{exc}", status_code=503) from exc
+            raise CustomException(msg=f"生成下载链接失败：{exc}", status_code=status.HTTP_503_SERVICE_UNAVAILABLE) from exc
         return StoragePresignOutSchema(key=object_key, url=url, expires_in=settings.S3_PRESIGN_EXPIRE)
 
     async def read(self, key: str) -> tuple[bytes, str, str]:
@@ -132,18 +134,18 @@ class StorageService:
         try:
             stat = await asyncio.to_thread(client.stat_object, object_key)
         except S3ClientError as exc:
-            raise CustomException(msg=f"读取对象失败：{exc}", status_code=404) from exc
+            raise CustomException(msg=f"读取对象失败：{exc}", status_code=status.HTTP_404_NOT_FOUND) from exc
 
         if stat["size"] > MAX_PROXY_BYTES:
             raise CustomException(
                 msg=f"对象 {stat['size'] / 1024 / 1024:.1f} MB 超过代理读取上限，请改用预签名链接下载",
-                status_code=413,
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
             )
 
         try:
             data = await asyncio.to_thread(client.download_bytes, object_key)
         except S3ClientError as exc:
-            raise CustomException(msg=f"读取对象失败：{exc}", status_code=404) from exc
+            raise CustomException(msg=f"读取对象失败：{exc}", status_code=status.HTTP_404_NOT_FOUND) from exc
 
         media_type = stat["content_type"] or mimetypes.guess_type(object_key)[0] or "application/octet-stream"
         return data, media_type, object_key.rsplit("/", 1)[-1]

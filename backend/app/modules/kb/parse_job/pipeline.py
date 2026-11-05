@@ -29,9 +29,12 @@ import re
 from pathlib import Path
 from typing import Any
 
+from fastapi import status
+from langchain_core.messages import HumanMessage, SystemMessage
+
 from app.config.setting import settings
+from app.core.clients import get_llm_client
 from app.core.clients.download import DOWNLOAD_TIMEOUT_SECONDS, DownloadError, download_bytes
-from app.core.clients.llm import LlmClient
 from app.core.exceptions import CustomException
 from app.core.logger import logger
 from app.core.rag import ChunkedDocument, parse_and_chunk, supported_suffixes
@@ -137,7 +140,7 @@ def _json_array(raw: str) -> list[Any]:
             payload = payload.get("faqs") or payload.get("items") or payload.get("data")
         if isinstance(payload, list):
             return payload
-    raise CustomException(msg="FAQ 提取结果不是合法的 JSON 数组。", status_code=502)
+    raise CustomException(msg="FAQ 提取结果不是合法的 JSON 数组。", status_code=status.HTTP_502_BAD_GATEWAY)
 
 
 def _faq_chunks(items: list[Any], *, page_map: list[tuple[str, int]]) -> tuple[list[dict[str, Any]], int]:
@@ -189,10 +192,10 @@ async def build_faq_chunks(
             f"文档正文超过 {settings.PARSE_FAQ_MAX_CHARS} 字符，FAQ 提取仅使用前 {settings.PARSE_FAQ_MAX_CHARS} 字符。"
         )
 
-    client = LlmClient()
+    client = get_llm_client()
     messages = [
-        {"role": "system", "content": f"{prompt_text.strip()}\n\n{_FAQ_FORMAT_INSTRUCTION}"},
-        {"role": "user", "content": f"文档语言：{language}\n\n文档正文：\n{text}"},
+        SystemMessage(content=f"{prompt_text.strip()}\n\n{_FAQ_FORMAT_INSTRUCTION}"),
+        HumanMessage(content=f"文档语言：{language}\n\n文档正文：\n{text}"),
     ]
     model = model_key.strip() if model_key else ""
     answer = await client.chat(
@@ -204,7 +207,7 @@ async def build_faq_chunks(
     if skipped:
         warnings.append(f"FAQ 提取结果中有 {skipped} 条缺少问题或答案，已跳过。")
     if not chunks:
-        raise CustomException(msg="FAQ 提取结果为空：未找到有效的问题与答案。", status_code=502)
+        raise CustomException(msg="FAQ 提取结果为空：未找到有效的问题与答案。", status_code=status.HTTP_502_BAD_GATEWAY)
     return chunks, warnings
 
 
@@ -312,7 +315,7 @@ async def run_parse_job(
 
         text = chunked.document.text.strip()
         if not text:
-            raise CustomException(msg="文档解析后无有效内容。", status_code=400)
+            raise CustomException(msg="文档解析后无有效内容。", status_code=status.HTTP_400_BAD_REQUEST)
 
         warnings: list[str] = []
         if len(text) < 20:
@@ -320,7 +323,7 @@ async def run_parse_job(
 
         if resource_type == "faq":
             if not prompt_text:
-                raise CustomException(msg="FAQ 解析缺少 prompt_text。", status_code=400)
+                raise CustomException(msg="FAQ 解析缺少 prompt_text。", status_code=status.HTTP_400_BAD_REQUEST)
             chunks, faq_warnings = await build_faq_chunks(
                 text,
                 prompt_text=prompt_text,
@@ -332,7 +335,7 @@ async def run_parse_job(
         else:
             chunks = build_result_chunks(chunked, enabled=chunk_enabled)
             if chunk_enabled and not chunks:
-                raise CustomException(msg="文档解析后未生成有效切片。", status_code=400)
+                raise CustomException(msg="文档解析后未生成有效切片。", status_code=status.HTTP_400_BAD_REQUEST)
         await PARSE_JOB_SERVICE.update_progress(job_id, PROGRESS_CHUNKED)
 
         pages = await _build_pages(job_id, file_name, data, warnings)

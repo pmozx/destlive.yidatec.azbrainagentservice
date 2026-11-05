@@ -11,7 +11,7 @@ from app.core.base_schema import PageResultSchema, PaginationQueryParam
 from app.core.dependencies import db_getter
 from app.core.router_class import ApiLogRoute
 
-from .schema import SbpSysOrgOutSchema, SbpSysOrgQueryParam
+from .schema import SbpSysOrgOutSchema, SbpSysOrgQueryParam, SbpSysOrgTreeNodeSchema
 from .service import SbpSysOrgService
 
 SbpSysOrgRouter = APIRouter(
@@ -49,3 +49,24 @@ async def get_sbp_sys_org_detail_controller(
 ) -> JSONResponse:
     result_dict = await SbpSysOrgService(db).detail(id=id)
     return SuccessResponse(data=result_dict, msg="获取GSI组织架构详情成功")
+
+
+@SbpSysOrgRouter.get(
+    "/tree",
+    summary="03-查询GSI组织树",
+    response_model=ResponseSchema[list[SbpSysOrgTreeNodeSchema]],
+)
+async def get_sbp_sys_org_tree_controller(
+    db: Annotated[AsyncSession, Depends(db_getter)],
+    category: Annotated[
+        str | None, Query(description="组织分类：admin行政 / business业务，留空返回全部")
+    ] = None,
+    include_deleted: Annotated[bool, Query(description="包含已逻辑删除节点")] = False,
+    include_disabled: Annotated[bool, Query(description="包含停用节点")] = True,
+) -> JSONResponse:
+    result_list = await SbpSysOrgService(db).tree(
+        category=category,
+        include_deleted=include_deleted,
+        include_disabled=include_disabled,
+    )
+    return SuccessResponse(data=result_list, msg="查询GSI组织树成功")

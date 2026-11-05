@@ -73,6 +73,16 @@
 | 返回 | `headers`、`signing_string`（7 行签名原文）、`client_id`、`timestamp_ms`、`nonce` |
 | 后台日志 | 输出请求体、请求体长度、请求体 SHA-256、自定义安全头、Apifox 请求头（与 `tests/contract/debug_signed_headers.py` 同一份调试信息） |
 
+知识整包摘要同样不在脚手架里算，而是由 `POST /v1/test/content-hash` 按服务端唯一口径计算：
+
+| 项 | 说明 |
+| --- | --- |
+| 路径 | `POST` `/v1/test/content-hash` |
+| 请求体 | 待计算的写入正文（必须含 `chunks`），如 `{"chunks": [...]}`，metadata 等其余字段忽略 |
+| 返回 | `content_hash`（`sha256:<hex>`）、`chunk_count` |
+| 调用方 | `tests/contract/client.py` 的 `resolve_content_hash()`：把请求文件里的 `__COMPUTED_AT_RUNTIME__` 换成真值 |
+| 数据问题 | 正文非 JSON / 缺 `chunks` / 切片缺 `seq` 或 `seq` 非数字 → 400 |
+
 **启用条件**：`env/.env.dev` 中配置 `CONTRACT_TEST_ENABLE=true`，且 `CONTRACT_V1_SHARED_SECRET` 有值
 
 **安全提示**：测试辅助接口**不经过签名验证**，生产环境必须关闭。

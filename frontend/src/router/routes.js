@@ -95,6 +95,51 @@ export const constantRoutes = [
     ],
   },
   {
+    path: '/gsi',
+    name: 'GsiData',
+    component: Layout,
+    redirect: '/gsi/org',
+    meta: { title: 'GSI 业务数据', icon: 'Coin' },
+    children: [
+      {
+        path: 'org',
+        name: 'GsiOrg',
+        component: () => import('@/views/module_gsi/org/index.vue'),
+        meta: { title: '组织与成员', icon: 'OfficeBuilding' },
+      },
+      {
+        path: 'audience-team',
+        name: 'GsiAudienceTeam',
+        component: () => import('@/views/module_gsi/audienceTeam/index.vue'),
+        meta: { title: '受众团队', icon: 'UserFilled' },
+      },
+      {
+        path: 'team-member',
+        name: 'GsiTeamMember',
+        component: () => import('@/views/module_gsi/teamMember/index.vue'),
+        meta: { title: '团队成员标识', icon: 'Avatar' },
+      },
+      {
+        path: 'doc-publication',
+        name: 'GsiDocPublication',
+        component: () => import('@/views/module_gsi/docPublication/index.vue'),
+        meta: { title: '知识发布关系', icon: 'Link' },
+      },
+      {
+        path: 'km-doc',
+        name: 'GsiKmDoc',
+        component: () => import('@/views/module_gsi/kmDoc/index.vue'),
+        meta: { title: '知识文档', icon: 'Document' },
+      },
+      {
+        path: 'faq-publication',
+        name: 'GsiFaqPublication',
+        component: () => import('@/views/module_gsi/faqPublication/index.vue'),
+        meta: { title: 'FAQ 生效关系', icon: 'ChatDotSquare' },
+      },
+    ],
+  },
+  {
     path: '/monitor',
     name: 'Monitor',
     component: Layout,

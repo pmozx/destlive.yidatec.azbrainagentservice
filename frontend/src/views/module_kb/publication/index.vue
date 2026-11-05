@@ -199,6 +199,16 @@
             <el-option v-for="item in resourceTypeOptions" :key="item.value" :label="item.label" :value="item.value" />
           </el-select>
         </el-form-item>
+        <el-form-item v-if="entryMode === 'create'" label="租户 ID">
+          <el-input
+            v-model="entryForm.tenant_id"
+            maxlength="64"
+            placeholder="检索按租户硬过滤，留空则该知识不会被任何租户召回"
+          />
+        </el-form-item>
+        <el-form-item v-if="entryMode === 'create'" label="资源 ID">
+          <el-input v-model="entryForm.resource_id" maxlength="64" placeholder="GSI 知识主记录 ID，可留空" />
+        </el-form-item>
         <el-form-item label="标题" prop="title">
           <el-input v-model="entryForm.title" maxlength="200" show-word-limit placeholder="请输入标题" />
         </el-form-item>
@@ -750,6 +760,8 @@ const entryBaseRecordId = ref('')
 const entryForm = reactive({
   publication_id: '',
   resource_type: 'document',
+  tenant_id: '',
+  resource_id: '',
   title: '',
   category: '',
   tags: [],
@@ -782,6 +794,8 @@ function openEntryWrite(row) {
   Object.assign(entryForm, {
     publication_id: row?.publication_id || '',
     resource_type: row?.resource_type || 'document',
+    tenant_id: row?.tenant_id || '',
+    resource_id: row?.resource_id || '',
     title: row?.title || '',
     category: row?.category || '',
     tags: [...(row?.tags || [])],
@@ -834,6 +848,9 @@ function buildEntryPayload() {
   } else {
     payload.publication_id = entryForm.publication_id?.trim() || null
     payload.resource_type = entryForm.resource_type
+    // 租户决定检索能否召回（SQL 侧硬过滤），资源 ID 承载 GSI 溯源，两者都随 03.1 落库
+    payload.tenant_id = entryForm.tenant_id?.trim() || null
+    payload.resource_id = entryForm.resource_id?.trim() || null
   }
   return payload
 }
@@ -915,8 +932,8 @@ async function removeSnapshot(row) {
     return
   }
   try {
-    await deletePublicationSnapshot(currentPublicationId.value, { record_id: row.record_id, reason })
-    ElMessage.success('快照已删除')
+    const result = await deletePublicationSnapshot(currentPublicationId.value, { record_id: row.record_id, reason })
+    ElMessage.success(`快照已删除，清除 ${result.deleted_chunk_count ?? 0} 个切片`)
     baseline.data = null
     baseline.cursorStack = []
     baseline.currentCursor = ''

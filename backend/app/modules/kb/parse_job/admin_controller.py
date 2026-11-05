@@ -1,12 +1,15 @@
-"""解析任务管理 Controller：列表 + 详情 + 上传提交（后台解析由流水线驱动）。
+"""解析任务管理 Controller：列表 + 详情 + 产物切片编辑 + 写入知识平台 + 上传提交。
 
 上传端点与契约 ``#01`` 共用 ``parse_job.pipeline``：管理端自己发起一轮解析，
 不必先把文件放到桶里再填 ``file_url``。
+
+``POST /publish/{job_id}`` 是契约 03.1「新增已批准切片集合」的管理端等价入口：把产物
+（含人工修订）的切片集合直接写成一版正式知识，不再重切。
 """
 
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Path, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, File, Form, Path, Query, UploadFile
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,7 +19,15 @@ from app.core.dependencies import db_getter
 from app.core.router_class import ApiLogRoute
 
 from .admin_service import KbParseJobAdminService, run_submitted_parse
-from .schema import KbParseJobDetailOutSchema, KbParseJobOutSchema, KbParseJobQueryParam
+from .schema import (
+    KbParseChunkOutSchema,
+    KbParseChunkUpdateSchema,
+    KbParseJobDetailOutSchema,
+    KbParseJobOutSchema,
+    KbParseJobQueryParam,
+    KbParsePublishOutSchema,
+    KbParsePublishSchema,
+)
 
 KbParseJobRouter = APIRouter(route_class=ApiLogRoute, prefix="/parse-jobs", tags=["202-解析任务"])
 
@@ -80,3 +91,33 @@ async def upload_parse_job_controller(
     if task is not None:
         background.add_task(run_submitted_parse, task)
     return SuccessResponse(data=out, msg="解析任务已受理")
+
+
+@KbParseJobRouter.put(
+    "/update-chunk/{job_id}",
+    summary="04-编辑解析产物切片",
+    response_model=ResponseSchema[KbParseChunkOutSchema],
+)
+async def update_parse_chunk_controller(
+    db: Annotated[AsyncSession, Depends(db_getter)],
+    job_id: Annotated[str, Path(description="契约 job_id", min_length=1, max_length=64)],
+    data: Annotated[KbParseChunkUpdateSchema, Body(description="待编辑的切片")],
+) -> JSONResponse:
+    """按 ``seq`` 覆盖单条切片的正文（可选标题），其余切片与任务状态不动。"""
+    result = await KbParseJobAdminService(db).update_chunk(job_id, data)
+    return SuccessResponse(data=result, msg="更新解析产物切片成功")
+
+
+@KbParseJobRouter.post(
+    "/publish/{job_id}",
+    summary="05-写入知识平台（03.1 等价）",
+    response_model=ResponseSchema[KbParsePublishOutSchema],
+)
+async def publish_parse_chunks_controller(
+    db: Annotated[AsyncSession, Depends(db_getter)],
+    job_id: Annotated[str, Path(description="契约 job_id", min_length=1, max_length=64)],
+    data: Annotated[KbParsePublishSchema, Body(description="发布单元展示字段（缺省值由服务端推导）")],
+) -> JSONResponse:
+    """把解析产物里已批准的切片集合写成一版正式知识；重复提交返回 409。"""
+    result = await KbParseJobAdminService(db).publish_chunks(job_id, data)
+    return SuccessResponse(data=result, msg="解析产物已写入知识平台")

@@ -6,10 +6,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.base_schema import PageResultSchema
 from app.core.logger import logger
+from app.modules_gsi.base import format_gsi_datetime
 from app.utils.common_util import search_to_dict
 
 from .crud import SbpKmDocPublicationCRUD
-from .schema import SbpKmDocPublicationBrief, SbpKmDocPublicationOutSchema, SbpKmDocPublicationQueryParam
+from .schema import (
+    SbpKmDocPublicationBrief,
+    SbpKmDocPublicationOutSchema,
+    SbpKmDocPublicationQueryParam,
+    SbpKmDocPublicationWithTeamOutSchema,
+    SbpKmDocPublicationWithTeamQueryParam,
+)
 
 
 class SbpKmDocPublicationService:
@@ -75,4 +82,35 @@ class SbpKmDocPublicationService:
             order_by=order_by or [{"updated_at": "desc"}],
             search=search_to_dict(search),
             out_schema=SbpKmDocPublicationOutSchema,
+        )
+
+    async def page_with_team(
+        self,
+        page_no: int,
+        page_size: int,
+        search: SbpKmDocPublicationWithTeamQueryParam | None = None,
+    ) -> PageResultSchema[SbpKmDocPublicationWithTeamOutSchema]:
+        """生效关系页：把 ``team`` 解析成「编码 + 名称 + 兼容标识」。"""
+        params = search or SbpKmDocPublicationWithTeamQueryParam()
+        offset = (page_no - 1) * page_size
+        rows, total = await self.crud.page_with_team(
+            offset=offset,
+            limit=page_size,
+            doc_id=params.doc_id,
+            team=params.team,
+            record_id=params.record_id,
+            index_status=params.index_status,
+            team_name=params.team_name,
+        )
+        items = []
+        for row in rows:
+            # GSI 时间列落库即业务本地时间，走原样格式化，不能再做时区换算
+            row["updated_at"] = format_gsi_datetime(row.get("updated_at"))
+            items.append(SbpKmDocPublicationWithTeamOutSchema.model_validate(row))
+        return PageResultSchema(
+            page_no=page_no,
+            page_size=page_size,
+            total=total,
+            has_next=offset + page_size < total,
+            items=items,
         )

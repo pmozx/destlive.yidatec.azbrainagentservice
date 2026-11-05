@@ -18,14 +18,13 @@ from typing import Any
 
 from .base import BaseHttpClient
 from .embedding import EmbeddingClient
-from .llm import ChatMessage, ChatStreamChunk, LlmClient
+from .llm import ChatStreamChunk, LlmClient
 from .mineru import MineruClient, MineruDocument, MineruImage
 from .rerank import RerankClient, RerankHit
 from .s3 import S3Client, S3ClientError, get_s3_client, reset_s3_client
 
 __all__ = [
     "BaseHttpClient",
-    "ChatMessage",
     "ChatStreamChunk",
     "EmbeddingClient",
     "LlmClient",

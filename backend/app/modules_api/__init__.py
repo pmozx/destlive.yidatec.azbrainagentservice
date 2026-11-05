@@ -14,7 +14,7 @@ app/modules_api/
 │   ├── nonce.py               # nonce 台账适配
 │   ├── idempotency.py         # 三类幂等域适配
 │   ├── schema.py              # 通用请求体
-│   └── test_utils/            # 签名头生成辅助路由（CONTRACT_TEST_ENABLE）
+│   └── test_utils/            # 签名头 / 整包摘要辅助路由（CONTRACT_TEST_ENABLE）
 └── kb/                        # 知识平台子模块
     ├── parse/                 # #01–#02
     ├── knowledge/             # #03–#07、#16–#20

@@ -13,7 +13,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import uuid4
 
-from fastapi import status as http_status
+from fastapi import status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.base_schema import PageResultSchema
@@ -131,7 +131,7 @@ class KbDupGroupService:
         if row.status != "active":
             raise CustomException(
                 msg=f"分组已处于 {row.status} 状态，不能重复处理",
-                status_code=http_status.HTTP_409_CONFLICT,
+                status_code=status.HTTP_409_CONFLICT,
             )
         await self.crud.set(ids=[group_id], status=data.status)
         return await self.detail(group_id)
@@ -255,12 +255,12 @@ class KbDupGroupService:
         if not row.scope:
             raise CustomException(
                 msg="该分组没有检测范围快照，请重新发起检测后再生成合并预览",
-                status_code=http_status.HTTP_409_CONFLICT,
+                status_code=status.HTTP_409_CONFLICT,
             )
         if not row.result_id:
             raise CustomException(
                 msg="该分组没有关联的检测结果，请重新发起检测后再生成合并预览",
-                status_code=http_status.HTTP_409_CONFLICT,
+                status_code=status.HTTP_409_CONFLICT,
             )
         keep_hit_id = data.keep_hit_id or row.suggested_keep_id or ""
         if not keep_hit_id:
@@ -315,19 +315,19 @@ class KbDupGroupService:
     def _map_error(exc: Exception) -> CustomException:
         """领域异常 → 管理端状态码（文档 §1.7 口径）；领域层不感知 HTTP。"""
         if isinstance(exc, DupScopeTooLargeError):
-            return CustomException(msg=str(exc), status_code=http_status.HTTP_413_REQUEST_ENTITY_TOO_LARGE)
+            return CustomException(msg=str(exc), status_code=status.HTTP_413_CONTENT_TOO_LARGE)
         if isinstance(exc, DupScopeDeniedError):
-            return CustomException(msg=str(exc), status_code=http_status.HTTP_403_FORBIDDEN)
+            return CustomException(msg=str(exc), status_code=status.HTTP_403_FORBIDDEN)
         if isinstance(exc, (DupSourceChangedError, DupResultExpiredError)):
-            return CustomException(msg=str(exc), status_code=http_status.HTTP_409_CONFLICT)
+            return CustomException(msg=str(exc), status_code=status.HTTP_409_CONFLICT)
         if isinstance(exc, DupResultNotFoundError):
-            return CustomException(msg=str(exc), status_code=http_status.HTTP_404_NOT_FOUND)
+            return CustomException(msg=str(exc), status_code=status.HTTP_404_NOT_FOUND)
         if isinstance(exc, DupInvalidRequestError):
             return CustomException(msg=str(exc))
         logger.exception("管理端重复治理执行失败：{}", exc)
         return CustomException(
             msg="重复治理执行失败，请查看服务端日志",
-            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
     @staticmethod

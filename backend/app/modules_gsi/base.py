@@ -10,10 +10,12 @@ GSI 表由 GSI 侧 Flyway 创建与维护，AI 侧只读取、不建表、不写
 - ``SbpReadCRUD`` 只提供查询与分页方法，没有 create / update / delete。
 """
 
+from datetime import datetime
 from typing import Any, TypeVar
 
+from fastapi import status
 from pydantic import BaseModel
-from sqlalchemy import asc, desc, func, select
+from sqlalchemy import Select, asc, desc, func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncAttrs, AsyncSession
 from sqlalchemy.orm import DeclarativeBase
@@ -24,6 +26,19 @@ from app.core.exceptions import CustomException
 from app.core.logger import logger
 
 OutSchemaType = TypeVar("OutSchemaType", bound=BaseModel)
+
+#: GSI 业务表时间列的展示格式：库里是 ``timestamp(6)``，落库值本身就是业务本地时间
+GSI_DATETIME_FMT = "%Y-%m-%d %H:%M:%S"
+
+
+def format_gsi_datetime(value: datetime | None) -> str | None:
+    """GSI 业务表时间原样输出。
+
+    这些列是 ``timestamp(6)`` 且落库值即业务本地时间（表结构文档 §1.9），不能走
+    ``app.utils.time_util.format_datetime``——那是给 AI 侧 ``timestamptz`` 用的，
+    对已经是本地时间的 naive 值再换算一次会平白多 8 小时。
+    """
+    return value.strftime(GSI_DATETIME_FMT) if value is not None else None
 
 
 class SbpBase(AsyncAttrs, DeclarativeBase):
@@ -61,7 +76,7 @@ class SbpReadCRUD[ModelType: SbpBase]:
         """单条查询，未命中直接抛 404 语义的 ``CustomException``（规则 R4）。"""
         obj = await self.get(**kwargs)
         if obj is None:
-            raise CustomException(msg=msg, status_code=404)
+            raise CustomException(msg=msg, status_code=status.HTTP_404_NOT_FOUND)
         return out_schema.model_validate(obj) if out_schema else obj
 
     async def get_list(
@@ -109,6 +124,27 @@ class SbpReadCRUD[ModelType: SbpBase]:
     async def exists(self, **kwargs: Any) -> bool:
         """判断满足条件的记录是否存在。"""
         return await self.count(**kwargs) > 0
+
+    async def fetch_rows(
+        self,
+        *,
+        data_sql: Select[Any],
+        count_sql: Select[Any],
+        offset: int,
+        limit: int,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """联表分页取数，返回「当页 dict 列表 + 总数」。
+
+        只负责执行语句，不构造输出模型：联表结果的有效性判定属于业务口径，
+        留在各模块 service，避免同一口径散落在多个 crud 里。
+        """
+        try:
+            total = int((await self.db.execute(count_sql)).scalar() or 0)
+            result = await self.db.execute(data_sql.offset(offset).limit(limit))
+            return [dict(row) for row in result.mappings().all()], total
+        except SQLAlchemyError:
+            logger.exception("GSI CRUD 联表分页失败：model={}", self.model.__name__)
+            raise
 
     async def page(
         self,

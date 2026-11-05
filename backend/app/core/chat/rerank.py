@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from typing import Generic, Protocol, TypeVar, runtime_checkable
 
 from app.config.setting import settings
-from app.core.clients import RerankClient
+from app.core.clients import get_rerank_client
 from app.core.logger import logger
 
 
@@ -94,7 +94,7 @@ async def rerank_candidates(
     """
     if not candidates:
         return candidates[:top_n], False
-    client = RerankClient(timeout=timeout)
+    client = get_rerank_client()
     if not client.base_url:
         return candidates[:top_n], False
 
@@ -103,7 +103,7 @@ async def rerank_candidates(
         for item in candidates
     ]
     try:
-        hits = await client.rerank(query, documents, top_n=min(top_n, len(documents)))
+        hits = await client.rerank(query, documents, top_n=min(top_n, len(documents)), timeout=timeout)
     except Exception as exc:  # noqa: BLE001 精排是可选增强：任何失败都降级为召回序
         logger.warning(f"精排调用失败，降级为召回排序：{exc}")
         return candidates[:top_n], False

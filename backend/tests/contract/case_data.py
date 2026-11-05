@@ -7,9 +7,11 @@
 目录约定见 `test-data/README.md`：
    requests/{接口编号}_{场景}.json   人工维护的请求正文
    responses/                        脚本回写的实测结果
+
+本模块只做文件读写：签名头与 `content_hash` 都由服务端测试辅助接口算
+（见 `tests/contract/client.py`），这里不放任何摘要实现。
 """
 
-import hashlib
 import json
 import time
 from pathlib import Path
@@ -20,9 +22,6 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 CASE_DATA_ROOT = _REPO_ROOT / "00-document" / "06-服务大脑AI项目测试用例与结果文档" / "test-data"
 REQUEST_DIR = CASE_DATA_ROOT / "requests"
 RESULT_DIR = CASE_DATA_ROOT / "responses"
-
-# 知识接口的整包摘要由运行期按 chunks 算出，JSON 里只写这个占位符
-CONTENT_HASH_PLACEHOLDER = "__COMPUTED_AT_RUNTIME__"
 
 # #07 的 authorization 时效块不能用静态值：一落地就过期。JSON 里写占位符，
 # 发送前换算成相对当前时刻的毫秒值（键 → 相对 now 的偏移）。
@@ -54,22 +53,6 @@ def save_result(name: str, payload: Any) -> Path:
     path = RESULT_DIR / name
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     return path
-
-
-def compute_content_hash(chunks: list[dict]) -> str:
-    """知识接口整包摘要规则（契约手册 §六.03）：固定字段、按键排序、紧凑分隔符。"""
-    hash_fields = ("seq", "heading", "content", "page_from", "page_to")
-    rows = [{f: chunk.get(f) for f in hash_fields} for chunk in chunks]
-    rows.sort(key=lambda r: r["seq"])
-    serialized = json.dumps(rows, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    return "sha256:" + hashlib.sha256(serialized.encode("utf-8")).hexdigest()
-
-
-def resolve_content_hash(payload: dict) -> dict:
-    """把 `__COMPUTED_AT_RUNTIME__` 换成按 chunks 实算的摘要（已写死的摘要原样保留）。"""
-    if payload.get("content_hash") != CONTENT_HASH_PLACEHOLDER:
-        return payload
-    return {**payload, "content_hash": compute_content_hash(payload["chunks"])}
 
 
 def resolve_authorization(payload: dict) -> dict:

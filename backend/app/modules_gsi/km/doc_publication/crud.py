@@ -1,8 +1,9 @@
 """GSI 文档按团队生效关系只读数据访问。"""
 
 from collections.abc import Sequence
+from typing import Any
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, func, select
 
 from app.modules_gsi.base import SbpReadCRUD
 from app.modules_gsi.sys.audience_team.model import SbpSysAudienceTeamModel
@@ -89,3 +90,61 @@ class SbpKmDocPublicationCRUD(SbpReadCRUD[SbpKmDocPublicationModel]):
             if group_name not in names:
                 names.append(group_name)
         return teams
+
+    async def page_with_team(
+        self,
+        *,
+        offset: int,
+        limit: int,
+        doc_id: str | None = None,
+        team: str | None = None,
+        record_id: str | None = None,
+        index_status: str | None = None,
+        team_name: str | None = None,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """生效关系 + 团队名称联表分页。
+
+        连接条件只认 ``group_code``（与授权判定同口径），且用 LEFT JOIN：
+        ``team`` 存了名称或旧标识时不会命中，这种行必须能显示出来并标记
+        ``team_matched=false``，否则「发布单元存在但用户永远看不到」会被页面藏掉。
+        """
+        team_model = SbpSysAudienceTeamModel
+        conditions = []
+        if doc_id:
+            conditions.append(self.model.doc_id == doc_id)
+        if team:
+            conditions.append(self.model.team == team)
+        if record_id:
+            conditions.append(self.model.record_id == record_id)
+        if index_status:
+            conditions.append(self.model.index_status == index_status)
+        if team_name:
+            conditions.append(team_model.group_name.like(f"%{team_name}%"))
+        joins = (
+            select(
+                self.model.id.label("id"),
+                self.model.doc_id.label("doc_id"),
+                self.model.team.label("team"),
+                team_model.group_name.label("team_name"),
+                team_model.audience_team.label("team_ident"),
+                team_model.status.label("team_status"),
+                team_model.deleted.label("team_deleted"),
+                self.model.record_id.label("record_id"),
+                self.model.index_status.label("index_status"),
+                self.model.updated_at.label("updated_at"),
+            )
+            .select_from(self.model)
+            .outerjoin(team_model, team_model.group_code == self.model.team)
+        )
+        count_sql = (
+            select(func.count())
+            .select_from(self.model)
+            .outerjoin(team_model, team_model.group_code == self.model.team)
+            .where(*conditions)
+        )
+        data_sql = joins.where(*conditions).order_by(
+            self.model.updated_at.desc(), self.model.id.asc()
+        )
+        return await self.fetch_rows(
+            data_sql=data_sql, count_sql=count_sql, offset=offset, limit=limit
+        )
