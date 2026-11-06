@@ -2,7 +2,7 @@
   "job_id": "parse-faq-200001",
   "doc_id": "doc-lane2005-fdc",
   "version_id": "1",
-  "file_url": "https://cdn-mineru.openxlab.org.cn/demo/example.pdf",
+  "file_url": "http://192.168.29.120:39901/api/v1/buckets/service-brain-dev/objects/download?preview=true&prefix=share%2FLane_2005_%E9%80%A0%E6%9E%97%E4%B8%8E%E6%B5%81%E9%87%8F%E5%8E%86%E6%97%B6%E6%9B%B2%E7%BA%BF_%E7%BF%BB%E8%AF%91.pdf",
   "file_name": "Lane_2005_造林与流量历时曲线.pdf",
   "prompt_text": "请基于该篇造林水文影响论文，严格依据原文提炼中文 FAQ 问答对，覆盖研究目的、方法（FDC 百分位数回归模型）、数据（10 个流域特征与处理）、结果（两类响应与零流量天数变化）、结论与局限性；答案准确完整，可保留关键公式、百分位数流量与降雨量等数值及术语，每问独立有意义、避免重复宽泛，按标准 FAQ 格式输出。",
   "model_key": "default",
@@ -17,9 +17,9 @@
   "metadata": {
     "title": "流量历时曲线对造林的响应",
     "doc_type": "FAQ",
-    "owner": "kali03",
-    "author": "kali03",
-    "team": "TEAM-HYDRO",
+    "owner": "admin",
+    "author": "admin",
+    "team": "AUD_SMOKE",
     "language": "zh",
     "trust": "A",
     "summary": "基于澳大利亚、南非和新西兰 10 个流域的长期日流量与年降雨数据，剔除降雨变异性后量化人工林建立对流量历时曲线（FDC）各百分位数的影响。",
@@ -33,27 +33,23 @@
     "expire_at": "2027-12-31",
     "scheduled_publish_at": "2026-11-01T09:00:00+08:00",
     "invisible_teams": [
-      "TEAM-HR-ADMIN"
+      "test1"
     ],
     "audience": {
       "department": [
-        "水资源管理"
+        "二部"
       ],
       "team": [
-        "TEAM-HYDRO"
+        "AUD_SMOKE"
       ],
       "role": [
-        "水文学家"
+        "Employee"
       ],
       "region": [
-        "澳大利亚"
+        "1"
       ],
-      "skill": [
-        "中级"
-      ],
-      "scenario": [
-        "造林水文影响评估"
-      ]
+      "skill": [],
+      "scenario": []
     },
     "cover_url": "https://files.example.com/lane2005-fdc-cover.jpg",
     "cover_name": "lane2005-fdc-cover.jpg",

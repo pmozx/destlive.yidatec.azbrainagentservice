@@ -1,7 +1,7 @@
 {
   "request_id": "req-kb-faq-badtype",
   "tenant_id": "gsi-default",
-  "user_id": "user-demo-001",
+  "user_id": "1",
   "resource_type": "invalid_type",
   "resource_id": "doc-lane2005-fdc",
   "publication_id": "pub-test-faq-badtype-001",
@@ -13,7 +13,7 @@
   "metadata": {
     "title": "流量历时曲线对造林的响应 · 常见问题",
     "doc_type": "faq",
-    "owner": "kali03",
+    "owner": "admin",
     "language": "zh",
     "source_parse_job_id": "parse-faq-200001"
   },

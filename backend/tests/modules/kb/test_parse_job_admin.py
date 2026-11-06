@@ -18,7 +18,7 @@ import uuid
 from typing import Any
 
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 
 from app import create_app
 from app.config.setting import settings
@@ -27,6 +27,8 @@ from app.core.table_bootstrap import ensure_pgvector_extension
 from app.modules.kb.bootstrap import ensure_tables
 from app.modules.kb.chunk.model import KbChunkModel
 from app.modules.kb.parse_job.model import KbParseJobModel
+from app.modules.kb.parse_job.pipeline import PARSE_JOB_SERVICE
+from app.modules.kb.parse_job.step import KbParseStepModel
 from app.modules.kb.parse_result.model import KbParseResultModel
 from app.modules.kb.publication.crud import KbPublicationCRUD
 
@@ -35,6 +37,9 @@ from tests.support import call, requires_db
 UPLOAD_PATH = "/api/v1/kb/parse-jobs/upload"
 UPDATE_CHUNK_PATH = "/api/v1/kb/parse-jobs/update-chunk/{job_id}"
 PUBLISH_PATH = "/api/v1/kb/parse-jobs/publish/{job_id}"
+STEPS_PATH = "/api/v1/kb/parse-jobs/steps/{job_id}"
+RETRY_PATH = "/api/v1/kb/parse-jobs/retry/{job_id}"
+DETAIL_PATH = "/api/v1/kb/parse-jobs/detail/{job_id}"
 
 
 async def _prepare_tables() -> None:
@@ -50,9 +55,10 @@ async def _upload(*, file_name: str, content: bytes, **form: str):
 
 
 async def _cleanup(job_id: str) -> None:
-    """清掉任务行与产物（管理端没有删除入口，只能按 job_id 直删）。"""
+    """清掉任务行、产物与步骤台账（管理端没有删除入口，只能按 job_id 直删）。"""
     async with async_session_factory() as session, session.begin():
         await session.execute(delete(KbParseResultModel).where(KbParseResultModel.job_id == job_id))
+        await session.execute(delete(KbParseStepModel).where(KbParseStepModel.job_id == job_id))
         await session.execute(delete(KbParseJobModel).where(KbParseJobModel.uuid == job_id))
 
 
@@ -278,4 +284,130 @@ async def test_admin_publish_writes_approved_chunks_verbatim() -> None:
     finally:
         if publication_id:
             await _drop_publication(publication_id)
+        await _cleanup(job_id)
+
+
+async def _mark_failed(job_id: str, *, step: str) -> None:
+    """手工把任务与某一步改判失败：模拟「跑过但没成功」，用于验证断点续跑。"""
+    async with async_session_factory() as session, session.begin():
+        await session.execute(
+            update(KbParseJobModel)
+            .where(KbParseJobModel.uuid == job_id)
+            .values(status="failed", progress=95, error_code="PARSE_FAILED", error_message="用例构造的失败")
+        )
+        await session.execute(
+            update(KbParseStepModel)
+            .where(KbParseStepModel.job_id == job_id, KbParseStepModel.step == step)
+            .values(status="failed", error_code="CASE_FAILED", error_message="用例构造的失败")
+        )
+
+
+@requires_db
+async def test_admin_detail_exposes_step_timeline(monkeypatch) -> None:
+    """详情与步骤接口都能看到每步状态：对象存储未启用时归档/页图记 skipped 而不是 failed。"""
+    await _prepare_tables()
+    monkeypatch.setattr(settings, "S3_ENABLE", False)
+    response = await _upload(
+        file_name="steps.md",
+        content="# 步骤\n\n这段正文用来生成至少一个切片，验证步骤台账每行都有状态与耗时。".encode(),
+    )
+    job_id = response.json()["data"]["uuid"]
+    try:
+        detail = (await call("GET", DETAIL_PATH.format(job_id=job_id))).json()["data"]
+        assert detail["status"] == "succeeded"
+        assert detail["attempt"] == 1
+        steps = {item["step"]: item for item in detail["steps"]}
+        assert steps["extract"]["status"] == "succeeded"
+        assert steps["chunk"]["status"] == "succeeded"
+        assert steps["persist"]["status"] == "succeeded"
+        assert steps["artifacts"]["status"] == "skipped"
+        assert "对象存储未启用" in steps["artifacts"]["error_message"]
+        assert steps["extract"]["duration_ms"] is not None
+        assert steps["extract"]["detail"]["chars"] > 0
+        # 产物归档不可用时不给假地址，也不影响任务成功
+        assert detail["artifact_urls"] is None
+
+        listed = (await call("GET", STEPS_PATH.format(job_id=job_id))).json()["data"]
+        assert [item["step"] for item in listed] == [
+            "extract",
+            "artifacts",
+            "chunk",
+            "pages",
+            "suggest",
+            "persist",
+        ]
+        assert all(item["attempt"] == 1 for item in listed)
+    finally:
+        await _cleanup(job_id)
+
+
+@requires_db
+async def test_admin_retry_resumes_from_failed_step(monkeypatch) -> None:
+    """重跑从失败那一步继续：前一阶段的切片快照直接复用，产物不变、历史台账不覆盖。"""
+    await _prepare_tables()
+    monkeypatch.setattr(settings, "S3_ENABLE", False)
+    response = await _upload(
+        file_name="retry-me.md",
+        content="# 续跑\n\n这段正文用于验证从失败步骤重跑不会重新解析，而是复用上一轮的切片快照。".encode(),
+    )
+    job_id = response.json()["data"]["uuid"]
+    try:
+        before = (await call("GET", DETAIL_PATH.format(job_id=job_id))).json()["data"]
+        await _mark_failed(job_id, step="persist")
+
+        retried = await call("POST", RETRY_PATH.format(job_id=job_id), body=b"{}")
+        assert retried.status_code == 200
+        receipt = retried.json()["data"]
+        assert receipt["attempt"] == 2
+        assert receipt["status"] in {"queued", "running", "succeeded"}
+
+        after = (await call("GET", DETAIL_PATH.format(job_id=job_id))).json()["data"]
+        assert after["status"] == "succeeded"
+        assert after["attempt"] == 2
+        assert after["result"]["chunks"] == before["result"]["chunks"]
+        # 两轮都在台账里：历史不能被新执行覆盖
+        assert {item["attempt"] for item in after["steps"]} == {1, 2}
+        # 只重跑 persist：extract/chunk 走的是上一轮的快照，没有重新解析
+        assert [item["step"] for item in after["steps"] if item["attempt"] == 2] == ["persist"]
+    finally:
+        await _cleanup(job_id)
+
+
+@requires_db
+async def test_admin_retry_rejects_succeeded_job() -> None:
+    """已成功的任务不允许重跑：页面上的切片可能已人工修订并写入知识平台。"""
+    await _prepare_tables()
+    response = await _upload(file_name="done.md", content="# 已完成\n\n这段正文用于验证成功任务不允许重跑。".encode())
+    job_id = response.json()["data"]["uuid"]
+    try:
+        retried = await call("POST", RETRY_PATH.format(job_id=job_id), body=b"{}")
+        assert retried.status_code == 409
+        assert "已成功" in retried.json()["msg"]
+
+        ghost = await call("POST", RETRY_PATH.format(job_id="not-exists-job"), body=b"{}")
+        assert ghost.status_code == 404
+    finally:
+        await _cleanup(job_id)
+
+
+@requires_db
+async def test_stale_attempt_write_is_dropped() -> None:
+    """重跑后旧 attempt 的写库必须被丢弃：否则卡死的旧执行会覆盖新一轮的状态。"""
+    job_id = f"retry-{uuid.uuid4().hex[:12]}"
+    snapshot, created = await PARSE_JOB_SERVICE.create_job(
+        job_id=job_id, resource_type="document", file_meta={"file_name": "a.md"}
+    )
+    assert created and snapshot.attempt == 1
+    try:
+        assert await PARSE_JOB_SERVICE.fail(job_id, error_code="PARSE_FAILED", error_message="首次失败", attempt=1)
+        requeued, reason = await PARSE_JOB_SERVICE.requeue(job_id)
+        assert reason is None and requeued is not None and requeued.attempt == 2
+
+        # 旧执行迟到的结果：attempt 已过期，写入被丢弃
+        assert not await PARSE_JOB_SERVICE.fail(job_id, error_code="PARSE_FAILED", error_message="迟到", attempt=1)
+        current = await PARSE_JOB_SERVICE.get_snapshot(job_id)
+        assert current is not None
+        assert current.status == "queued"
+        assert current.error_message is None
+    finally:
         await _cleanup(job_id)

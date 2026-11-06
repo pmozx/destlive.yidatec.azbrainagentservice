@@ -2,7 +2,7 @@
 
 > **一句话定位**：GSI 交付的文档与 FAQ 在这里解析成切片、落成发布单元，再被检索、问答与重复治理复用。
 > **上游业务系统**：GSI（`service_brain` 库同 schema 的 11 张共享表，本侧只读）——谁写、怎么关联、哪几步还没落地，见 [`02-数据模型与表关系.md`](02-数据模型与表关系.md) §九。
-> 归属域 `kb`（九个一表一目录的子模块）· 数据表 9 张（+ GSI 只读 11 张）· 接口 56 个（契约 `/v1` 20 + 管理端 `/api/v1/kb` 36）· 前端页面 6 个 · 核对入口「GSI 业务数据」菜单 `/gsi/*` · 版本 v1.4（2026-11-05）
+> 归属域 `kb`（一表一目录的子模块）· 数据表 10 张（+ GSI 只读 11 张）· 接口 60 个（契约 `/v1` 20 + 管理端 `/api/v1/kb` 40）· 前端页面 6 个 · 核对入口「GSI 业务数据」菜单 `/gsi/*` · 版本 v1.5（2026-11-05）
 
 ---
 
@@ -10,12 +10,12 @@
 
 **这个模块做**
 
-- 接收 GSI 的解析任务：按 `job_id` 幂等受理，同步校验文件（类型白名单、10MB 上限），后台解析出**无向量的切片产物**（`chunks` / `pages` / `suggested` / `warnings`），四态进度可查。
+- 接收 GSI 的解析任务：按 `job_id` 幂等受理，同步校验文件（类型白名单、10MB 上限），后台解析出**无向量的切片产物**（`chunks` / `pages` / `suggested` / `warnings`），四态进度可查；每一步落一行台账（`sbp_ai_kb_parse_step`：状态 / 耗时 / 失败码与原因 / 续跑快照），失败步骤可从该步重跑（`attempt+1`），MinerU 的 `full.md` / `content_list.json` / `images/*` 同时归档到对象存储供后续使用。
 - 保存知识：GSI 编辑人员审批通过的切片通过契约写入（03.1 新增 / 03.3 修订 / 03.4 删除 / #20 停用）；管理台也能直接写正文（整篇正文自动切片，走同一套 `KbEntryService`），写入时同步向量化，并做「全量替换 + 指针切换 + 版本号单调」。
 - 检索：按签名身份的授权范围先下推再召回，关键词与自然语言两条通道共用 RRF 融合与精排闸门，返回 chunk 级命中与相对分。
 - 问答：检索 → 拼上下文 → 调 Chat 模型 → 落会话与消息（含引用九字段与来源六元组），支持非流式（契约）与 SSE 流式（管理端）两种出口。
 - 重复治理：保存前查重（只看不写）、重复分组查询/详情、合并预览（只产草稿态），并把治理结论物化成 `dup_group` 行供管理台跟踪。
-- 管理台维护：发布单元/版本/切片的 CRUD、**正文写入与修订（03.1/03.3 等价）**、**停用归档（#20 等价）**、**来源与关联溯源**（写入渠道 + 按 `file_meta.doc_id` 反查解析任务）、解析任务查询与**产物直接写成知识（03.1 等价，切片不重切）**、重复分组状态标记、检索调试台与通道配置、会话与消息浏览。
+- 管理台维护：发布单元/版本/切片的 CRUD、**正文写入与修订（03.1/03.3 等价）**、**停用归档（#20 等价）**、**来源与关联溯源**（写入渠道 + 按 `file_meta.doc_id` 反查解析任务）、解析任务查询与**产物直接写成知识（03.1 等价，切片不重切）**、**解析步骤跟踪与从失败步重跑**、**MinerU 产物（md / 版面 JSON / 图片）下载**、重复分组状态标记、检索调试台与通道配置、会话与消息浏览。
 - 管理台自助作业：自己上传文件发起解析（不必先落到 GSI 的桶），自己写正文入库；并把「保存前查重 / 全量检测 / 合并预览」搬到页面上——范围用 `publication_ids` 表达，后端反查生成正式 `scope`，检测与预览与契约 #16/#17/#19 共用同一条链路；查重台还可以从发布单元**载入已批准切片**逐条比对（D06 等价）。
 
 **这个模块不做**
@@ -36,6 +36,8 @@
 | 能力 | 使用者 | 入口 | 涉及表 |
 | --- | --- | --- | --- |
 | 提交解析任务、看进度与产物 | GSI 后端（契约） | `/v1/parse/jobs` | `parse_job` / `parse_result` |
+| 解析步骤跟踪与从失败步重跑 | 管理台 | `/kb/parse-jobs/detail`、`/steps`、`/retry` | `parse_job` / `parse_step` / `parse_result` |
+| MinerU 产物（md / 版面 JSON / 图片）归档与下载 | 后台任务、管理台 | `parse-artifacts/<job_id>/`，读走详情 `artifact_urls` | `parse_result`（`artifacts`） |
 | 写入审批通过的切片（新增/修订/删除/停用） | GSI 编辑人员（契约） | `/v1/knowledge/entries*` | `publication` / `revision` / `chunk` |
 | 读回已批准基线（03.2） | GSI 编辑人员、管理台 | `/v1/knowledge/entries/{id}/query`、`/kb/publication/baseline/{id}` | `revision` / `chunk` |
 | 关键词 / 自然语言检索 | GSI 座席（契约）、联调（管理台） | `/v1/knowledge/search`、`/kb/retrieval/search` | `chunk` / `publication` + GSI 授权表 |
@@ -62,8 +64,9 @@
 | `sbp_ai_kb_publication` | 发布单元 | 台账（状态机） | `kb.publication.service.KbEntryService.create/revise/delete/deactivate`、`KbPublicationService.create/update/update_status` | 永久；契约 03.4 与管理端整单删除都只置 `status='deleted'`（逻辑删，行与切片保留），物理级联仅内部脚本 |
 | `sbp_ai_kb_revision` | 版本快照 | 台账（墓碑） | `KbEntryService.revise/delete/deactivate` | 永久；删除留 `status='archived'` 墓碑行（`content_hash` 为空） |
 | `sbp_ai_kb_chunk` | 知识切片 | 明细（含向量） | `KbEntryService.create/revise`（向量先算后写）、`delete`（物理删） | 永久；删除即物理删，停用归档为 `archived` |
-| `sbp_ai_kb_parse_job` | 解析任务 | 台账（状态机） | `kb.parse.service.create_parse_job_record` → `KbParseJobService.create_job/start/complete/fail` | 永久，无清理任务 |
+| `sbp_ai_kb_parse_job` | 解析任务 | 台账（状态机） | `kb.parse.service.create_parse_job_record` → `KbParseJobService.create_job/mark_running/complete/fail/requeue` | 永久，无清理任务 |
 | `sbp_ai_kb_parse_result` | 解析产物 | 明细（不可变） | `KbParseJobService.complete`（与任务状态同事务） | 设计 90 天，**无清理实现** |
+| `sbp_ai_kb_parse_step` | 解析步骤台账 | 台账（只追加） | `kb.parse_job.step.KbParseStepService.start/finish/fail/skip`（后台每步各写一行） | 永久；每轮 `attempt` 各留一份，历史轮次不删 |
 | `sbp_ai_kb_dup_result` | 重复检测结果快照 | 缓存（30 分钟） | `kb.dup_result.service._store`（D02/D03 首查） | 30 分钟（`expires_at`）；过期只判不删 |
 | `sbp_ai_kb_dup_group` | 重复分组 | 台账（治理物化） | `kb.dup_result.service._materialize`、`_save_preview`、管理端 `KbDupGroupService.update_status` | 永久 |
 | `sbp_ai_kb_chat_session` | 问答会话 | 台账（软删） | `KbChatSessionService.create_owned/_clear/_delete`、`update` | 永久；删除与清空都是改状态，行保留 |
@@ -96,7 +99,7 @@
 两组前缀，鉴权方式完全不同（详细约定见 [`03-接口清单.md`](03-接口清单.md) §一）：
 
 - 契约侧 `/v1`：HMAC 五头 + 裸 JSON（不套 `code/msg/data`），20 个端点，写操作走幂等台账；
-- 管理端 `/api/v1/kb`：管理台 JWT + 统一 `ResponseSchema`，38 个端点。
+- 管理端 `/api/v1/kb`：管理台 JWT + 统一 `ResponseSchema`，40 个端点。
 
 | 组 | 方法 | 路径 | 用途 | 数量 |
 | --- | --- | --- | --- | --- |
@@ -107,7 +110,7 @@
 | 生成 | POST | `/v1/chat/completions`、`/chat/requests/{target_request_id}/query` | #14 生成、#15 超时结果查询 | 2 |
 | 重复治理 | POST | `/v1/knowledge/duplicates/check`、`/knowledge/duplicates/groups/query`、`/knowledge/duplicates/groups/{group_id}/query`、`/knowledge/duplicates/merge-preview` | #16–#19 | 4 |
 | 发布单元 | GET/POST/PUT/PATCH/DELETE | `/api/v1/kb/publication/*` | 列表/详情/增改/状态/删除/版本/切片/基线/删快照 + **正文写入/修订/停用归档** + 来源溯源（`/source/{id}`） | 16 |
-| 解析任务 | GET / PUT / POST | `/api/v1/kb/parse-jobs/list`、`/detail/{job_id}`、`/upload`、`/update-chunk/{job_id}`、`/publish/{job_id}` | 任务列表与详情（含产物）+ 自助上传提交 + 产物切片人工编辑 + **产物写成正式知识（03.1 等价）** | 5 |
+| 解析任务 | GET / PUT / POST | `/api/v1/kb/parse-jobs/list`、`/detail/{job_id}`、`/steps/{job_id}`、`/retry/{job_id}`、`/upload`、`/update-chunk/{job_id}`、`/publish/{job_id}` | 任务列表与详情（含产物与 `steps[]`）+ 步骤台账 + 从失败步重跑 + 自助上传提交 + 产物切片人工编辑 + **产物写成正式知识（03.1 等价）** | 7 |
 | 重复分组 | GET / PATCH / POST | `/api/v1/kb/dup-groups/list`、`/detail/{group_id}`、`/status/{group_id}`、`/detect`、`/check`、`/preview/{group_id}` | 治理结论浏览与状态标记 + 主动检测/查重/合并预览 | 6 |
 | 检索 | GET / POST | `/api/v1/kb/retrieval/config`、`/search` | 通道配置、检索调试 | 2 |
 | 会话 | GET / PUT / DELETE | `/api/v1/kb/chat-session/*` | 列表/详情/改名/清空/删除 | 5 |
@@ -117,7 +120,7 @@
 两条口径要先记住：
 
 - 重复治理四个端点的真实前缀**带 `/knowledge`**（`DuplicateRouter` 声明为 `prefix="/knowledge"`，见 `app/modules_api/kb/duplicate/controller.py`）。写作 `/v1/duplicates/*` 的描述不可用于对接或测试断言。
-- `/gsi` 域另有 **23 个管理端只读接口**（JWT + `ResponseSchema`），与本表的 58 个分属不同域、不计入 58；台账见 [`03-接口清单.md`](03-接口清单.md) §六。
+- `/gsi` 域另有 **23 个管理端只读接口**（JWT + `ResponseSchema`），与本表的 60 个分属不同域、不计入 60；台账见 [`03-接口清单.md`](03-接口清单.md) §六。
 
 ---
 
@@ -132,8 +135,9 @@
 | `app/modules/kb/chat/admin_service.py` | 管理端两个出口：`ask` 与 `open_stream` | 自己开会话（无请求级事务），首轮自动建会话 |
 | `app/modules/kb/dup_result/service.py` | 检测、快照存取、物化治理行、合并预览 | 常量在 `dup_result/schema.py`（30 分钟、1000 项、0.65 阈值） |
 | `app/modules/kb/dup_group/` | 治理行读写 + 管理端主动治理三端点（`controller.py` / `service.py`） | `_scope` 把 `publication_ids` 反查成正式 `scope`；`ADMIN_USER_ID` 保证检测与预览读同一快照 |
-| `app/modules/kb/parse_job/admin_service.py` | 自助上传：边读边判（400/413）→ 存原件（失败降级）→ 建任务；产物切片人工编辑（`update_chunk`） | 与契约 `#01` 共用 `pipeline.run_parse_job` |
-| `app/modules/kb/parse_job/service.py` + `parse_result/service.py` | 任务四态与产物落库 | `reset_unfinished` 在启动期把未完成任务改判 `failed` |
+| `app/modules/kb/parse_job/admin_service.py` | 自助上传：边读边判（400/413）→ 存原件（失败降级）→ 建任务；详情投影（含 `artifact_urls` 与惰性看门狗）；步骤台账；从失败步重跑；产物切片人工编辑（`update_chunk`） | 与契约 `#01`、重跑共用 `pipeline.run_parse_job`（重跑不传 `data`，由流水线自己取原件） |
+| `app/modules/kb/parse_job/step.py` + `artifacts.py` | 步骤台账写入口与续跑查询；MinerU 产物（`full.md` / `content_list.json` / `images/*`）归档与预签名 | 台账口径常量在 `step.py`（`STEP_PROGRESS` / `FATAL_STEPS`）；产物键前缀 `parse-artifacts/<job_id>/` |
+| `app/modules/kb/parse_job/service.py` + `parse_result/service.py` | 任务四态、重跑改判（`requeue`）与产物落库 | 所有状态写入带 `WHERE attempt=?`；`reset_unfinished` 在启动期把未完成任务改判 `failed` |
 | `app/modules/kb/chat_session/service.py` + `chat_message/` | 会话与消息的读写、软删 | 管理端不校验归属，契约按 `user_id` 收窄 |
 | `app/modules_api/kb/{parse,knowledge,duplicate,chat}/` | 契约 20 个端点：controller（薄）+ service（编排）+ schema（字段约束） | controller 只做「回放→调用→登记回执」 |
 | `app/modules_api/base/` | 契约基座：`deps.py`（验签/nonce/幂等）、`errors.py`（错误码+路由类）、`signature.py`、`audit.py`、`common.py`（`make_contract_router`）、`test_utils/` | 新增对外接口直接复用，业务包不复制协议口径 |
@@ -176,6 +180,6 @@
 | 文档 | 回答 |
 | --- | --- |
 | [`01-业务功能说明.md`](01-业务功能说明.md) | 谁在什么场景用什么功能；解析/写入/检索/问答/治理五条主流程；状态如何判定；数据留多久；现在做不到什么 |
-| [`02-数据模型与表关系.md`](02-数据模型与表关系.md) | 九张表每列的含义；键与索引；表与表怎么对上（R1–R11）；谁写谁读；删除一条知识后行还在不在；**§九 = GSI 11 张共享表、授权链与契约六步校验的落地对照** |
-| [`03-接口清单.md`](03-接口清单.md) | 58 个端点怎么调；字段、错误码、示例；契约编号与代码编号的对应；前端函数映射；**§六 = `/gsi` 23 个只读核对接口** |
-| [`04-实现与运维说明.md`](04-实现与运维说明.md) | 代码在哪；十一个关键实现决策；配置项与调错的后果；按症状排障（含「授权为空」逐跳核对）；测试覆盖与已知限制 |
+| [`02-数据模型与表关系.md`](02-数据模型与表关系.md) | 十张表每列的含义；键与索引；表与表怎么对上（R1–R12）；谁写谁读；删除一条知识后行还在不在；**§九 = GSI 11 张共享表、授权链与契约六步校验的落地对照** |
+| [`03-接口清单.md`](03-接口清单.md) | 60 个端点怎么调；字段、错误码、示例；契约编号与代码编号的对应；前端函数映射；**§六 = `/gsi` 23 个只读核对接口** |
+| [`04-实现与运维说明.md`](04-实现与运维说明.md) | 代码在哪；十四个关键实现决策；配置项与调错的后果；按症状排障（含「任务卡在 35%」与「授权为空」逐跳核对）；测试覆盖与已知限制 |

@@ -149,7 +149,7 @@
             maxlength="4000"
             show-word-limit
             :disabled="createForm.resource_type !== 'faq'"
-            placeholder="留空使用默认问答提取提示词"
+            placeholder="FAQ 必填：写清提取口径与面向对象，问答须完整自足"
           />
         </el-form-item>
         <el-form-item label="模型键">
@@ -162,12 +162,28 @@
       </template>
     </el-dialog>
 
-    <el-drawer v-model="detailVisible" title="解析任务详情" size="1180px" destroy-on-close>
+    <el-drawer v-model="detailVisible" size="1180px" destroy-on-close>
+      <template #header>
+        <div class="kb-drawer__head">
+          <span class="kb-drawer__title">解析任务详情</span>
+          <el-button
+            v-if="canRetry"
+            size="small"
+            type="primary"
+            plain
+            :loading="retrying"
+            @click="retryFromStep(failedStep?.step || null)"
+          >
+            {{ retryLabel }}
+          </el-button>
+        </div>
+      </template>
       <div v-loading="detailLoading">
         <template v-if="detail">
           <el-descriptions :column="2" border size="small">
             <el-descriptions-item label="任务 ID" :span="2">{{ detail.uuid }}</el-descriptions-item>
             <el-descriptions-item label="资源类型">{{ resourceTypeLabel(detail.resource_type) }}</el-descriptions-item>
+            <el-descriptions-item label="执行轮次">第 {{ detail.attempt ?? 1 }} 轮</el-descriptions-item>
             <el-descriptions-item label="状态">
               <el-tag :type="statusTagType(detail.status)" size="small" effect="light">{{ statusLabel(detail.status) }}</el-tag>
             </el-descriptions-item>
@@ -191,6 +207,75 @@
               <JsonViewer :data="detail.file_meta" title="file_meta（原始请求快照）" placeholder="任务未写入请求快照" />
             </el-tab-pane>
 
+            <!-- 步骤台账：按执行轮次倒序，失败那一步可原地续跑 -->
+            <el-tab-pane label="流水线步骤" name="steps">
+              <div class="kb-step__bar">
+                <span class="kb-step__hint">{{ stepTimelineHint }}</span>
+                <el-button link type="primary" size="small" :loading="stepsLoading" @click="refreshSteps">
+                  刷新步骤
+                </el-button>
+              </div>
+
+              <section v-for="group in stepAttempts" :key="group.attempt" class="kb-step__group">
+                <header class="kb-step__head">
+                  <span class="kb-step__title">第 {{ group.attempt }} 轮</span>
+                  <el-tag v-if="group.attempt === (detail.attempt ?? 1)" size="small" type="primary" effect="plain">
+                    当前
+                  </el-tag>
+                  <el-tag v-if="group.failed" size="small" type="danger" effect="plain">
+                    {{ group.failed }} 步失败
+                  </el-tag>
+                  <span class="kb-step__meta">{{ group.steps.length }} 步</span>
+                </header>
+                <el-table :data="group.steps" size="small" style="width: 100%">
+                  <el-table-column label="步骤" min-width="180">
+                    <template #default="{ row }">
+                      <span class="kb-step__name">{{ stepLabel(row.step) }}</span>
+                      <el-tag v-if="row.status === 'failed' && row.fatal === false" size="small" type="info" effect="plain">
+                        降级
+                      </el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="状态" width="96" align="center">
+                    <template #default="{ row }">
+                      <el-tag :type="stepTagType(row.status)" size="small" effect="light">
+                        {{ stepStatusLabel(row.status) }}
+                      </el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="耗时" width="92" align="center">
+                    <template #default="{ row }">{{ formatDuration(row.duration_ms) }}</template>
+                  </el-table-column>
+                  <el-table-column label="开始时间" width="165" align="center">
+                    <template #default="{ row }">{{ formatDateTime(row.started_time) }}</template>
+                  </el-table-column>
+                  <el-table-column label="说明" min-width="220" show-overflow-tooltip>
+                    <template #default="{ row }">{{ stepSummary(row) }}</template>
+                  </el-table-column>
+                  <el-table-column label="操作" width="118" align="center">
+                    <template #default="{ row }">
+                      <el-button
+                        v-if="row.status === 'failed'"
+                        link
+                        type="primary"
+                        size="small"
+                        :disabled="!canRetry"
+                        :loading="retrying"
+                        @click="retryFromStep(row.step)"
+                      >
+                        从此步重跑
+                      </el-button>
+                      <span v-else>-</span>
+                    </template>
+                  </el-table-column>
+                  <template #empty>
+                    <el-empty description="暂无步骤记录：任务尚未开始执行" :image-size="70" />
+                  </template>
+                </el-table>
+              </section>
+              <el-empty v-if="!stepAttempts.length" description="暂无步骤记录：任务尚未开始执行" :image-size="80" />
+            </el-tab-pane>
+
             <el-tab-pane label="解析产物" name="result">
               <template v-if="detail.result">
                 <el-descriptions :column="2" border size="small" class="kb-detail__block">
@@ -200,6 +285,52 @@
                   <el-descriptions-item label="切片数量">{{ (detail.result.chunks || []).length }}</el-descriptions-item>
                   <el-descriptions-item label="页图数量" :span="2">{{ pageItems.length }}</el-descriptions-item>
                 </el-descriptions>
+
+                <!-- MinerU 产物归档：全文 Markdown / 版面 JSON / 内嵌图片，供重解析与审计回取 -->
+                <div class="kb-artifact kb-detail__block">
+                  <header class="kb-artifact__head">
+                    <span class="kb-artifact__title">MinerU 产物</span>
+                    <span class="kb-artifact__meta">{{ artifactMeta }}</span>
+                  </header>
+                  <template v-if="detail.artifact_urls">
+                    <div class="kb-artifact__links">
+                      <el-button
+                        v-if="detail.artifact_urls.markdown_url"
+                        link
+                        type="primary"
+                        size="small"
+                        @click="openArtifact(detail.artifact_urls.markdown_url)"
+                      >
+                        <el-icon><Document /></el-icon>
+                        <span>full.md（解析正文）</span>
+                      </el-button>
+                      <el-button
+                        v-if="detail.artifact_urls.content_list_url"
+                        link
+                        type="primary"
+                        size="small"
+                        @click="openArtifact(detail.artifact_urls.content_list_url)"
+                      >
+                        <el-icon><Tickets /></el-icon>
+                        <span>content_list.json（版面块）</span>
+                      </el-button>
+                      <span class="kb-artifact__count">图片 {{ detail.artifact_urls.image_count || 0 }} 张</span>
+                    </div>
+                    <div v-if="detail.artifact_urls.images?.length" class="kb-artifact__images">
+                      <el-image
+                        v-for="image in detail.artifact_urls.images"
+                        :key="image.object_key"
+                        :src="image.image_url"
+                        :preview-src-list="artifactImageUrls"
+                        fit="contain"
+                        preview-teleported
+                        hide-on-click-modal
+                        class="kb-artifact__thumb"
+                      />
+                    </div>
+                  </template>
+                  <el-empty v-else :description="artifactEmptyHint" :image-size="60" />
+                </div>
 
                 <!-- 契约 03.1 等价入口：把当前产物（含人工修订）的切片集合原样写成一版正式知识 -->
                 <div class="kb-publish kb-detail__block">
@@ -448,7 +579,15 @@ import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage, genFileId } from 'element-plus'
 
 import { getPublicationList } from '@/api/module_kb/publication'
-import { getParseJobDetail, getParseJobList, publishParseChunks, submitParseJob, updateParseChunk } from '@/api/module_kb/parseJob'
+import {
+  getParseJobDetail,
+  getParseJobList,
+  getParseJobSteps,
+  publishParseChunks,
+  retryParseJob,
+  submitParseJob,
+  updateParseChunk,
+} from '@/api/module_kb/parseJob'
 import JsonViewer from '@/components/common/JsonViewer.vue'
 import MarkdownView from '@/components/common/MarkdownView.vue'
 import SectionCard from '@/components/common/SectionCard.vue'
@@ -565,6 +704,156 @@ const detailVisible = ref(false)
 const detailLoading = ref(false)
 const detail = ref(null)
 const activeTab = ref('fileMeta')
+
+// ── 流水线步骤台账（跟踪 / 失败原因 / 从失败步续跑） ────────────────────
+// 步骤口径与后端 pipeline 一致：faq 与 chunk 按资源类型互斥，不会同时出现
+const STEP_LABELS = {
+  extract: '解析（MinerU → 文本）',
+  artifacts: '产物归档（对象存储）',
+  faq: 'FAQ 抽取',
+  chunk: '正文切片',
+  pages: '页图渲染',
+  suggest: '建议元数据',
+  persist: '产物落库',
+}
+const STEP_STATUS = {
+  running: { label: '运行中', tag: 'warning' },
+  succeeded: { label: '成功', tag: 'success' },
+  failed: { label: '失败', tag: 'danger' },
+  skipped: { label: '跳过', tag: 'info' },
+}
+
+const retrying = ref(false)
+const stepsLoading = ref(false)
+
+function stepLabel(step) {
+  return STEP_LABELS[step] || step || '-'
+}
+function stepStatusLabel(status) {
+  return STEP_STATUS[status]?.label || status || '-'
+}
+function stepTagType(status) {
+  return STEP_STATUS[status]?.tag || 'info'
+}
+
+/** 耗时：毫秒原样、过一秒换成秒，避免长步骤写成「183000 ms」 */
+function formatDuration(ms) {
+  const value = Number(ms)
+  if (ms === null || ms === undefined || !Number.isFinite(value)) return '-'
+  return value >= 1000 ? `${(value / 1000).toFixed(1)} s` : `${Math.round(value)} ms`
+}
+
+/** 一步的说明：失败/跳过看原因，成功看轻量元数据（解析器/页数/条数） */
+function stepSummary(row) {
+  if (row.error_message) return row.error_message
+  const detail = row.detail || {}
+  const parts = []
+  if (detail.parser) parts.push(detail.parser)
+  if (detail.pages) parts.push(`${detail.pages} 页`)
+  if (detail.chars) parts.push(`${detail.chars} 字`)
+  if (detail.images !== undefined) parts.push(`${detail.images} 张图`)
+  if (detail.section_chunks !== undefined) parts.push(`${detail.section_chunks} 个段落`)
+  if (detail.chunks !== undefined) parts.push(`${detail.chunks} 条切片`)
+  if (detail.title) parts.push(detail.title)
+  if (detail.markdown) parts.push('已归档')
+  return parts.length ? parts.join(' · ') : '-'
+}
+
+/** 按执行轮次分组：最新一轮在前（重跑后先看这一轮），组内保持后端执行顺序 */
+const stepAttempts = computed(() => {
+  const groups = new Map()
+  ;(detail.value?.steps || []).forEach((row) => {
+    const attempt = row.attempt ?? 1
+    let group = groups.get(attempt)
+    if (!group) {
+      group = { attempt, steps: [], failed: 0 }
+      groups.set(attempt, group)
+    }
+    group.steps.push(row)
+    if (row.status === 'failed') group.failed += 1
+  })
+  return [...groups.values()].sort((a, b) => b.attempt - a.attempt)
+})
+
+/** 当前轮次里失败的那一步：抽屉顶部的「重跑」直接以它作起点 */
+const failedStep = computed(() => {
+  const attempt = detail.value?.attempt ?? 1
+  return (detail.value?.steps || []).find((row) => (row.attempt ?? 1) === attempt && row.status === 'failed') || null
+})
+
+/** 只有失败与运行中可重跑：成功的重跑会覆盖已审核产物（后端同样 409） */
+const canRetry = computed(() => ['failed', 'running'].includes(detail.value?.status))
+
+const retryLabel = computed(() => (failedStep.value ? `从「${stepLabel(failedStep.value.step)}」重跑` : '重新排队'))
+
+const stepTimelineHint = computed(() => {
+  if (!detail.value) return ''
+  if (detail.value.status === 'failed') return '已失败：从失败步骤重跑，之前的步骤复用台账快照，不重新解析文档'
+  if (detail.value.status === 'running') return '执行中：最后一行「运行中」即当前正在执行的步骤'
+  return '每一步一行；重跑会追加新的执行轮次，历史记录保留'
+})
+
+/** 对象存储预签名地址只对当前会话有效，每次打开详情重新取（后端detail已重签） */
+const artifactImageUrls = computed(() => (detail.value?.artifact_urls?.images || []).map((image) => image.image_url))
+
+const artifactMeta = computed(() => {
+  const artifacts = detail.value?.result?.artifacts
+  if (!artifacts) return '未归档'
+  const parts = [artifacts.parser || 'MinerU', `${artifacts.image_count ?? 0} 张图片`]
+  if (artifacts.content_list_key) parts.push('含版面 JSON')
+  return parts.join(' · ')
+})
+
+const artifactEmptyHint = computed(() =>
+  detail.value?.result?.artifacts
+    ? '产物已归档，但对象存储未启用或预签名失败，暂时取不到下载地址'
+    : '未归档 MinerU 产物：对象存储未启用，或本次解析未走 MinerU',
+)
+
+/** 产物下载：预签名 URL 直开新窗口（md 直接展示、json 随浏览器策略、图片可放大） */
+function openArtifact(url) {
+  if (url) window.open(url, '_blank', 'noopener')
+}
+
+/** 只刷新步骤台账：轮询时不动产物与选中页，避免列表页跳变 */
+async function refreshSteps() {
+  const jobId = detail.value?.uuid
+  if (!jobId || stepsLoading.value) return
+  stepsLoading.value = true
+  try {
+    detail.value.steps = await getParseJobSteps(jobId)
+  } catch {
+    // 请求拦截器已统一提示错误
+  } finally {
+    stepsLoading.value = false
+  }
+}
+
+/** 从指定步骤重跑：不传则由后端取上一轮第一处失败的步骤 */
+async function retryFromStep(step) {
+  const jobId = detail.value?.uuid
+  if (!jobId || retrying.value) return
+  retrying.value = true
+  try {
+    const out = await retryParseJob(jobId, step ? { from_step: step } : {})
+    Object.assign(detail.value, {
+      status: out.status,
+      progress: out.progress,
+      attempt: out.attempt,
+      error_code: out.error_code,
+      error_message: out.error_message,
+    })
+    ElMessage.success(`已受理重跑（第 ${out.attempt} 轮）${step ? `，从「${stepLabel(step)}」继续` : ''}`)
+    activeTab.value = 'steps'
+    load()
+    // 新一轮的步骤行由后台任务逐条写入，先同步一次已有记录
+    await refreshSteps()
+  } catch {
+    // 请求拦截器已统一提示错误
+  } finally {
+    retrying.value = false
+  }
+}
 
 /** 页图预览数组：只保留带 image_url 的项，供缩略图与放大预览共用 */
 const pageItems = computed(() => (detail.value?.result?.pages || []).filter((page) => page?.image_url))
@@ -803,12 +1092,15 @@ async function openDetail(row) {
   detail.value = null
   detailVisible.value = true
   detailLoading.value = true
-  activeTab.value = 'fileMeta'
+  // 失败的任务直接落到步骤页签：失败原因与「从此步重跑」都在那里
+  activeTab.value = row.status === 'failed' ? 'steps' : 'fileMeta'
   // 三栏联动状态随任务切换重置，避免沿用上一条任务的选中页
   activePageKey.value = null
   previewRetryKey.value = 0
   chunkEditor.visible = false
   publishDialog.visible = false
+  retrying.value = false
+  stepsLoading.value = false
   related.data = null
   related.list = []
   try {
@@ -851,6 +1143,119 @@ async function openDetail(row) {
 
 .kb-detail__block {
   margin-top: 12px;
+}
+
+.kb-drawer__head {
+  @include flex($justify: space-between, $gap: 12px);
+  padding-right: 24px;
+}
+
+.kb-drawer__title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--app-text-primary);
+}
+
+/* 步骤台账：一轮一块，失败步骤行内续跑 */
+.kb-step__bar {
+  @include flex($justify: space-between, $gap: 12px);
+  padding: 6px 0 10px;
+}
+
+.kb-step__hint {
+  @include ellipsis;
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--app-text-secondary);
+}
+
+.kb-step__group {
+  margin-bottom: 14px;
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+}
+
+.kb-step__head {
+  @include flex($gap: 8px);
+  padding: 6px 0 8px;
+}
+
+.kb-step__title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--app-text-primary);
+}
+
+.kb-step__meta {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--app-text-secondary);
+}
+
+.kb-step__name {
+  margin-right: 8px;
+}
+
+/* MinerU 产物：下载链接行 + 图片缩略墙 */
+.kb-artifact {
+  padding: 10px 12px;
+  border: 1px solid var(--app-border-color);
+  border-radius: var(--app-radius-sm);
+  background-color: var(--app-card-bg);
+
+  &__head {
+    @include flex($justify: space-between, $gap: 12px);
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--app-border-color);
+  }
+
+  &__title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--app-text-primary);
+  }
+
+  &__meta {
+    @include ellipsis;
+    max-width: 60%;
+    font-size: 12px;
+    color: var(--app-text-secondary);
+  }
+
+  &__links {
+    @include flex($gap: 10px);
+    flex-wrap: wrap;
+    padding: 8px 0;
+  }
+
+  &__count {
+    font-size: 12px;
+    color: var(--app-text-secondary);
+  }
+
+  &__images {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+    gap: 8px;
+  }
+
+  &__thumb {
+    width: 100%;
+    height: 84px;
+    border: 1px solid var(--app-border-color);
+    border-radius: var(--app-radius-sm);
+    background-color: var(--app-tint-bg);
+    cursor: zoom-in;
+
+    :deep(img) {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+  }
 }
 
 /* 解析产物三栏：目录 / 页图 / 切片，三栏等高，各自内部滚动 */

@@ -1,4 +1,4 @@
-"""文件存储（系统管理 → 文件存储）：S3 兼容对象存储的只读浏览模型。
+"""文件存储（系统管理 → 文件存储）：S3 兼容对象存储的浏览与维护模型。
 
 对象键口径与 ``app/core/clients/s3.py`` 保持一致：**不含** ``S3_KEY_PREFIX``，
 全局前缀由客户端统一拼接。所以页面上看到的是"应用目录内"的相对键
@@ -26,6 +26,7 @@ class StorageConfigOutSchema(BaseModel):
     use_ssl: bool = Field(default=False, description="endpoint 是否走 HTTPS")
     auto_create: bool = Field(default=True, description="启动时是否幂等建桶")
     presign_expire: int = Field(default=3600, description="预签名下载链接有效期（秒）")
+    upload_max_size_mb: int = Field(default=100, description="单文件上传上限（MB），超限按 413 拒绝")
 
 
 class StorageFolderOutSchema(BaseModel):
@@ -62,3 +63,35 @@ class StoragePresignOutSchema(BaseModel):
     key: str = Field(..., description="对象键")
     url: str = Field(..., description="预签名 GET URL")
     expires_in: int = Field(..., description="有效期（秒）")
+
+
+class StorageUploadOutSchema(BaseModel):
+    """上传结果：回显落库后的键与大小，供页面提示覆盖情况。"""
+
+    key: str = Field(..., description="写入后的对象键（不含全局前缀）")
+    name: str = Field(..., description="文件名（键的末段）")
+    size: int = Field(default=0, description="字节数")
+    content_type: str = Field(default="application/octet-stream", description="写入时声明的 MIME")
+    overwritten: bool = Field(default=False, description="是否覆盖了已存在的同名对象")
+
+
+class StorageDeleteInSchema(BaseModel):
+    """批量删除入参：仅文件，目录需进入后逐个删除。"""
+
+    keys: list[str] = Field(
+        ..., min_length=1, max_length=100, description="待删除对象键列表（不含全局前缀，最多 100 个）"
+    )
+
+
+class StorageDeleteFailureSchema(BaseModel):
+    """删除失败的单个对象：键校验不通过或对象存储拒绝。"""
+
+    key: str = Field(..., description="对象键")
+    reason: str = Field(..., description="失败原因")
+
+
+class StorageDeleteOutSchema(BaseModel):
+    """批量删除结果：成功与失败分开回显，部分失败不改整体状态码。"""
+
+    deleted: list[str] = Field(default_factory=list, description="已删除的对象键")
+    failed: list[StorageDeleteFailureSchema] = Field(default_factory=list, description="删除失败的键与原因")

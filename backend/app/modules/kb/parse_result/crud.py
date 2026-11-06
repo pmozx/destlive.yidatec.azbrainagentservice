@@ -2,6 +2,7 @@
 
 本工程没有迁移工具：``pages`` / ``suggested_doc_type`` 是 T2.4 新增列，
 ``publication_id`` / ``published_time`` 是「解析产物直接写入知识平台」新增列，
+``artifacts`` 是「MinerU 产物归档到对象存储」新增列，
 已存在的表需要启动/首次访问时幂等补列，否则 ORM 生成的 SELECT 会因缺列直接失败。
 补列语句都是 ``ADD COLUMN IF NOT EXISTS``，并发重复执行也安全。
 """
@@ -26,6 +27,7 @@ _EXTRA_COLUMNS: tuple[str, ...] = (
     "ALTER TABLE sbp_ai_kb_parse_result ADD COLUMN IF NOT EXISTS suggested_doc_type VARCHAR(64)",
     "ALTER TABLE sbp_ai_kb_parse_result ADD COLUMN IF NOT EXISTS publication_id VARCHAR(64)",
     "ALTER TABLE sbp_ai_kb_parse_result ADD COLUMN IF NOT EXISTS published_time TIMESTAMPTZ",
+    "ALTER TABLE sbp_ai_kb_parse_result ADD COLUMN IF NOT EXISTS artifacts JSONB",
 )
 
 

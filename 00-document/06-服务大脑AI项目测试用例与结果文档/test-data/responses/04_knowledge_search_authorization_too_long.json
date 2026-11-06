@@ -10,8 +10,8 @@
     "limit": 10,
     "authorization": {
       "scope_id": "scope-search-auth-too-long-001",
-      "issued_at": 1793691121814,
-      "expires_at": 1793691421814
+      "issued_at": 1793877540169,
+      "expires_at": 1793877840169
     }
   },
   "response_status": 400,

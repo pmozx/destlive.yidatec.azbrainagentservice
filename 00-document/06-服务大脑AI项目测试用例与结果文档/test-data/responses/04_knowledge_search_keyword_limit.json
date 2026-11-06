@@ -10,8 +10,8 @@
     "limit": 1,
     "authorization": {
       "scope_id": "scope-search-limit-001",
-      "issued_at": 1793691111325,
-      "expires_at": 1793691231325
+      "issued_at": 1793877528717,
+      "expires_at": 1793877648717
     }
   },
   "response_status": 200,
@@ -20,13 +20,13 @@
     "hits": [
       {
         "resource_type": "document",
-        "resource_id": "doc-lane2005-fdc",
+        "resource_id": "63858256ba974ede",
         "publication_id": "0876a2b0-2788-4816-a1fd-7f26a2bfd061",
-        "record_id": "rec-search-001-v1",
+        "record_id": "9412b3a0-c617-4562-838a-ff2e6bc0bd34",
         "version_id": "v1",
         "revision": 1,
-        "knowledge_no": "KB-HYDRO-2026-001",
-        "chunk_id": "rec-search-001-v1:1",
+        "knowledge_no": "KB-0000039",
+        "chunk_id": "9412b3a0-c617-4562-838a-ff2e6bc0bd34:1",
         "title": "流量历时曲线对造林的响应",
         "snippet": "…n annual basis. The impact on flow regime, as described by the annual flow duration curve (FDC) is less certain. A metho…",
         "page_from": 1,

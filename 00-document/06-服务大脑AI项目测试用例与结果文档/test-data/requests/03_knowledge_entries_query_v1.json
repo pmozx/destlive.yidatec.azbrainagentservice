@@ -1,7 +1,7 @@
 {
   "request_id": "req-kb-query-001",
   "tenant_id": "gsi-default",
-  "user_id": "user-demo-001",
+  "user_id": "1",
   "record_id": "rec-test-crud-001-v1",
   "limit": 100
 }

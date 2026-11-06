@@ -29,18 +29,24 @@ def _context_patcher(record):
 
 
 class InterceptHandler(logging.Handler):
-    """将标准库 logging 重定向到 Loguru"""
+    """将标准库 logging 重定向到 Loguru
+
+    来源三要素直接取 LogRecord 自带的 name/funcName/lineno：标准库自身的
+    findCaller 已经跳过 logging 内部帧，是唯一可信的调用点。
+    用 logger.opt(depth=...) 反推栈帧不行——emit 的 frame 就是本文件，
+    depth 会停在 "logging 内部帧" 上，日志里恒为 logging:callHandlers:NNNN。
+    """
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
             level = logger.level(record.levelname).name
         except ValueError:
             level = record.levelno
-        frame, depth = logging.currentframe(), 2
-        while frame and frame.f_code.co_filename == logging.__file__:
-            frame = frame.f_back
-            depth += 1
-        logger.opt(depth=depth, exception=record.exc_info).log(level, "{}", record.getMessage())
+
+        def apply_source(entry) -> None:
+            entry.update(name=record.name, function=record.funcName, line=record.lineno)
+
+        logger.patch(apply_source).opt(exception=record.exc_info).log(level, "{}", record.getMessage())
 
 
 def setup_logger() -> None:

@@ -27,6 +27,8 @@ from .schema import (
     KbParseJobQueryParam,
     KbParsePublishOutSchema,
     KbParsePublishSchema,
+    KbParseRetrySchema,
+    KbParseStepOutSchema,
 )
 
 KbParseJobRouter = APIRouter(route_class=ApiLogRoute, prefix="/parse-jobs", tags=["202-解析任务"])
@@ -62,6 +64,37 @@ async def get_parse_job_detail_controller(
 ) -> JSONResponse:
     result = await KbParseJobAdminService(db).detail(job_id)
     return SuccessResponse(data=result, msg="获取解析任务详情成功")
+
+
+@KbParseJobRouter.get(
+    "/steps/{job_id}",
+    summary="02-1 查询流水线步骤台账",
+    response_model=ResponseSchema[list[KbParseStepOutSchema]],
+)
+async def get_parse_job_steps_controller(
+    db: Annotated[AsyncSession, Depends(db_getter)],
+    job_id: Annotated[str, Path(description="契约 job_id", min_length=1, max_length=64)],
+) -> JSONResponse:
+    """单条任务的每步执行记录（含历史轮次）：耗时、失败原因、降级/跳过说明。"""
+    result = await KbParseJobAdminService(db).list_steps(job_id)
+    return SuccessResponse(data=result, msg="获取解析步骤成功")
+
+
+@KbParseJobRouter.post(
+    "/retry/{job_id}",
+    summary="02-2 从失败步骤重跑解析任务",
+    response_model=ResponseSchema[KbParseJobOutSchema],
+)
+async def retry_parse_job_controller(
+    background: BackgroundTasks,
+    db: Annotated[AsyncSession, Depends(db_getter)],
+    job_id: Annotated[str, Path(description="契约 job_id", min_length=1, max_length=64)],
+    data: Annotated[KbParseRetrySchema | None, Body(description="重跑起点（缺省=上一轮失败步骤）")] = None,
+) -> JSONResponse:
+    """重跑失败/卡住的任务：从失败那一步继续，之前的步骤复用台账里的产物快照。"""
+    out, task = await KbParseJobAdminService(db).retry(job_id, from_step=data.from_step if data else None)
+    background.add_task(run_submitted_parse, task)
+    return SuccessResponse(data=out, msg="重跑已受理")
 
 
 @KbParseJobRouter.post(

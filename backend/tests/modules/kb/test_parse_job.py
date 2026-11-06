@@ -4,6 +4,7 @@
 受理回执、幂等回放、前置校验归口（4xx 在 202 之前）、以及拉取超限必须立刻中断。
 """
 
+import asyncio
 import json
 import uuid
 from typing import Any
@@ -229,9 +230,9 @@ async def test_build_pages_uploads_previews_to_object_storage(monkeypatch) -> No
     page.close()
     document.close()
 
-    warnings: list[str] = []
-    pages = await pipeline._build_pages("job-preview", "guide.pdf", buffer.getvalue(), warnings)
-    assert warnings == []
+    pages, page_warnings, page_error = await pipeline._build_pages("job-preview", buffer.getvalue())
+    assert page_warnings == []
+    assert page_error is None
     assert [(key, content_type) for key, _, content_type in fake.uploads] == [
         ("parse-previews/job-preview/page-1.png", "image/png")
     ]
@@ -247,6 +248,93 @@ async def test_build_pages_uploads_previews_to_object_storage(monkeypatch) -> No
     assert refreshed[0]["image_url"].endswith("?X-Amz-Expires=60")
 
 
+async def test_archive_document_uploads_markdown_json_and_images() -> None:
+    """MinerU 产物归档：md / 版面 JSON / 图片各归各位，图片名加序号前缀避免同名覆盖。"""
+    from app.core.rag.parsers import ParsedDocument, ParsedImage
+    from app.modules.kb.parse_job import artifacts as artifact_mod
+
+    fake = _FakeS3()
+    document = ParsedDocument(
+        text="# 标题\n\n正文段落。",
+        source="guide.pdf",
+        suffix=".pdf",
+        meta={"parser": "mineru", "mode": "precision"},
+        page_map=[],
+        content_list=[{"type": "text", "text": "正文段落。"}],
+        images=[ParsedImage(name="images/ab12.png", data=b"png-1"), ParsedImage(name="tab.png", data=b"png-2")],
+    )
+
+    captured = await asyncio.to_thread(artifact_mod.archive_document, "job-art", document, client=fake)
+
+    assert captured["markdown_key"] == "parse-artifacts/job-art/full.md"
+    assert captured["content_list_key"] == "parse-artifacts/job-art/content_list.json"
+    assert captured["image_keys"] == [
+        "parse-artifacts/job-art/images/001-ab12.png",
+        "parse-artifacts/job-art/images/002-tab.png",
+    ]
+    assert captured["image_count"] == 2
+    assert captured["parser"] == "mineru"
+    uploaded = [(key, data, content_type) for key, data, content_type in fake.uploads]
+    assert [item[0] for item in uploaded] == [
+        "parse-artifacts/job-art/full.md",
+        "parse-artifacts/job-art/content_list.json",
+        "parse-artifacts/job-art/images/001-ab12.png",
+        "parse-artifacts/job-art/images/002-tab.png",
+    ]
+    assert uploaded[0][2] == "text/markdown; charset=utf-8"
+    assert uploaded[1][2] == "application/json; charset=utf-8"
+    assert uploaded[2][2] == "image/png"
+
+
+async def test_archive_document_skips_empty_content_list() -> None:
+    """flash 模式没有版面 JSON：不生成空的 content_list.json，也不伪造下载地址。"""
+    from app.core.rag.parsers import ParsedDocument
+    from app.modules.kb.parse_job import artifacts as artifact_mod
+
+    fake = _FakeS3()
+    document = ParsedDocument(
+        text="纯文本正文。",
+        source="note.txt",
+        suffix=".txt",
+        meta={"parser": "local-text"},
+        page_map=[],
+        content_list=[],
+        images=[],
+    )
+
+    captured = await asyncio.to_thread(artifact_mod.archive_document, "job-flash", document, client=fake)
+    assert captured["content_list_key"] is None
+    assert captured["image_keys"] == []
+    assert [key for key, _, _ in fake.uploads] == ["parse-artifacts/job-flash/full.md"]
+
+
+async def test_presign_artifacts_returns_download_urls(monkeypatch) -> None:
+    """产物投影：键→预签名 URL，图片逐张签发；对象存储未启用时整项返回 None。"""
+    from app.modules.kb.parse_job import artifacts as artifact_mod
+
+    fake = _FakeS3()
+    monkeypatch.setattr(settings, "S3_ENABLE", True)
+    monkeypatch.setattr(settings, "PARSE_PREVIEW_TTL_SECONDS", 300)
+    monkeypatch.setattr(artifact_mod, "get_s3_client", lambda: fake)
+    captured = {
+        "markdown_key": "parse-artifacts/job-x/full.md",
+        "content_list_key": "parse-artifacts/job-x/content_list.json",
+        "image_keys": ["parse-artifacts/job-x/images/001-a.png"],
+        "image_count": 1,
+        "parser": "mineru",
+    }
+
+    out = artifact_mod.presign_artifacts(captured)
+    assert out is not None
+    assert out["markdown_url"].endswith("?X-Amz-Expires=300")
+    assert out["content_list_url"].endswith("?X-Amz-Expires=300")
+    assert out["images"][0]["image_url"].endswith("?X-Amz-Expires=300")
+    assert out["image_count"] == 1
+
+    monkeypatch.setattr(settings, "S3_ENABLE", False)
+    assert artifact_mod.presign_artifacts(captured) is None
+
+
 def test_build_suggested_prefers_page_metadata() -> None:
     """建议元数据优先复用页面已填值，缺失时从正文标题兜底。"""
     suggested, doc_type = pipeline.build_suggested(
@@ -256,6 +344,39 @@ def test_build_suggested_prefers_page_metadata() -> None:
     )
     assert doc_type == "SOP"
     assert suggested == {"title": "VPN 申请操作手册", "summary": "开通说明", "tags": ["VPN"]}
+
+
+def test_faq_chunks_drops_unfinished_answers() -> None:
+    """答案只写了半句话的条目直接丢弃（提示词约束失效时的兜底），不落成切片。"""
+    chunks, skipped = pipeline._faq_chunks(
+        [
+            {"question": "研究使用了哪些流域数据？", "answer": "研究使用了来自"},
+            {"question": "研究目的是什么？", "answer": "该研究旨在评估退耕还林对径流的影响。"},
+            {"question": "空答案", "answer": "   "},
+        ],
+        page_map=[],
+    )
+    assert [item["content"] for item in chunks] == ["该研究旨在评估退耕还林对径流的影响。"]
+    assert [item["seq"] for item in chunks] == [1]
+    assert skipped == 2
+
+
+async def test_faq_extraction_times_out(monkeypatch) -> None:
+    """FAQ 提取必须有整体预算：模型迟迟不返回时落成超时异常，不能永远停在 35%。"""
+    from app.core.exceptions import CustomException
+
+    async def slow_chat(self, messages, **kwargs) -> str:
+        await asyncio.sleep(5)
+        return "[]"
+
+    monkeypatch.setattr("app.core.clients.llm.LlmClient.chat", slow_chat)
+    monkeypatch.setattr(pipeline.settings, "PARSE_FAQ_TIMEOUT", 0.05)
+
+    with pytest.raises(CustomException) as exc_info:
+        await pipeline.build_faq_chunks(
+            "文档正文", prompt_text="从文档中提取 FAQ。", model_key="default", language="zh-CN", page_map=[]
+        )
+    assert "超时" in exc_info.value.msg
 
 
 @requires_db

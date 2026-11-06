@@ -169,6 +169,17 @@ class Settings(BaseSettings):
     PARSE_CHUNK_SIZE: int = Field(default=800, description="默认分片长度（字符数）")
     PARSE_CHUNK_OVERLAP: int = Field(default=120, description="默认相邻分片重叠字符数，须小于分片长度")
     PARSE_FAQ_MAX_CHARS: int = Field(default=30000, description="FAQ 提取时送给模型的文档正文上限（字符数），超出截断并告警")
+    PARSE_FAQ_TIMEOUT: float = Field(
+        default=300.0,
+        description="FAQ 提取调用模型的整体预算（秒）：流式响应的读超时会被每片数据重置，没有总预算就会无限期挂着",
+    )
+    PARSE_STEP_STALL_SECONDS: float = Field(
+        default=1800.0,
+        description=(
+            "流水线单步无进展多久判定为卡死（秒，默认 30 分钟）：进程还在但上游连接半死时，"
+            "任务会永远停在某一步，页面读取详情时据此改判失败并允许从该步重跑"
+        ),
+    )
     PARSE_MAX_FILE_BYTES: int = Field(
         default=10 * 1024 * 1024,
         description="单文件解析上限（字节，默认 10MB）：声明大小与实拉字节都要校验，超限按 413 拒绝",
@@ -258,6 +269,9 @@ class Settings(BaseSettings):
     S3_TIMEOUT: float = Field(default=30.0, description="连接与读超时（秒）；大文件上传可适当调大")
     S3_PRESIGN_EXPIRE: int = Field(default=3600, description="预签名下载链接有效期（秒）")
     S3_KEY_PREFIX: str = Field(default="", description="对象键统一前缀（多环境共用一个桶时用于隔离）")
+    STORAGE_UPLOAD_MAX_SIZE_MB: int = Field(
+        default=100, description="系统管理-文件存储页单文件上传上限（MB），超限按 413 拒绝"
+    )
     IO_THREAD_POOL_SIZE: int = Field(default=4, description="阻塞 IO 线程池并发（对象存储上传/下载等网络等待）")
 
     # 连接池配置

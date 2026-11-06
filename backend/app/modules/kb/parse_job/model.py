@@ -28,6 +28,9 @@ class KbParseJobModel(ModelMixin):
 
     resource_type: Mapped[str] = mapped_column(String(20), nullable=False, comment="document/faq")
     file_meta: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False, comment="原始 metadata（来源/URL/页数）")
+    attempt: Mapped[int] = mapped_column(
+        Integer, default=1, server_default=text("1"), nullable=False, comment="执行轮次（重跑 +1，写库时做乐观锁）"
+    )
     progress: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"), nullable=False, comment="进度 0–100")
     error_code: Mapped[str | None] = mapped_column(String(64), default=None, nullable=True, comment="任务态失败码")
     error_message: Mapped[str | None] = mapped_column(Text, default=None, nullable=True, comment="任务态失败说明")

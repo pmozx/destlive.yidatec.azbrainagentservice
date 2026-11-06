@@ -10,6 +10,19 @@ export function getParseJobDetail(jobId) {
   return request.get(`/kb/parse-jobs/detail/${jobId}`)
 }
 
+/** 查询流水线步骤台账（GET /api/v1/kb/parse-jobs/steps/{job_id}，含历史执行轮次） */
+export function getParseJobSteps(jobId) {
+  return request.get(`/kb/parse-jobs/steps/${jobId}`)
+}
+
+/**
+ * 从失败步骤重跑（POST /api/v1/kb/parse-jobs/retry/{job_id}）
+ * data: { from_step? }；缺省取上一轮失败的那一步，之前的步骤复用台账快照不重新解析
+ */
+export function retryParseJob(jobId, data = {}) {
+  return request.post(`/kb/parse-jobs/retry/${jobId}`, data, { timeout: 60000 })
+}
+
 /**
  * 编辑解析产物里的单条切片（PUT /api/v1/kb/parse-jobs/update-chunk/{job_id}）
  * data: { seq, content }；只覆盖该条正文并打 edited 标记，不重算产物哈希

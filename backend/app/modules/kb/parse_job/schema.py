@@ -36,10 +36,40 @@ class KbParseResultOutSchema(BaseModel):
     suggested: dict[str, Any] | None = Field(default=None, description="AI 建议元数据")
     suggested_doc_type: str | None = Field(default=None, description="建议文档分类")
     warnings: list[Any] = Field(default_factory=list, description="解析告警")
+    artifacts: dict[str, Any] | None = Field(
+        default=None, description="MinerU 产物在对象存储的键（markdown/content_list/images）"
+    )
     content_hash: str = Field(..., description="产物整体哈希")
     publication_id: str | None = Field(default=None, description="已写入的发布单元 ID（未写入为 null）")
     published_time: DateTimeStr | None = Field(default=None, description="最近一次写入知识平台的时间")
     created_time: DateTimeStr | None = Field(default=None, description="产物写入时间")
+
+
+class KbParseStepOutSchema(BaseModel):
+    """一步的执行记录：页面用它渲染步骤时间线与失败原因（不带续跑快照）。"""
+
+    model_config = {"from_attributes": True}
+
+    id: int = Field(..., description="记录行 ID")
+    attempt: int = Field(..., description="第几次执行（1 起）")
+    step: str = Field(..., description="extract/artifacts/faq/chunk/pages/suggest/persist")
+    status: str = Field(..., description="running/succeeded/failed/skipped")
+    fatal: bool = Field(..., description="失败是否中断任务（false=降级继续）")
+    started_time: DateTimeStr = Field(..., description="开始时间")
+    finished_time: DateTimeStr | None = Field(default=None, description="结束时间（running 为 null）")
+    duration_ms: int | None = Field(default=None, description="耗时（毫秒）")
+    error_code: str | None = Field(default=None, description="步骤失败码")
+    error_message: str | None = Field(default=None, description="步骤失败原因 / 跳过原因")
+    detail: dict[str, Any] = Field(default_factory=dict, description="轻量元数据（解析器/页数/条数）")
+
+
+class KbParseRetrySchema(BaseModel):
+    """重跑请求：缺省从上一轮失败的那一步继续。"""
+
+    from_step: Literal["extract", "artifacts", "faq", "chunk", "pages", "suggest", "persist"] | None = Field(
+        default=None,
+        description="从哪一步重跑；缺省取上一轮第一处失败的步骤，再往前自动回退到有快照的位置",
+    )
 
 
 class KbParseChunkUpdateSchema(BaseModel):
@@ -107,15 +137,20 @@ class KbParseJobOutSchema(BaseSchema):
     resource_type: str = Field(..., description="document/faq")
     status: str = Field(..., description="queued/running/succeeded/failed")
     progress: int = Field(default=0, description="进度 0–100")
+    attempt: int = Field(default=1, description="执行轮次（重跑会 +1）")
     error_code: str | None = Field(default=None, description="失败码")
     error_message: str | None = Field(default=None, description="失败说明")
 
 
 class KbParseJobDetailOutSchema(KbParseJobOutSchema):
-    """解析任务详情响应（含原始请求快照与解析产物）。"""
+    """解析任务详情响应（含原始请求快照、解析产物与步骤台账）。"""
 
     file_meta: dict[str, Any] = Field(default_factory=dict, description="原始请求快照")
     result: KbParseResultOutSchema | None = Field(default=None, description="解析产物（未完成时为 null）")
+    steps: list[KbParseStepOutSchema] = Field(default_factory=list, description="步骤台账（含历史执行轮次）")
+    artifact_urls: dict[str, Any] | None = Field(
+        default=None, description="MinerU 产物的预签名下载地址（对象存储未启用时为 null）"
+    )
 
 
 class KbParseJobQueryParam(BaseQueryParam):

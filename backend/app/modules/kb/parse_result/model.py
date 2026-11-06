@@ -33,6 +33,12 @@ class KbParseResultModel(MappedBase):
         String(64), default=None, nullable=True, comment="建议文档分类（仅建议，不改变业务状态）"
     )
     warnings: Mapped[list[str]] = mapped_column(JSONB, default=list, nullable=False, comment="非致命解析告警")
+    artifacts: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB,
+        default=None,
+        nullable=True,
+        comment="MinerU 产物在对象存储的键（markdown/content_list/images）",
+    )
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False, comment="产物整体哈希（版本比对）")
     publication_id: Mapped[str | None] = mapped_column(
         String(64), default=None, nullable=True, comment="写入知识平台后的发布单元 ID（未写入为空）"

@@ -4,10 +4,14 @@
       <div>
         <h2 class="page-header__title">文件存储</h2>
         <p class="page-header__desc">
-          查看当前环境配置的 S3 兼容对象存储：按目录逐层浏览文件夹与文件，可预览、下载或复制预签名链接；只读视图，不提供删除
+          查看当前环境配置的 S3 兼容对象存储：按目录逐层浏览文件夹与文件，可预览、下载、复制预签名链接，并向当前目录上传或删除文件；删除前请确认对象未被知识库记录引用
         </p>
       </div>
       <div class="page-header__actions">
+        <el-button size="small" type="primary" :disabled="!config.enabled" @click="openUpload">
+          <el-icon><UploadFilled /></el-icon>
+          <span>上传文件</span>
+        </el-button>
         <el-button size="small" :loading="loading || configLoading" @click="refreshAll">
           <el-icon><Refresh /></el-icon>
           <span>刷新</span>
@@ -69,7 +73,33 @@
           </el-form>
         </div>
 
-        <el-table v-loading="loading" :data="rows" row-key="rowKey" size="small" style="width: 100%" @row-dblclick="handleRowDblClick">
+        <div class="storage-bulk">
+          <span class="storage-bulk__hint">
+            已选 {{ selectedRows.length }} 个文件（目录不支持删除，需进入后逐个删）
+          </span>
+          <el-button
+            size="small"
+            type="danger"
+            plain
+            :disabled="!selectedRows.length || deleting"
+            :loading="deleting"
+            @click="deleteSelected"
+          >
+            删除选中
+          </el-button>
+        </div>
+
+        <el-table
+          ref="tableRef"
+          v-loading="loading"
+          :data="rows"
+          row-key="rowKey"
+          size="small"
+          style="width: 100%"
+          @row-dblclick="handleRowDblClick"
+          @selection-change="handleSelectionChange"
+        >
+          <el-table-column type="selection" width="44" :selectable="isFileRow" />
           <el-table-column label="名称" min-width="300">
             <template #default="{ row }">
               <span class="storage-name" :class="{ 'is-folder': row.kind === 'folder' }" @click="handleNameClick(row)">
@@ -94,7 +124,7 @@
           <el-table-column label="对象键" min-width="260" show-overflow-tooltip>
             <template #default="{ row }">{{ row.kind === 'folder' ? row.prefix : row.key }}</template>
           </el-table-column>
-          <el-table-column label="操作" width="212" fixed="right">
+          <el-table-column label="操作" width="268" fixed="right">
             <template #default="{ row }">
               <el-button v-if="row.kind === 'folder'" link type="primary" size="small" @click="openDir(row.prefix)">
                 进入
@@ -103,6 +133,7 @@
                 <el-button link type="primary" size="small" @click="openObject(row)">查看</el-button>
                 <el-button link type="primary" size="small" @click="copyPresign(row)">复制链接</el-button>
                 <el-button link type="primary" size="small" @click="downloadObject(row)">下载</el-button>
+                <el-button link type="danger" size="small" :disabled="deleting" @click="deleteRow(row)">删除</el-button>
               </template>
             </template>
           </el-table-column>
@@ -154,14 +185,56 @@
         <el-button size="small" type="primary" @click="downloadObject(previewRow)">下载</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="uploadVisible" title="上传文件" width="560px" destroy-on-close>
+      <el-alert
+        type="info"
+        :closable="false"
+        show-icon
+        :title="`上传到：${prefix || rootLabel}`"
+        :description="`单文件上限 ${config.upload_max_size_mb} MB；同名文件会先询问是否覆盖，覆盖后原内容不可恢复`"
+      />
+      <el-upload
+        v-model:file-list="uploadFiles"
+        class="storage-upload"
+        drag
+        multiple
+        :auto-upload="false"
+      >
+        <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
+        <div class="el-upload__text">把文件拖到这里，或<em>点击选择</em></div>
+        <template #tip>
+          <div class="el-upload__tip">选中后点「开始上传」；上传期间不要关闭窗口</div>
+        </template>
+      </el-upload>
+      <template #footer>
+        <el-button size="small" :disabled="uploading" @click="uploadVisible = false">取消</el-button>
+        <el-button
+          size="small"
+          type="primary"
+          :loading="uploading"
+          :disabled="!uploadFiles.length"
+          @click="submitUpload"
+        >
+          开始上传
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
-import { getStorageConfig, getStorageObjects, getStoragePresign, storageContentUrl } from '@/api/module_system/storage'
+import {
+  deleteStorageObjects,
+  getStorageConfig,
+  getStorageObjects,
+  getStoragePresign,
+  storageContentUrl,
+  uploadStorageObject,
+} from '@/api/module_system/storage'
 import SectionCard from '@/components/common/SectionCard.vue'
 import StatCard from '@/components/common/StatCard.vue'
 import { formatDateTime, formatFileSize } from '@/utils/format'
@@ -182,6 +255,7 @@ function emptyConfig() {
     use_ssl: false,
     auto_create: false,
     presign_expire: 0,
+    upload_max_size_mb: 0,
   }
 }
 
@@ -209,6 +283,8 @@ const rootLabel = computed(() => {
 // ── 目录浏览 ────────────────────────────────────────────────────────────
 
 const loading = ref(false)
+const tableRef = ref(null)
+const selectedRows = ref([])
 const folders = ref([])
 const files = ref([])
 const prefix = ref('')
@@ -282,6 +358,8 @@ async function load() {
     nextToken.value = null
   } finally {
     loading.value = false
+    // 翻页/刷新后旧选中项已不在当前页，必须清掉，否则批量删除会带上看不见的文件
+    tableRef.value?.clearSelection()
   }
 }
 
@@ -399,6 +477,143 @@ async function copyText(text) {
   document.body.removeChild(textarea)
 }
 
+// ── 选择与删除 ────────────────────────────────────────
+
+const deleting = ref(false)
+
+/** 只有文件行可勾选：目录删除不在本页能力范围 */
+function isFileRow(row) {
+  return row.kind === 'file'
+}
+
+function handleSelectionChange(selection) {
+  selectedRows.value = selection
+}
+
+async function deleteRow(row) {
+  if (!row?.key) return
+  await runDelete([row.key])
+}
+
+async function deleteSelected() {
+  const keys = selectedRows.value.map((row) => row.key).filter(Boolean)
+  if (!keys.length) return
+  await runDelete(keys)
+}
+
+/** 删前必确认：桶内对象常被知识库记录引用，删掉即死链且不可恢复 */
+async function runDelete(keys) {
+  if (deleting.value) return
+  const target = keys.length > 1 ? `这 ${keys.length} 个文件` : `「${keys[0]}」`
+  try {
+    await ElMessageBox.confirm(
+      `将永久删除${target}。若对象已被知识库记录引用（如解析页图），相关预览与下载会变成死链且无法恢复。`,
+      '删除确认',
+      {
+        type: 'warning',
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+        confirmButtonClass: 'el-button--danger',
+      },
+    )
+  } catch {
+    return
+  }
+
+  deleting.value = true
+  try {
+    const result = await deleteStorageObjects(keys, { quiet: true })
+    const deleted = result?.deleted?.length || 0
+    const failed = result?.failed || []
+    if (deleted) ElMessage.success(`已删除 ${deleted} 个文件`)
+    if (failed.length) {
+      const detail = failed.map((item) => `${item.key}（${item.reason}）`).join('；')
+      ElMessage.warning(`${failed.length} 个文件删除失败：${detail}`)
+    }
+    await load()
+  } catch (error) {
+    ElMessage.error(error?.message || '删除失败')
+  } finally {
+    deleting.value = false
+  }
+}
+
+// ── 上传 ────────────────────────────────────────────
+
+const uploadVisible = ref(false)
+const uploadFiles = ref([])
+const uploading = ref(false)
+
+function openUpload() {
+  if (!config.value.enabled) return
+  uploadFiles.value = []
+  uploadVisible.value = true
+}
+
+/** 单个文件上传：同名时问一次是否覆盖，取消则跳过该文件 */
+async function uploadOne(file) {
+  const form = new FormData()
+  form.append('file', file.raw, file.name)
+  form.append('prefix', prefix.value)
+  form.append('overwrite', 'false')
+
+  try {
+    return await uploadStorageObject(form, { quiet: true })
+  } catch (error) {
+    if (error?.response?.status !== 409) throw error
+    await ElMessageBox.confirm(
+      `「${file.name}」在当前目录已存在，覆盖后原对象内容不可恢复（引用它的记录会读到新内容）。是否覆盖？`,
+      '同名对象',
+      { type: 'warning', confirmButtonText: '覆盖', cancelButtonText: '跳过' },
+    )
+    form.set('overwrite', 'true')
+    return uploadStorageObject(form, { quiet: true })
+  }
+}
+
+/** 逐个上传：串行避免多份大文件同时占满带宽与服务端线程池 */
+async function submitUpload() {
+  if (uploading.value) return
+  const pending = uploadFiles.value.filter((file) => file.raw)
+  if (!pending.length) return
+
+  const limitMb = config.value.upload_max_size_mb || 0
+  const failures = []
+  let uploaded = 0
+  let overwritten = 0
+  let skipped = 0
+
+  uploading.value = true
+  for (const file of pending) {
+    if (limitMb && file.size > limitMb * 1024 * 1024) {
+      failures.push(`${file.name}：超过 ${limitMb} MB 上限`)
+      continue
+    }
+    try {
+      const result = await uploadOne(file)
+      uploaded += 1
+      if (result?.overwritten) overwritten += 1
+    } catch (error) {
+      // ElMessageBox 取消是 'cancel'/'close'，与 HTTP 错误分开统计
+      if (error === 'cancel' || error === 'close') {
+        skipped += 1
+        continue
+      }
+      failures.push(`${file.name}：${error?.message || '上传失败'}`)
+    }
+  }
+  uploading.value = false
+
+  if (uploaded) {
+    ElMessage.success(`已上传 ${uploaded} 个文件${overwritten ? `（覆盖 ${overwritten} 个）` : ''}`)
+  }
+  if (skipped) ElMessage.info(`已跳过 ${skipped} 个同名文件`)
+  if (failures.length) ElMessage.error(`上传失败：${failures.join('；')}`)
+
+  uploadVisible.value = false
+  await load()
+}
+
 onMounted(async () => {
   await loadConfig()
   await load()
@@ -456,6 +671,21 @@ onMounted(async () => {
   &__text {
     @include ellipsis;
   }
+}
+
+.storage-bulk {
+  @include flex($justify: flex-end, $align: center, $gap: 10px);
+  margin-bottom: 8px;
+
+  &__hint {
+    margin-right: auto;
+    font-size: 12px;
+    color: var(--app-text-muted);
+  }
+}
+
+.storage-upload {
+  margin-top: 16px;
 }
 
 .storage-pagination {

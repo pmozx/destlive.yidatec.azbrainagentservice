@@ -1,7 +1,7 @@
 {
   "request_id": "req-kb-delete-001",
   "tenant_id": "gsi-default",
-  "user_id": "user-demo-001",
+  "user_id": "1",
   "resource_type": "document",
   "resource_id": "doc-lane2005-fdc",
   "publication_id": "pub-test-crud-001",

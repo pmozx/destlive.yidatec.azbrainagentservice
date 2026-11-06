@@ -21,7 +21,44 @@
 - `03_*.json` 的 `chunks` 不另编样例：逐字取自 02 解析产物 —— 文档形态取 `responses/02_parse_jobs_doc.json`，FAQ 形态取 `responses/02_parse_jobs_faq.json`（`heading` / 正文 / 页码原样沿用），只在知识包内按 1..N 重编 `seq`；`metadata.source_parse_job_id` 记录来源解析任务（`parse-doc-100001` / `parse-faq-200001`），保证「解析产物 → 审批写入」可追溯。
 - `04_` 前缀 = 检索接口（#07 `POST /v1/knowledge/search`）
 - `04_*.json` 的 `authorization` 时效写占位符：`__AUTH_ISSUED_AT__` / `__AUTH_EXPIRES_120S__` / `__AUTH_EXPIRES_300S__` / `__AUTH_EXPIRED_ISSUED__` / `__AUTH_EXPIRED_EXPIRES__`，由 `resolve_authorization()` 在发送前换算成当前时刻的毫秒值。静态值一落地就过期，区分不了「跨度超限」与「已过期」。
-- `04_*.json` 的切片与 03 文档形态同源（`04_knowledge_search_prepare_entry.json` 就是上述 #1 的三条切片），但 `publication_id` 改填 GSI 发布单元 `0876a2b0-2788-4816-a1fd-7f26a2bfd061`（`team=AUD_SMOKE`，成员 `user_id=1`），检索的授权链才能成立。
+- `04_*.json` 的切片与 03 文档形态同源（`04_knowledge_search_prepare_entry.json` 就是上述 #1 的三条切片），但 `publication_id` 改填 GSI 发布单元 `0876a2b0-2788-4816-a1fd-7f26a2bfd061`（`team=AUD_SMOKE`，成员 `user_id=1`），检索的授权链才能成立；`resource_id` / `record_id` / `knowledge_no` / `metadata.owner` 也取该发布单元在 GSI 侧的真实值（见 1.1），命中结果里的 `record_id`、`chunk_id` 因此能与 `sbp_km_doc_record` 逐条对账。
+
+### 1.1 检索用例的授权链基线（2026-11-05 取自开发库 `service_brain`）
+
+按《知识平台与 AI 接口对接说明-v3》§四 的成员查询与文档候选查询实测到的值：
+
+| 环节 | 表 | 实际取值 |
+| --- | --- | --- |
+| 可信用户 | `sbp_sys_user` | `id=1`（`admin`，`status='1'`、`allow_login='1'`、`deleted=0`） |
+| 用户受众团队 | `sbp_sys_audience_team_member` → `sbp_sys_audience_team` | `team_id=1` → `group_code=AUD_SMOKE`（`group_name=App L3`、`audience_team=Smoke`，`status='1'`、`deleted=0`） |
+| 文档发布单元 | `sbp_km_doc_publication` | `id=0876a2b0-2788-4816-a1fd-7f26a2bfd061`、`doc_id=63858256ba974ede`、`record_id=9412b3a0-c617-4562-838a-ff2e6bc0bd34`、`team=AUD_SMOKE`、`index_status=succeeded` |
+| 文档 / 生效快照 | `sbp_km_doc` / `sbp_km_doc_record` | `knowledge_no=KB-0000039`；`doc.status=Pending Owner Review`（不在 `Archived` / `Unpublished` 内，按 §四 仍可召回），`record.stage=audience`、`status=approved`；快照 `version=1`、`owner=kali04`、`expireAt=2026-11-30`、`invisibleTeams=[]` |
+| 越权用户 | `sbp_sys_user` / `sbp_sys_audience_team_member` | `user_id=2`（`qiang.wu`）→ `team_id=2`（`group_code=test1`），不属于 `AUD_SMOKE` |
+| 无团队用户 | `sbp_sys_user` | `user_id=5`（`author`，`status='1'`、`deleted=0`，无任何受众团队） |
+
+- 授权链：`user_id=1` → `_member.team_id=1` → `group_code=AUD_SMOKE` → `doc_publication.team=AUD_SMOKE`；匹配只认 `group_code`，`group_name` / `audience_team` 仅兼容历史数据。
+- 同一团队下另有 `c14b2baa-2575-4f96-9242-0e0baac7fc9f`（`KB-0000045`，`Published`，`expireAt=2026-12-24`）与 `b1564249-3de5-42e4-9a7c-242f0e68cd0c`（`KB-0000018`，`expireAt=2026-11-05`）；后者快照当天到期，不宜用来铺场。
+- `c14b2baa` 自 2026-11-05 起承载 AI 侧 20 条中文基线切片（03.1 写入，`revision=1`、`record_id=4e528fa2-…`），用于 AI 对话（管理端 `POST /api/v1/kb/chat/ask`）与自然语言检索复核；`04_*` 铺场仍写 `0876a2b0`（3 条英文切片），两者互不覆盖。
+- 快照 `expireAt`（2026-11-30）到期后，按契约 §四 第 4 条应判为拒绝：届时需换一条仍在有效期内的发布单元，并同步改 `04_knowledge_search_prepare_entry.json` 的四项标识与 `request_id`。
+ 铺场只借用该发布单元的**标识与受众关系**（`publication_id` / `doc_id` / `record_id` / `knowledge_no` / `team`），切片正文与标题仍是 §二的论文基线，因此 AI 侧这条发布单元的内容与 GSI 原文档正文不同；这是「用真实授权链驱动可重复检索用例」的既定取舍，不是数据错位。
+- 2026-11-05 数据治理：AI 侧曾有一条 `pub-test-crud-001`（`gsi-default`、20 条中文基线，GSI 侧无对应发布单元，故永远不在 user 1 的授权集合内），已连同切片 / 版本 / 台账一并清除，基线切片改挂 `c14b2baa`。`03_*` 使用的 `pub-test-*` 测试专用发布单元会在重跑 `run_knowledge_tests` 时由 03.1 重新创建。
+
+### 1.2 请求里的用户 / 权限字段口径（统一按 `user_id=1` 生成）
+
+`requests/` 下凡涉及用户身份与权限归属的字段，一律取开发库 `sbp_sys_user.id=1`（`admin`）的真实值，不再使用 `user-demo-001` / `kali03` 这类自造值：
+
+| 前缀 | 字段 | 取值 |
+| --- | --- | --- |
+| `01_` / `03_` / `04_` | `tenant_id` | `gsi-default`（唯一租户）；只有 `04_knowledge_search_other_tenant.json` 故意用 `gsi-other` 做隔离用例 |
+| `01_` | `metadata.owner` / `metadata.author` | `admin` |
+| `01_` | `metadata.team` / `metadata.audience` | team=`AUD_SMOKE`；audience 六维取真实值：`department=["二部"]`（`sbp_sys_org` 中真实组织）、`team=["AUD_SMOKE"]`、`role=["Employee"]`、`region=["1"]`、`skill=[]`、`scenario=[]` |
+| `01_` | `metadata.invisible_teams` | `["test1"]`（user 2 所在团队），用于验证「命中即拒」的排除规则 |
+| `03_` | `user_id` / `metadata.owner` | `1` / `admin` |
+| `04_` | `user_id` | 命中与其余异常用例 `1`；越权 `2`（`test1` 成员）、无团队 `5`、非数字 `gsi-user-1`；其余 `04_*` 字段沿用本节 §1.1 口径 |
+
+- `03_*` 的 `publication_id` 保持 `pub-test-*` 测试专用标识，**不**绑真实发布单元：03.1–03.4 不读 GSI 授权表（controller 未挂 `enforced_authorization`），`user_id` 仅留痕；若绑真实发布单元，删除用例（`03_knowledge_entries_delete.json`）会给它写墓碑，影响 GSI 侧真实投递与检索用例。
+- 只有 `04_*` 需要真实发布单元，因为 #07 的授权在召回前生效，`publication_id` 必须是 `user_id` 可授权的团队所属发布单元（见 §1.1）。
+- 请求正文一变，实测结果就必须重跑：`responses/` 与两份报告的实测摘录里仍留有改前的 `kali03` / `TEAM-HYDRO` 快照，重跑 `run_parse_tests` / `run_knowledge_tests` / `run_search_tests` 后才与请求一致。
 
 ---
 
@@ -115,7 +152,7 @@ FAQ 形态（`resource_type=faq`，源 `responses/02_parse_jobs_faq.json`，`pag
 | #5 用户无任何受众团队 | POST `/v1/knowledge/search` | [04_knowledge_search_no_team_user.json](requests/04_knowledge_search_no_team_user.json) |
 | #6 user_id 非数字主键 | POST `/v1/knowledge/search` | [04_knowledge_search_non_numeric_user.json](requests/04_knowledge_search_non_numeric_user.json) |
 | #7 租户隔离 | POST `/v1/knowledge/search` | [04_knowledge_search_other_tenant.json](requests/04_knowledge_search_other_tenant.json) |
-| #8 自然语言检索（T4.2 未交付） | POST `/v1/knowledge/search` | [04_knowledge_search_natural_language.json](requests/04_knowledge_search_natural_language.json) |
+| #8 自然语言检索（向量召回 + RRF + rerank） | POST `/v1/knowledge/search` | [04_knowledge_search_natural_language.json](requests/04_knowledge_search_natural_language.json) |
 | #9 authorization 跨度超限 | POST `/v1/knowledge/search` | [04_knowledge_search_authorization_too_long.json](requests/04_knowledge_search_authorization_too_long.json) |
 | #10 authorization 已过期 | POST `/v1/knowledge/search` | [04_knowledge_search_authorization_expired.json](requests/04_knowledge_search_authorization_expired.json) |
 | #11 缺少 authorization 块 | POST `/v1/knowledge/search` | [04_knowledge_search_authorization_missing.json](requests/04_knowledge_search_authorization_missing.json) |
@@ -123,7 +160,7 @@ FAQ 形态（`resource_type=faq`，源 `responses/02_parse_jobs_faq.json`，`pag
 | #13 limit 超出 1–100 | POST `/v1/knowledge/search` | [04_knowledge_search_limit_out_of_range.json](requests/04_knowledge_search_limit_out_of_range.json) |
 | #14 mode 非枚举值 | POST `/v1/knowledge/search` | [04_knowledge_search_invalid_mode.json](requests/04_knowledge_search_invalid_mode.json) |
 
-- #1–#3、#6–#14 只差一个字段：`query` 换成 `flow` / 库外词 / 空白，`limit` 换成 1 / 101，`user_id` 换成 `2` / `999999` / `gsi-user-1`，`tenant_id` 换成 `gsi-other`，`mode` 换成 `natural_language` / `hybrid`，`authorization` 换跨度或去掉整块
+- #1–#3、#6–#14 只差一个字段：`query` 换成 `flow` / 库外词 / 空白，`limit` 换成 1 / 101，`user_id` 换成 `2`（`test1` 成员）/ `5`（真实存在但无受众团队）/ `gsi-user-1`，`tenant_id` 换成 `gsi-other`，`mode` 换成 `natural_language` / `hybrid`，`authorization` 换跨度或去掉整块
 - 铺场可重复执行：`request_id` 与正文都不变时幂等台账回放 201；改动铺场正文必须同步换 `request_id`，否则 `409 IDEMPOTENCY_CONFLICT`，后续检索用例会全部 0 命中
 
 ### 3.4 实测结果文件（与请求文件同名）
@@ -151,11 +188,11 @@ FAQ 形态（`resource_type=faq`，源 `responses/02_parse_jobs_faq.json`，`pag
 | `requests/03_knowledge_entries_create_conflict.json` / `..._revise_bad_base.json` | 同名 | 201 铺场 / 409 `STALE_REVISION`（基线不匹配） |
 | `requests/03_knowledge_entries_query_not_found.json` / `..._delete_not_found.json` | 同名 | 404 `NOT_FOUND` |
 | `requests/03_knowledge_entries_create_incomplete.json` / `..._bad_seq.json` / `..._bad_type.json` | 同名 | 400 `INVALID_REQUEST`（后两者为 FAQ 形态） |
-| `requests/04_knowledge_search_prepare_entry.json` | 同名 | 201 铺场回执（`publication_id=0876a2b0-…`、3 条切片） |
+| `requests/04_knowledge_search_prepare_entry.json` | 同名 | 201 铺场回执（`publication_id=0876a2b0-…`、`record_id=9412b3a0-…`、`knowledge_no=KB-0000039`、3 条切片） |
 | `requests/04_knowledge_search_keyword.json` / `..._keyword_limit.json` | 同名 | 200 命中 2 条（`score=0.8111`，同分按 seq 升序）/ 1 条（`limit=1`） |
 | `requests/04_knowledge_search_no_evidence.json` | 同名 | 200 空命中（`no_evidence=true`） |
 | `requests/04_knowledge_search_out_of_scope_user.json` / `..._no_team_user.json` / `..._non_numeric_user.json` / `..._other_tenant.json` | 同名 | 200 空命中（授权先于召回，均为 0 条） |
-| `requests/04_knowledge_search_natural_language.json` | 同名 | 501 `INTERNAL_ERROR`（T4.2 未交付） |
+| `requests/04_knowledge_search_natural_language.json` | 同名 | 200 命中 3 条（中文提问命中英文切片，向量通道生效；`score` 0.9747 / 0.9594 / 0.8179） |
 | `requests/04_knowledge_search_authorization_too_long.json` / `..._authorization_expired.json` / `..._authorization_missing.json` | 同名 | 400 / 401 `UNAUTHORIZED` / 400 `INVALID_REQUEST` |
 | `requests/04_knowledge_search_empty_query.json` / `..._limit_out_of_range.json` / `..._invalid_mode.json` | 同名 | 400 `INVALID_REQUEST` |
 

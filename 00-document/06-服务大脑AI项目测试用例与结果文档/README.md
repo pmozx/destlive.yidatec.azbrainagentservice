@@ -38,9 +38,9 @@
 
 ### 2.3 检索（03）
 
-- **正向场景**：关键词命中（多词 AND、`score` 与 `snippet` 口径）、`limit` 截断、库外词无证据、授权与租户隔离（越权 / 无团队 / 非数字 `user_id` / 异租户均 0 命中）
-- **异常场景**：`natural_language` 返回 501（T4.2 未交付）、`authorization` 跨度超限 400、已过期 401、缺块 400、空白 `query` / `limit` 越界 / `mode` 非法均 400
-- 实测已交付用例 13/13 通过；`natural_language` 1 项因功能未交付标记未通过，待 T4.2 交付后重跑
+- **正向场景**：关键词命中（多词 AND、`score` 与 `snippet` 口径）、`limit` 截断、库外词无证据、授权与租户隔离（越权 / 无团队 / 非数字 `user_id` / 异租户均 0 命中）、自然语言检索（向量召回 + RRF + rerank）
+- **异常场景**：`authorization` 跨度超限 400、已过期 401、缺块 400、空白 `query` / `limit` 越界 / `mode` 非法均 400
+- 实测 14/14 全部通过（`natural_language` 原为 501 未交付，T4.2 落地后重跑改判，命中 3 条）
 
 ### 2.4 管理端管理能力（pytest，`backend/tests/modules/kb/`）
 

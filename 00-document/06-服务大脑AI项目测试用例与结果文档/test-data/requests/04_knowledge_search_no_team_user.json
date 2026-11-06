@@ -1,7 +1,7 @@
 {
   "request_id": "req-search-no-team-001",
   "tenant_id": "gsi-default",
-  "user_id": "999999",
+  "user_id": "5",
   "query": "flow duration curve",
   "mode": "keyword",
   "limit": 10,

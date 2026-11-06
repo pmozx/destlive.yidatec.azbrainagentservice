@@ -16,6 +16,20 @@ export function getStoragePresign(key) {
 }
 
 /**
+ * 上传单个文件（POST /api/v1/system/storage/upload，multipart）
+ * data 须为 FormData：拦截器会清掉实例默认的 Content-Type，交给浏览器补 boundary
+ */
+export function uploadStorageObject(data, config = {}) {
+  // 上传含网络传输，默认 15s 对 100MB 量级偏紧，单独放宽超时
+  return request.post('/system/storage/upload', data, { timeout: 300000, ...config })
+}
+
+/** 批量删除对象文件（DELETE /api/v1/system/storage/objects，仅文件） */
+export function deleteStorageObjects(keys, config = {}) {
+  return request.delete('/system/storage/objects', { data: { keys }, ...config })
+}
+
+/**
  * 代理读取对象内容的地址：预览/下载都走它
  * 内网桶地址浏览器通常直连不到，预签名链接同理，所以保留同源通道兜底
  */

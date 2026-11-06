@@ -37,6 +37,7 @@ from ..parse_result.crud import KbParseResultCRUD
 from ..parse_result.preview import refresh_pages
 from ..publication.schema import KbPublicationEntryChunkSchema, KbPublicationEntryChunksWriteSchema
 from ..publication.service import KbPublicationService
+from .artifacts import presign_artifacts
 from .crud import KbParseJobCRUD
 from .pipeline import (
     PARSE_JOB_SERVICE,
@@ -55,7 +56,11 @@ from .schema import (
     KbParsePublishOutSchema,
     KbParsePublishSchema,
     KbParseResultOutSchema,
+    KbParseStepOutSchema,
 )
+from .step import STEP_FAILED, KbParseStepService
+
+STEP_SERVICE = KbParseStepService()
 
 #: 上传原件的对象键前缀：与 ``parse-previews`` 隔离，便于单独配生命周期策略
 SOURCE_KEY_PREFIX = "parse-sources"
@@ -66,6 +71,9 @@ _UNSAFE_KEY = re.compile(r"[^A-Za-z0-9._-]")
 #: 后台任务失败码：与契约 ``#02`` 同一落库口径（取值相同），页面文案由管理端自定
 PARSE_FAILED = "PARSE_FAILED"
 PARSE_FAILED_MESSAGE = "文档解析失败，请检查文件内容或联系管理员。"
+
+#: 卡死改判码：步骤长时间无进展（进程还在但连接半死）时由惰性看门狗写入
+PARSE_STALLED = "PARSE_STALLED"
 
 
 def _int_of(value: Any) -> int | None:
@@ -89,17 +97,24 @@ def _page_of(value: Any) -> int | None:
 
 @dataclass(frozen=True)
 class ParseSubmitTask:
-    """一次管理端提交的「待执行」参数（响应后才跑，不随请求事务存活）。"""
+    """一次提交的「待执行」参数（响应后才跑，不随请求事务存活）。
+
+    ``data`` 为空=重跑：流水线按 ``object_key`` → ``file_url`` 自己重新取原件。
+    """
 
     job_id: str
     file_name: str
-    data: bytes
+    data: bytes | None
     chunk_enabled: bool
     resource_type: str
     prompt_text: str | None
     model_key: str | None
     metadata: dict[str, Any]
     language: str
+    attempt: int = 1
+    from_step: str | None = None
+    object_key: str | None = None
+    file_url: str | None = None
 
 
 async def run_submitted_parse(task: ParseSubmitTask) -> None:
@@ -116,6 +131,10 @@ async def run_submitted_parse(task: ParseSubmitTask) -> None:
         language=task.language,
         failure_code=PARSE_FAILED,
         failure_message=PARSE_FAILED_MESSAGE,
+        attempt=task.attempt,
+        from_step=task.from_step,
+        object_key=task.object_key,
+        file_url=task.file_url,
     )
 
 
@@ -144,14 +163,17 @@ class KbParseJobAdminService:
         )
 
     async def detail(self, job_id: str) -> KbParseJobDetailOutSchema:
-        """任务详情：任务行 + （若成功）解析产物。"""
+        """任务详情：任务行 + 步骤台账 + （若成功）解析产物与产物下载地址。"""
+        await self._reap_stalled(job_id)
         job = await self.crud.get_or_404(uuid=job_id, msg="解析任务不存在")
         result = await KbParseResultCRUD(self.db).get(job_id=job_id)
         result_out = KbParseResultOutSchema.model_validate(result) if result else None
+        artifact_urls: dict[str, Any] | None = None
         if result_out is not None:
-            # 页图是对象存储的预签名 URL，按当前配置重签，避免历史任务回放过期链接
+            # 页图与产物都是对象存储的预签名 URL，按当前配置重签，避免历史任务回放过期链接
             result_out.pages = refresh_pages(result_out.pages)
-        out = KbParseJobDetailOutSchema(
+            artifact_urls = presign_artifacts(result_out.artifacts)
+        return KbParseJobDetailOutSchema(
             id=job.id,
             uuid=job.uuid,
             created_time=job.created_time,
@@ -159,12 +181,96 @@ class KbParseJobAdminService:
             resource_type=job.resource_type,
             status=job.status,
             progress=job.progress,
+            attempt=job.attempt,
             error_code=job.error_code,
             error_message=job.error_message,
             file_meta=job.file_meta or {},
             result=result_out,
+            steps=await self.list_steps(job_id),
+            artifact_urls=artifact_urls,
         )
-        return out
+
+    async def list_steps(self, job_id: str) -> list[KbParseStepOutSchema]:
+        """步骤台账（含历史执行轮次，按 attempt/id 升序）；前端据此渲染时间线。"""
+        rows = await STEP_SERVICE.list_steps(job_id)
+        return [KbParseStepOutSchema.model_validate(row) for row in rows]
+
+    async def retry(self, job_id: str, *, from_step: str | None = None) -> tuple[KbParseJobOutSchema, ParseSubmitTask]:
+        """重跑：把失败/卡死的任务重新排队，从失败那一步继续（响应后执行）。
+
+        只接受 failed / running（succeeded 会覆盖已审核产物，由服务层拒绕）；
+        起点由流水线自己再往前回退到「前序快照齐全」的位置，这里只做透传。
+        """
+        snapshot, reason = await PARSE_JOB_SERVICE.requeue(job_id)
+        if snapshot is None:
+            raise CustomException(msg=reason or "解析任务不存在", status_code=status.HTTP_404_NOT_FOUND)
+        if reason:
+            raise CustomException(msg=reason, status_code=status.HTTP_409_CONFLICT)
+        job = await self.crud.get_or_404(uuid=job_id, msg="解析任务重新排队后读取失败")
+        out = KbParseJobOutSchema(
+            id=job.id,
+            uuid=job.uuid,
+            created_time=job.created_time,
+            updated_time=job.updated_time,
+            resource_type=job.resource_type,
+            status=job.status,
+            progress=job.progress,
+            attempt=job.attempt,
+            error_code=job.error_code,
+            error_message=job.error_message,
+        )
+        return out, self._retry_task(job, from_step=from_step)
+
+    async def _reap_stalled(self, job_id: str) -> None:
+        """惰性看门狗：把「running 但当前步骤已远超预算」的任务改判失败。
+
+        为什么不做定时任务：卡死只在有人看的时候才需要一个结论。读取时判一次，
+        既不引入调度线程，也不会让「进程还活着但连接半死」的任务永远显示运行中。
+        改判只动状态不改 ``attempt``——旧协程真的跑完了还能把结果覆盖回来（产物有效）。
+        """
+        job = await self.crud.get(uuid=job_id)
+        if job is None or job.status != "running":
+            return
+        limit = settings.PARSE_STEP_STALL_SECONDS
+        stalled = await STEP_SERVICE.stalled_step(job_id, timeout_seconds=limit)
+        if stalled is None:
+            return
+        minutes = limit / 60
+        reason = f"步骤「{stalled.step}」超过 {minutes:.0f} 分钟无任何进展，已判定为卡死。"
+        logger.warning("解析任务步骤卡死，改判失败：job_id={} step={} attempt={}", job_id, stalled.step, stalled.attempt)
+        await STEP_SERVICE.finish(stalled.id, status=STEP_FAILED, error_code="STEP_STALLED", error_message=reason)
+        await PARSE_JOB_SERVICE.fail(job_id, error_code=PARSE_STALLED, error_message=reason, attempt=job.attempt)
+
+    def _retry_task(self, job: Any, *, from_step: str | None) -> ParseSubmitTask:
+        """从任务快照还原重跑参数：原件走对象存储，缺了就退回当初的 ``file_url``。"""
+        meta = dict(job.file_meta or {})
+        file_name = str(meta.get("file_name") or "").strip()
+        if not file_name:
+            raise CustomException(msg="任务快照里没有文件名，无法重跑。", status_code=status.HTTP_400_BAD_REQUEST)
+        options = meta.get("options") if isinstance(meta.get("options"), dict) else {}
+        return ParseSubmitTask(
+            job_id=job.uuid,
+            file_name=file_name,
+            data=None,
+            chunk_enabled=bool(options.get("chunk", True)),
+            resource_type=job.resource_type,
+            prompt_text=meta.get("prompt_text"),
+            model_key=meta.get("model_key"),
+            metadata=self._retry_metadata(meta),
+            language=str(options.get("language") or "zh-CN"),
+            attempt=job.attempt,
+            from_step=from_step,
+            object_key=str(meta.get("object_key") or "") or None,
+            file_url=str(meta.get("file_url") or "") or None,
+        )
+
+    @staticmethod
+    def _retry_metadata(meta: dict[str, Any]) -> dict[str, Any]:
+        """续跑用的 metadata：契约任务取 payload 里的 ``metadata``，管理端任务取整份快照。"""
+        inner = meta.get("metadata")
+        if isinstance(inner, dict) and inner:
+            return dict(inner)
+        return dict(meta)
 
     async def submit_upload(
         self,
