@@ -4,15 +4,37 @@
       <div>
         <h2 class="page-header__title">会话记录</h2>
         <p class="page-header__desc">
-          对接后端 /api/v1/kb/chat-session：按用户查会话记录与历史消息、引用留痕，并在此改名 / 清空 / 删除会话。会话由「AI 对话」页与契约 /v1/chat/completions 产生
+          对接后端 /api/v1/kb/chat-session：按用户查会话记录与历史消息、引用留痕，并在此改名 / 清空 / 删除会话。会话由「AI 对话」页与契约 /v1/chat/completions 产生；单轮质量与成本指标（耗时 / token / 证据 / 失败码）走只读的 /kb/chat-metric
         </p>
       </div>
       <div class="page-header__actions">
-        <el-button size="small" :loading="loading" @click="load">
+        <el-button size="small" :loading="loading" @click="refreshAll">
           <el-icon><Refresh /></el-icon>
           <span>刷新</span>
         </el-button>
       </div>
+    </div>
+
+    <div class="kb-cards">
+      <StatCard label="问答轮数" :value="formatNumber(listStats.turns)" icon="ChatDotRound" tip="与下方筛选条件同口径，失败轮也计入" />
+      <StatCard
+        label="拒答率"
+        :value="noEvidenceRateText"
+        icon="WarningFilled"
+        :tip="`${listStats.no_evidence_turns ?? 0} 轮因证据不足拒答`"
+      />
+      <StatCard
+        label="失败轮"
+        :value="formatNumber(listStats.failed_turns)"
+        icon="CircleCloseFilled"
+        tip="断连 / 超时 / 生成失败（只有指标、没有消息）"
+      />
+      <StatCard
+        label="平均整轮"
+        :value="formatMs(listStats.avg_total_ms)"
+        icon="Timer"
+        :tip="`平均首字 ${formatMs(listStats.avg_first_token_ms)}（仅流式）`"
+      />
     </div>
 
     <SectionCard flush>
@@ -100,13 +122,46 @@
           <el-descriptions-item label="未删除消息">{{ activeSession.message_total ?? '-' }}</el-descriptions-item>
           <el-descriptions-item label="最近活跃">{{ formatDateTime(activeSession.last_active_at) }}</el-descriptions-item>
           <el-descriptions-item label="创建时间">{{ formatDateTime(activeSession.created_time) }}</el-descriptions-item>
+          <el-descriptions-item label="问答轮数">{{ sessionStats.turns ?? 0 }}</el-descriptions-item>
+          <el-descriptions-item label="拒答 / 失败轮">
+            {{ sessionStats.no_evidence_turns ?? 0 }} / {{ sessionStats.failed_turns ?? 0 }}
+          </el-descriptions-item>
+          <el-descriptions-item label="平均整轮">{{ formatMs(sessionStats.avg_total_ms) }}</el-descriptions-item>
+          <el-descriptions-item label="平均首字">{{ formatMs(sessionStats.avg_first_token_ms) }}</el-descriptions-item>
         </el-descriptions>
         <el-empty v-else description="未获取到会话详情（可能已删除）" :image-size="80" />
 
-        <el-table v-loading="messageLoading" :data="messages" size="small" style="width: 100%; margin-top: 16px">
+        <el-alert
+          v-if="sessionStats.failed_turns > 0"
+          class="kb-alert"
+          type="warning"
+          :closable="false"
+          show-icon
+          :title="`本会话有 ${sessionStats.failed_turns} 轮失败：只有指标、没有助手消息，已按发生时间插入对话流`"
+          description="断连 / 首字超时 / 生成失败都算失败轮；它跨页时不占消息分页，以本计数为准。清空历史不会删除指标——指标是只增的事实快照。"
+        />
+
+        <el-table
+          v-loading="messageLoading || metricsLoading"
+          :data="turnRows"
+          size="small"
+          style="width: 100%; margin-top: 16px"
+        >
           <el-table-column type="expand">
             <template #default="{ row }">
               <div class="kb-expand">
+                <el-descriptions v-if="row._metric" :column="3" border size="small" title="单轮指标">
+                  <el-descriptions-item v-for="field in metricFields(row._metric)" :key="field.label" :label="field.label">
+                    {{ field.value }}
+                  </el-descriptions-item>
+                </el-descriptions>
+                <el-alert
+                  v-else
+                  type="info"
+                  :closable="false"
+                  show-icon
+                  title="本轮没有指标：指标写入失败只告警，不影响问答结果"
+                />
                 <JsonViewer :data="row.citations" title="citations（引用八元组）" placeholder="本条消息没有引用" />
                 <JsonViewer
                   :data="row.knowledge_deps"
@@ -118,17 +173,33 @@
           </el-table-column>
           <el-table-column align="center" label="角色" width="90">
             <template #default="{ row }">
-              <el-tag :type="row.role === 'user' ? 'info' : 'success'" size="small" effect="plain">
-                {{ roleLabel(row.role) }}
-              </el-tag>
+              <el-tag :type="roleTagType(row)" size="small" effect="plain">{{ roleLabel(row.role) }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="content" label="正文" min-width="320" show-overflow-tooltip />
+          <el-table-column label="正文" min-width="280" show-overflow-tooltip>
+            <template #default="{ row }">
+              <span v-if="row._kind === 'failed'" class="kb-failed-text">
+                本轮未落助手消息：{{ row._metric.error_code || '生成失败' }}
+              </span>
+              <span v-else>{{ row.content }}</span>
+            </template>
+          </el-table-column>
           <el-table-column align="center" label="引用" width="70">
-            <template #default="{ row }">{{ (row.citations || []).length }}</template>
+            <template #default="{ row }">{{ row._kind === 'failed' ? '-' : (row.citations || []).length }}</template>
           </el-table-column>
           <el-table-column align="center" label="依赖" width="70">
-            <template #default="{ row }">{{ (row.knowledge_deps || []).length }}</template>
+            <template #default="{ row }">{{ row._kind === 'failed' ? '-' : (row.knowledge_deps || []).length }}</template>
+          </el-table-column>
+          <el-table-column align="center" label="指标" width="150">
+            <template #default="{ row }">
+              <el-tag v-if="row._metric?.error_code" type="danger" size="small" effect="light">
+                {{ row._metric.error_code }}
+              </el-tag>
+              <span v-else-if="row._metric" class="kb-metric-text">
+                证据 {{ row._metric.evidence_count ?? 0 }} · {{ formatMs(row._metric.total_ms) }}
+              </span>
+              <span v-else class="kb-metric-text">-</span>
+            </template>
           </el-table-column>
           <el-table-column align="center" label="状态" width="90">
             <template #default="{ row }">
@@ -145,7 +216,8 @@
           </template>
         </el-table>
 
-        <div class="kb-pagination">
+        <div class="kb-pagination kb-pagination--split">
+          <span class="kb-note">分页按消息计；失败轮只有指标，不占消息分页</span>
           <el-pagination
             :current-page="messagePagination.page_no"
             :page-size="messagePagination.page_size"
@@ -164,7 +236,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 import {
@@ -173,12 +245,16 @@ import {
   getChatMessageList,
   getChatSessionDetail,
   getChatSessionList,
+  getChatTurnMetricList,
+  getChatTurnMetricSummary,
   renameChatSession,
 } from '@/api/module_kb/chatRecord'
 import JsonViewer from '@/components/common/JsonViewer.vue'
 import SectionCard from '@/components/common/SectionCard.vue'
+import StatCard from '@/components/common/StatCard.vue'
 import { useTable } from '@/hooks/useTable'
-import { formatDateTime } from '@/utils/format'
+import { mergeTurnRows, metricFields } from '@/utils/chatMetric'
+import { formatDateTime, formatMs, formatNumber } from '@/utils/format'
 
 defineOptions({ name: 'KbChatRecordView' })
 
@@ -188,8 +264,22 @@ const statusOptions = [
   { value: 'deleted', label: '已删除' },
 ]
 const STATUS_TAG = { active: 'success', cleared: 'warning', deleted: 'info' }
-const MESSAGE_STATUS_LABELS = { active: '正常', hidden: '已隐藏', deleted: '已删除' }
-const MESSAGE_STATUS_TAGS = { active: 'success', hidden: 'warning', deleted: 'info' }
+const MESSAGE_STATUS_LABELS = { active: '正常', hidden: '已隐藏', deleted: '已删除', failed: '失败轮' }
+const MESSAGE_STATUS_TAGS = { active: 'success', hidden: 'warning', deleted: 'info', failed: 'danger' }
+
+//: 指标概览的兜底形状：接口未返回或请求失败时页面仍能渲染（显示 0 / -，而不是空白）
+const EMPTY_TURNS = {
+  turns: 0,
+  no_evidence_turns: 0,
+  no_evidence_rate: 0,
+  failed_turns: 0,
+  avg_total_ms: null,
+  avg_first_token_ms: null,
+}
+//: 指标按会话一次拉全：两套分页对齐反而会错位（失败轮不占消息分页）
+const METRIC_PAGE_SIZE = 100
+//: 翻页上限：单会话上千轮远超正常使用，继续翻只会拖慢抽屉打开
+const METRIC_MAX_PAGES = 10
 
 function statusLabel(status) {
   return statusOptions.find((item) => item.value === status)?.label ?? (status || '-')
@@ -198,7 +288,13 @@ function statusTagType(status) {
   return STATUS_TAG[status] || 'info'
 }
 function roleLabel(role) {
+  if (role === 'failed') return '失败轮'
   return role === 'user' ? '提问' : role === 'assistant' ? '回答' : role || '-'
+}
+/** 角色标签色：失败轮不存在于消息表，只看合并行的 `_kind` */
+function roleTagType(row) {
+  if (row._kind === 'failed') return 'danger'
+  return row.role === 'user' ? 'info' : 'success'
 }
 function messageStatusLabel(status) {
   return MESSAGE_STATUS_LABELS[status] || status || '-'
@@ -216,15 +312,65 @@ function buildQueryParams(params) {
   return result
 }
 
-const { loading, list, total, pagination, query, load, search, reset, handlePageChange, handleSizeChange } = useTable(
-  (params) => getChatSessionList(buildQueryParams(params)),
-  { defaultQuery: { session_id: '', user_id: '', title: '', status: '' } },
-)
+/** 汇总条件：只送会话维度字段；指标行自身的时间范围不参与（与列表同口径） */
+function buildSummaryParams(params) {
+  const result = {}
+  ;['session_id', 'user_id', 'title', 'status'].forEach((key) => {
+    if (params[key] !== '' && params[key] !== null && params[key] !== undefined) result[key] = params[key]
+  })
+  return result
+}
+
+const {
+  loading,
+  list,
+  total,
+  pagination,
+  query,
+  load: loadSessions,
+  search: searchSessions,
+  reset: resetSessions,
+  handlePageChange,
+  handleSizeChange,
+} = useTable((params) => getChatSessionList(buildQueryParams(params)), {
+  defaultQuery: { session_id: '', user_id: '', title: '', status: '' },
+})
+
+// ── 列表页指标概览 ────────────────────────────────
+const listStats = ref({ ...EMPTY_TURNS })
+const noEvidenceRateText = computed(() => `${(Number(listStats.value.no_evidence_rate || 0) * 100).toFixed(1)}%`)
+
+async function loadListStats() {
+  try {
+    listStats.value = await getChatTurnMetricSummary(buildSummaryParams(query))
+  } catch {
+    // 请求拦截器已统一提示错误：概览不可用不应把整个列表页拖红
+    listStats.value = { ...EMPTY_TURNS }
+  }
+}
+
+/** 查询 / 重置 / 刷新都要带上概览：两个数据源来自不同表，漏刷一个就会“数字不动” */
+async function search() {
+  await Promise.all([searchSessions(), loadListStats()])
+}
+
+async function reset() {
+  await resetSessions()
+  await loadListStats()
+}
+
+async function refreshAll() {
+  await Promise.all([loadSessions(), loadListStats()])
+}
+
+onMounted(loadListStats)
 
 // ── 消息抽屉 ──────────────────────────────────────────────────────
 const detailVisible = ref(false)
 const detailLoading = ref(false)
 const activeSession = ref(null)
+//: 本会话指标汇总：与列表页概览分开存，否则关掉抽屉后列表数字会被单会话值覆盖
+const sessionStats = ref({ ...EMPTY_TURNS })
 
 const {
   loading: messageLoading,
@@ -240,6 +386,43 @@ const {
   immediate: false,
 })
 
+//: 本会话全部指标：按 `assistant_message_id` 对齐消息，失败轮单独成行
+const metrics = ref([])
+const metricsLoading = ref(false)
+const turnRows = computed(() => mergeTurnRows(messages.value, metrics.value))
+
+async function loadTurnMetrics(sessionId) {
+  metricsLoading.value = true
+  try {
+    const items = []
+    for (let pageNo = 1; pageNo <= METRIC_MAX_PAGES; pageNo += 1) {
+      const page = await getChatTurnMetricList({ session_id: sessionId, page_no: pageNo, page_size: METRIC_PAGE_SIZE })
+      const batch = page?.items ?? []
+      items.push(...batch)
+      if (!page?.has_next || batch.length === 0) break
+    }
+    metrics.value = items
+  } catch {
+    // 指标拿不到不影响看消息（指标写入本来就只告警）
+    metrics.value = []
+  } finally {
+    metricsLoading.value = false
+  }
+}
+
+async function loadSessionStats(sessionId) {
+  try {
+    sessionStats.value = await getChatTurnMetricSummary({ session_id: sessionId })
+  } catch {
+    sessionStats.value = { ...EMPTY_TURNS }
+  }
+}
+
+/** 抽屉里的四个数据源（详情 / 消息 / 指标明细 / 指标汇总）互不依赖，并发拉 */
+async function loadDrawer(sessionId) {
+  await Promise.all([loadMessages(), loadTurnMetrics(sessionId), loadSessionStats(sessionId)])
+}
+
 async function openMessages(row) {
   activeSession.value = { ...row }
   messageVisibleGuard(row.session_id)
@@ -252,7 +435,7 @@ async function openMessages(row) {
   } finally {
     detailLoading.value = false
   }
-  await loadMessages()
+  await loadDrawer(row.session_id)
 }
 
 function messageVisibleGuard(sessionId) {
@@ -270,7 +453,7 @@ async function refreshDetail(sessionId) {
   } finally {
     detailLoading.value = false
   }
-  await loadMessages()
+  await loadDrawer(sessionId)
 }
 
 // ── 改名 / 清空 / 删除 ────────────────────────────────────────────
@@ -293,7 +476,7 @@ async function rename(row) {
   try {
     await renameChatSession(row.session_id, value)
     ElMessage.success('修改会话标题成功')
-    load()
+    refreshAll()
     refreshDetail(row.session_id)
   } catch {
     // 请求拦截器已统一提示错误
@@ -313,7 +496,7 @@ async function clear(row) {
   try {
     await clearChatSession(row.session_id)
     ElMessage.success('清空会话历史成功')
-    load()
+    refreshAll()
     refreshDetail(row.session_id)
   } catch {
     // 请求拦截器已统一提示错误
@@ -336,7 +519,7 @@ async function remove(row) {
     if (activeSession.value?.session_id === row.session_id) {
       detailVisible.value = false
     }
-    load()
+    refreshAll()
   } catch {
     // 请求拦截器已统一提示错误
   }
@@ -344,8 +527,18 @@ async function remove(row) {
 </script>
 
 <style scoped lang="scss">
+.kb-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+  gap: var(--app-gap);
+}
+
 .kb-toolbar {
   padding: 20px 26px 4px;
+}
+
+.kb-alert {
+  margin-top: 16px;
 }
 
 .kb-pagination {
@@ -353,9 +546,27 @@ async function remove(row) {
   padding: 12px 26px 20px;
 }
 
+.kb-pagination--split {
+  justify-content: space-between;
+}
+
+.kb-note {
+  font-size: 12px;
+  color: var(--app-text-muted);
+}
+
 .kb-expand {
   padding: 8px 20px 16px;
   display: grid;
   gap: 12px;
+}
+
+.kb-metric-text {
+  font-size: 12px;
+  color: var(--app-text-secondary);
+}
+
+.kb-failed-text {
+  color: var(--el-color-danger);
 }
 </style>

@@ -3,8 +3,11 @@
 三个字段口径的由来：
 
 - ``quote`` **必须逐字**（契约：能在对应切片的授权正文里找到）。所以不存摘要、不折叠空白，
-  只做首尾裁剪与长度截断——截断后的子串仍然逐字可查；检索层给的 ``snippet`` 折叠过空白，
-  拿它当引用会在 GSI 侧「找不到原文」。
+  只做首尾裁剪与长度截断——截断后的子串仍然逐字可查；引用因此按命中键回查库内原文
+  （``chat/crud.py``），而不是直接拿检索层回传的 ``snippet``。
+- ``content`` 是**完整切片正文**，只进模型上下文、不进响应。两个字段必须分开：引用回放
+  要短且可逐字校验，而给模型的依据如果也只有 160 字，``KB_CONTEXT_MAX_CHARS`` 就永远用不上，
+  模型只能拿半截切片硬答。
 - ``citations`` 是 **八元组**，``source_snapshots`` 是 **六元组**：前者多 ``chunk_id`` 与
   ``quote``。两者同时返回是契约要求：``source_snapshots`` 要覆盖「进入上下文的全部来源」，
   包括模型没显式引用的那些，GSI 据此逐项再授权。
@@ -38,7 +41,10 @@ NO_EVIDENCE_ANSWER = (
 
 @dataclass(frozen=True)
 class ChatEvidence:
-    """一条进入本轮上下文的证据（切片级），``index`` 即正文里的 ``[n]``。"""
+    """一条进入本轮上下文的证据（切片级），``index`` 即正文里的 ``[n]``。
+
+    ``content`` 给模型读，``quote`` 给引用回放；两者同源但长度口径不同（见模块说明）。
+    """
 
     index: int
     resource_type: str
@@ -49,6 +55,7 @@ class ChatEvidence:
     revision: int
     chunk_id: str
     quote: str
+    content: str = ""
     title: str = ""
     score: float = 0.0
 

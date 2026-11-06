@@ -172,8 +172,8 @@ async def test_natural_language_recalls_semantically_without_keyword_hit() -> No
         assert hit["chunk_id"] == f"{record_id}:1"
         assert hit["publication_id"] == publication_id
         assert 0.0 < hit["score"] <= 1.0
-        # 纯语义命中：摘要回落切片开头，仍然只来自本切片正文
-        assert hit["snippet"].startswith("开通专线账号")
+        # 纯语义命中同样返回完整切片正文（不截头、不补省略号）
+        assert hit["snippet"] == "开通专线账号需要先在服务台提交工单。"
     finally:
         await _cleanup([publication_id], [team_id])
 

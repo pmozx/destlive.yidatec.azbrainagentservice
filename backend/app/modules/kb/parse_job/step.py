@@ -83,7 +83,13 @@ class KbParseStepModel(MappedBase):
     job_id: Mapped[str] = mapped_column(String(64), nullable=False, comment="parse_job.uuid")
     attempt: Mapped[int] = mapped_column(Integer, default=1, server_default=text("1"), nullable=False, comment="第几次执行（1 起）")
     step: Mapped[str] = mapped_column(String(32), nullable=False, comment="extract/artifacts/faq/chunk/pages/suggest/persist")
-    status: Mapped[str] = mapped_column(String(16), nullable=False, comment="running/succeeded/failed/skipped")
+    status: Mapped[str] = mapped_column(
+        String(16),
+        default=STEP_RUNNING,
+        server_default=text("'running'"),
+        nullable=False,
+        comment="running/succeeded/failed/skipped",
+    )
     fatal: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default=text("true"), nullable=False, comment="失败是否中断任务（false=降级继续）"
     )

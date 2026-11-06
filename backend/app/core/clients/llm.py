@@ -21,6 +21,7 @@ from fastapi import status
 from langchain.chat_models import init_chat_model
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessageChunk, BaseMessage
+from langchain_core.runnables import RunnableConfig
 
 from app.config.setting import settings
 from app.core.exceptions import CustomException
@@ -135,11 +136,17 @@ class LlmClient:
         temperature: float = 0.2,
         max_tokens: int | None = None,
         model: str | None = None,
+        config: RunnableConfig | None = None,
     ) -> str:
-        """一次性拿到完整回答（离线批量、评测脚本用）。"""
+        """一次性拿到完整回答（离线批量、评测脚本用）。
+
+        ``config`` 由调用方给（``run_name`` / ``metadata`` / ``tags``）：本层不自己造追踪配置，
+        只保证原样透传到模型调用——不透传时模型 run 会变成 trace 里的孤立根节点，
+        看不到它属于哪一轮问答。
+        """
         try:
             message = await self.chat_model(model).ainvoke(
-                list(messages), temperature=temperature, max_tokens=max_tokens
+                list(messages), temperature=temperature, max_tokens=max_tokens, config=config
             )
         except CustomException:
             raise  # 未配置/空回答：本层可读异常原样上抛，别被下面包成 502（与流式同口径）
@@ -160,10 +167,11 @@ class LlmClient:
         temperature: float = 0.2,
         max_tokens: int | None = None,
         model: str | None = None,
+        config: RunnableConfig | None = None,
     ) -> AsyncIterator[str]:
         """按 SSE 增量产出回答片段（前端打字机效果 / 长回答降首字节延迟）。"""
         async for chunk in self.stream_chat_events(
-            messages, temperature=temperature, max_tokens=max_tokens, model=model
+            messages, temperature=temperature, max_tokens=max_tokens, model=model, config=config
         ):
             if chunk.delta:
                 yield chunk.delta
@@ -175,11 +183,12 @@ class LlmClient:
         temperature: float = 0.2,
         max_tokens: int | None = None,
         model: str | None = None,
+        config: RunnableConfig | None = None,
     ) -> AsyncIterator[ChatStreamChunk]:
         """流式产出「增量正文 + 用量」：需要落库 token 统计的调用方用这个入口。"""
         try:
             stream = self.chat_model(model).astream(
-                list(messages), temperature=temperature, max_tokens=max_tokens
+                list(messages), temperature=temperature, max_tokens=max_tokens, config=config
             )
             async for chunk in stream:
                 yield _to_stream_chunk(chunk)

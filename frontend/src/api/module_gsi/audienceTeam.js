@@ -16,3 +16,12 @@ export function getGsiAudienceTeamList(params) {
 export function getGsiAudienceTeamDetail(id) {
   return request.get(`/gsi/sys/audience-team/detail/${id}`)
 }
+
+/**
+ * 按用户反查受众团队（GET /api/v1/gsi/sys/audience-team-member/user-teams）
+ *
+ * 用户详情弹窗用它回答「这个人到底在哪些团队」——空集合等价于无知识授权。
+ */
+export function getGsiUserTeams(userId) {
+  return request.get('/gsi/sys/audience-team-member/user-teams', { params: { user_id: userId } })
+}

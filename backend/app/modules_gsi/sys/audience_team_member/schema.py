@@ -42,6 +42,12 @@ class SbpSysAudienceTeamMemberWithTeamOutSchema(BaseModel):
     team_valid: bool = Field(default=False, description="团队有效：status=1 且 deleted=0")
     user_id: int = Field(..., description="用户ID")
     user_exists: bool = Field(default=False, description="用户是否存在于 sbp_sys_user")
+    user_username: str | None = Field(default=None, description="登录账号")
+    user_cn_name: str | None = Field(default=None, description="中文名")
+    user_en_name: str | None = Field(default=None, description="英文名")
+    user_position_name: str | None = Field(default=None, description="职位名称（快照）")
+    user_rank_id: int | None = Field(default=None, description="职级ID")
+    user_rank_name: str | None = Field(default=None, description="职级名称（联表带出）")
     user_status: str | None = Field(default=None, description="在职状态：1在职 0离职")
     allow_login: str | None = Field(default=None, description="是否允许登录：1允许 0禁止")
     user_deleted: int | None = Field(default=None, description="用户逻辑删除：0否 1是")
@@ -63,6 +69,8 @@ class SbpSysAudienceTeamMemberWithTeamQueryParam(BaseModel):
 
     team_id: int | None = Field(default=None, description="受众团队ID")
     user_id: int | None = Field(default=None, description="用户ID")
+    username: str | None = Field(default=None, description="登录账号（模糊）")
+    cn_name: str | None = Field(default=None, description="中文名（模糊）")
     group_code: str | None = Field(default=None, description="团队编码（精确）")
     group_name: str | None = Field(default=None, description="团队名称（模糊）")
     audience_team: str | None = Field(default=None, description="受众团队兼容标识（精确）")
@@ -83,6 +91,8 @@ class SbpUserTeamOutSchema(BaseModel):
     team_status: str = Field(..., description="团队状态：1启用 0停用")
     team_deleted: int = Field(..., description="团队逻辑删除：0否 1是")
     team_valid: bool = Field(default=False, description="团队有效：status=1 且 deleted=0")
+    leader_name: str = Field(default="", description="负责人姓名")
+    remark: str = Field(default="", description="备注")
 
     @model_validator(mode="after")
     def _derive_valid_flag(self) -> "SbpUserTeamOutSchema":
@@ -99,6 +109,11 @@ class SbpUserTeamsOutSchema(BaseModel):
 
     user_id: int = Field(..., description="用户ID")
     user_exists: bool = Field(default=False, description="用户是否存在于 sbp_sys_user")
+    user_username: str | None = Field(default=None, description="登录账号")
+    user_cn_name: str | None = Field(default=None, description="中文名")
+    user_position_name: str | None = Field(default=None, description="职位名称（快照）")
+    user_rank_id: int | None = Field(default=None, description="职级ID")
+    user_rank_name: str | None = Field(default=None, description="职级名称（联表带出）")
     user_status: str | None = Field(default=None, description="在职状态：1在职 0离职")
     allow_login: str | None = Field(default=None, description="是否允许登录：1允许 0禁止")
     user_deleted: int | None = Field(default=None, description="用户逻辑删除：0否 1是")

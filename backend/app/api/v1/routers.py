@@ -19,9 +19,11 @@ from app.modules_gsi.sys.audience_team.controller import SbpSysAudienceTeamRoute
 from app.modules_gsi.sys.audience_team_member.controller import SbpSysAudienceTeamMemberRouter
 from app.modules_gsi.sys.org.controller import SbpSysOrgRouter
 from app.modules_gsi.sys.org_member.controller import SbpSysOrgMemberRouter
+from app.modules_gsi.sys.rank.controller import SbpSysRankRouter
 from app.modules_gsi.sys.user.controller import SbpSysUserRouter
 from app.modules.kb.chat.controller import KbChatRouter
 from app.modules.kb.chat_message.controller import KbChatMessageRouter
+from app.modules.kb.chat_metric.controller import KbChatTurnMetricRouter
 from app.modules.kb.chat_session.controller import KbChatSessionRouter
 from app.modules.kb.dup_group.controller import KbDupGroupRouter
 from app.modules.kb.publication.controller import KbPublicationRouter
@@ -46,6 +48,7 @@ DOMAIN_CONTROLLERS: dict[str, list[APIRouter]] = {
         KbRetrievalRouter,
         KbChatSessionRouter,
         KbChatMessageRouter,
+        KbChatTurnMetricRouter,
         KbChatRouter,
     ],
     "/gsi": [
@@ -54,6 +57,7 @@ DOMAIN_CONTROLLERS: dict[str, list[APIRouter]] = {
         SbpSysAudienceTeamRouter,
         SbpSysAudienceTeamMemberRouter,
         SbpSysUserRouter,
+        SbpSysRankRouter,
         SbpKmDocRouter,
         SbpKmDocPublicationRouter,
         SbpKmDocRecordRouter,

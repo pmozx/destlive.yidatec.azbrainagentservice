@@ -17,8 +17,7 @@
 import uuid
 from typing import Any
 
-from app.config.setting import settings
-from app.modules.kb.retrieval.service import _score, _snippet, _tokenize
+from app.modules.kb.retrieval.service import _score, _tokenize
 from app.modules_api.base import errors as contract_errors
 
 from tests.support import requires_db
@@ -61,7 +60,7 @@ def _vpn_chunks() -> list[dict[str, Any]]:
     ]
 
 
-# ── 纯函数：切词 / 打分 / 摘要 ───────────────────────────────────────
+# ── 纯函数：切词 / 打分 ───────────────────────────────────────
 
 
 def test_tokenize_splits_on_punctuation_and_dedupes() -> None:
@@ -69,15 +68,6 @@ def test_tokenize_splits_on_punctuation_and_dedupes() -> None:
     assert _tokenize("  如何申请 VPN？VPN  ") == ("如何申请", "VPN")
     assert _tokenize("，、 。") == ()
     assert len(_tokenize(" ".join(f"w{index}" for index in range(20)))) == 8
-
-
-def test_snippet_centers_on_hit_and_marks_truncation() -> None:
-    """摘要取命中点附近，首尾被截断时加省略号。"""
-    content = "前言" * 80 + "这里提到 vpn 开通流程" + "后记" * 80
-    snippet = _snippet(content, ("vpn",))
-    assert "vpn" in snippet
-    assert snippet.startswith("…") and snippet.endswith("…")
-    assert len(snippet) <= settings.SEARCH_SNIPPET_LENGTH + 2
 
 
 def test_score_rewards_coverage_density_and_heading() -> None:
@@ -92,7 +82,7 @@ def test_score_rewards_coverage_density_and_heading() -> None:
 
 @requires_db
 async def test_keyword_search_returns_chunk_hit_with_contract_fields() -> None:
-    """命中：chunk 级 hits，字段与契约一致，`score` 落在 0–1、`snippet` 来自本切片正文。"""
+    """命中：chunk 级 hits，字段与契约一致，`score` 落在 0–1、`snippet` 是本切片的完整正文。"""
     await _ready()
     team_id, group_code = await _team(members=[USER_ID])
     publication_id, record_id = await _entry(team=group_code, chunks=_vpn_chunks())
@@ -112,7 +102,8 @@ async def test_keyword_search_returns_chunk_hit_with_contract_fields() -> None:
         assert (hit["version_id"], hit["revision"], hit["knowledge_no"]) == ("1", 101, KNOWLEDGE_NO)
         assert (hit["title"], hit["page_from"], hit["page_to"]) == (TITLE, 1, 1)
         assert 0.0 < hit["score"] <= 1.0
-        assert "vpn" in hit["snippet"].lower()
+        # 契约 #04 的示例值就是切片全文：不截断、不折叠、不补省略号
+        assert hit["snippet"] == "在服务台提交 vpn 申请，由负责人开通账号。"
     finally:
         await _cleanup([publication_id], [team_id])
 

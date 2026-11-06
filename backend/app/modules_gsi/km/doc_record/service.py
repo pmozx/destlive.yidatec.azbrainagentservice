@@ -28,11 +28,16 @@ class SbpKmDocRecordService:
         search: SbpKmDocRecordQueryParam | None = None,
         order_by: list[dict[str, str]] | None = None,
     ) -> PageResultSchema[SbpKmDocRecordOutSchema]:
-        """分页查询生效快照（列表不返回 snapshot_json 大字段）。"""
+        """分页查询生效快照（列表不返回 snapshot_json 大字段）。
+
+        默认按 ``created_at`` 倒序：页面要回答的是「最近一次送审是谁、送给哪个团队、什么时候」，
+        最新一条排最前才看得清脉络；索引 ``idx_km_doc_record_doc (doc_id, created_at DESC)``
+        正好覆盖这个顺序。
+        """
         return await self.crud.page(
             offset=(page_no - 1) * page_size,
             limit=page_size,
-            order_by=order_by or [{"id": "asc"}],
+            order_by=order_by or [{"created_at": "desc"}],
             search=search_to_dict(search),
             out_schema=SbpKmDocRecordOutSchema,
         )

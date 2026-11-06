@@ -54,7 +54,7 @@ def _body(**overrides: Any) -> bytes:
 
 
 def _hit(publication_id: str, record_id: str) -> SearchHit:
-    """一条 chunk 级命中（字段口径与 #07 一致，``snippet`` 由检索层折叠空白）。"""
+    """一条 chunk 级命中（字段口径与 #07 一致，``snippet`` 是切片完整正文）。"""
     return SearchHit(
         resource_type="document",
         resource_id=f"doc-{publication_id}",
@@ -85,6 +85,9 @@ def _stub_llm(monkeypatch: pytest.MonkeyPatch, answer: str) -> None:
     """模型打桩：只验编排与落库，不把用例绑在真实 LLM 上。"""
 
     class _FakeLlm:
+        # 编排层把模型名记进指标表：桩对象必须具备与 LlmClient 相同的接口面
+        model = "stub-model"
+
         async def chat(self, messages, **kwargs):  # noqa: ANN001, ANN003, ANN202 - 同上
             return answer
 
@@ -147,7 +150,7 @@ async def test_chat_ask_answers_with_citations(monkeypatch: pytest.MonkeyPatch) 
         assert citation["publication_id"] == publication_id
         assert citation["record_id"] == record_id
         assert citation["chunk_id"] == f"{record_id}:1"
-        # 引用必须能在切片正文里逐字找到（摘要会被折叠空白，不能拿来当引用）
+        # 引用必须能在切片正文里逐字找到（按命中键回查库内原文，不直接用检索结果）
         assert citation["quote"] == CONTENT
         assert data["elapsed_ms"] >= 0
 

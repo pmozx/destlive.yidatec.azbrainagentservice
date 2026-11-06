@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.base_schema import BaseQueryParam
 from app.core.validator import DateTimeStr
+from app.modules.system.payload_filter import PAYLOAD_KEYWORD_MAX_LENGTH
 
 
 # ── 调用明细（sbp_ai_system_api_log）────────────────────────────────────
@@ -72,6 +73,13 @@ class AccessTraceQueryParam(BaseQueryParam):
     )
     nonce_state: str | None = Field(
         None, description="nonce 状态：first_use/reused/not_checked（security_check 内部字段）", pattern="^(first_use|reused|not_checked)$"
+    )
+    # 报文关键字：不是列（JSONB 需 cast 成 text 再 ILIKE），故意不带 q，由 service 单独转条件
+    request_body: str | None = Field(
+        None, max_length=PAYLOAD_KEYWORD_MAX_LENGTH, description="请求体关键字（JSON 文本模糊，大小写不敏感）"
+    )
+    response_body: str | None = Field(
+        None, max_length=PAYLOAD_KEYWORD_MAX_LENGTH, description="响应体关键字（JSON 文本模糊，大小写不敏感）"
     )
 
 

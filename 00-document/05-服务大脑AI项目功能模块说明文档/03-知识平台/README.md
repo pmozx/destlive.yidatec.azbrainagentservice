@@ -1,8 +1,8 @@
 # 03 · 知识平台
 
 > **一句话定位**：GSI 交付的文档与 FAQ 在这里解析成切片、落成发布单元，再被检索、问答与重复治理复用。
-> **上游业务系统**：GSI（`service_brain` 库同 schema 的 11 张共享表，本侧只读）——谁写、怎么关联、哪几步还没落地，见 [`02-数据模型与表关系.md`](02-数据模型与表关系.md) §九。
-> 归属域 `kb`（一表一目录的子模块）· 数据表 10 张（+ GSI 只读 11 张）· 接口 60 个（契约 `/v1` 20 + 管理端 `/api/v1/kb` 40）· 前端页面 6 个 · 核对入口「GSI 业务数据」菜单 `/gsi/*` · 版本 v1.5（2026-11-05）
+> **上游业务系统**：GSI（`service_brain` 库同 schema 的 12 张共享表，本侧只读）——谁写、怎么关联、哪几步还没落地，见 [`02-数据模型与表关系.md`](02-数据模型与表关系.md) §九。
+> 归属域 `kb`（一表一目录的子模块）· 数据表 11 张（+ GSI 只读 12 张）· 接口 62 个（契约 `/v1` 20 + 管理端 `/api/v1/kb` 42）· 前端页面 6 个 · 核对入口「GSI 业务数据」菜单 `/gsi/*`（3 个页面）· 版本 v1.9（2026-11-06）
 
 ---
 
@@ -15,7 +15,7 @@
 - 检索：按签名身份的授权范围先下推再召回，关键词与自然语言两条通道共用 RRF 融合与精排闸门，返回 chunk 级命中与相对分。
 - 问答：检索 → 拼上下文 → 调 Chat 模型 → 落会话与消息（含引用九字段与来源六元组），支持非流式（契约）与 SSE 流式（管理端）两种出口。
 - 重复治理：保存前查重（只看不写）、重复分组查询/详情、合并预览（只产草稿态），并把治理结论物化成 `dup_group` 行供管理台跟踪。
-- 管理台维护：发布单元/版本/切片的 CRUD、**正文写入与修订（03.1/03.3 等价）**、**停用归档（#20 等价）**、**来源与关联溯源**（写入渠道 + 按 `file_meta.doc_id` 反查解析任务）、解析任务查询与**产物直接写成知识（03.1 等价，切片不重切）**、**解析步骤跟踪与从失败步重跑**、**MinerU 产物（md / 版面 JSON / 图片）下载**、重复分组状态标记、检索调试台与通道配置、会话与消息浏览。
+- 管理台维护：发布单元/版本/切片的 CRUD、**正文写入与修订（03.1/03.3 等价）**、**停用归档（#20 等价）**、**来源与关联溯源**（写入渠道 + 按 `file_meta.doc_id` 反查解析任务）、解析任务查询与**产物直接写成知识（03.1 等价，切片不重切）**、**解析步骤跟踪与从失败步重跑**、**MinerU 产物（md / 版面 JSON / 图片）下载**、重复分组状态标记、检索调试台与通道配置、会话与消息浏览、**问答单轮指标查看**（列表页概览卡 + 抽屉逐轮，含失败轮占位行）。
 - 管理台自助作业：自己上传文件发起解析（不必先落到 GSI 的桶），自己写正文入库；并把「保存前查重 / 全量检测 / 合并预览」搬到页面上——范围用 `publication_ids` 表达，后端反查生成正式 `scope`，检测与预览与契约 #16/#17/#19 共用同一条链路；查重台还可以从发布单元**载入已批准切片**逐条比对（D06 等价）。
 
 **这个模块不做**
@@ -25,13 +25,13 @@
 - 不做流式契约：`/v1/chat/completions` 收到 `stream=true` 直接 400 `UNSUPPORTED_STREAM`，SSE 只在管理端 `/kb/chat/ask/stream` 提供。
 - 不对齐 v3 手册的 **D06 单篇知识切片查重** 独立路由（`chunk-check`）：契约侧无此路径，能力由管理端 `POST /kb/dup-groups/check` 的 `candidate.chunks[]` 承接（见 `04-实现与运维说明.md` §八 K1）。
 - 不做多租户隔离的库级约束：`tenant_id` 是业务列，隔离靠每次查询显式带条件，没有 RLS。
-- **不维护 GSI 业务数据**：契约 §四 的 11 张共享表由 GSI 侧建表与写入（Flyway 在 `public` schema），本侧只读、不建表、不写入、不清理；`app/modules_gsi/` 用独立 `SbpBase.metadata`，启动建表只遍历 `kb` / `system` / `voice` 三个域。
+- **不维护 GSI 业务数据**：契约 §四 的 12 张共享表由 GSI 侧建表与写入（Flyway 在 `public` schema），本侧只读、不建表、不写入、不清理；`app/modules_gsi/` 用独立 `SbpBase.metadata`，启动建表只遍历 `kb` / `system` / `voice` 三个域。
 
 ---
 
 ## 二、能力地图
 
-按使用者视角分组，代码上分别落在 `kb` 域九个自模块与 `modules_api/kb` 四个能力包（协议基座在 `modules_api/base`）：
+按使用者视角分组，代码上分别落在 `kb` 域十二个自模块与 `modules_api/kb` 四个能力包（协议基座在 `modules_api/base`）：
 
 | 能力 | 使用者 | 入口 | 涉及表 |
 | --- | --- | --- | --- |
@@ -45,6 +45,7 @@
 | 多轮问答（非流式） | GSI 座席（契约） | `/v1/chat/completions` | `chat_session` / `chat_message` |
 | 多轮问答（SSE 流式） | 管理台调试 | `/kb/chat/ask/stream` | `chat_session` / `chat_message` |
 | 会话增删改查、清空历史 | GSI 座席（契约）、管理台 | `/v1/chat/sessions*`、`/kb/chat-session/*` | `chat_session` / `chat_message` |
+| 问答单轮指标浏览（质量 / 耗时 / 成本） | 运维、算法（管理台只读） | `/kb/chat-metric/summary`（列表页概览）、`/kb/chat-metric/list`（抽屉逐轮） | `chat_turn_metric`（与消息按 `assistant_message_id` 在前端对齐） |
 | 超时请求的结果查询 | GSI 座席（契约） | `/v1/chat/requests/{id}/query` | `sbp_ai_system_request_log`（跨模块） |
 | 保存前查重 | GSI 编辑人员（契约） | `/v1/knowledge/duplicates/check` | 读 `chunk` / `publication`，不写表 |
 | 重复分组清单与详情 | GSI 编辑人员（契约） | `/v1/knowledge/duplicates/groups*` | `dup_result` / `dup_group` |
@@ -53,7 +54,7 @@
 | 自助上传解析 | 管理台 | `/kb/parse-jobs/upload` | `parse_job` / `parse_result` |
 | 主动治理（检测/查重/预览） | 管理台 | `/kb/dup-groups/{detect,check,preview}` | `dup_result` / `dup_group` |
 | 发布单元 / 版本 / 切片的维护浏览、正文写入与修订、停用归档 | 管理台 | `/kb/publication/*`（含 `entry` / `deactivate`） | 三张内容表 |
-| 核对 GSI 交付的业务数据（只读） | 运维、GSI 对接与联调 | `/gsi/*`（「GSI 业务数据」菜单 6 个页面） | 11 张 GSI 共享表（只读，不写入） |
+| 核对 GSI 交付的业务数据（只读） | 运维、GSI 对接与联调 | `/gsi/*`（「GSI 业务数据」菜单 3 个页面：「用户与组织关系」为人员总入口、「知识文档」详情抽屉内含发布关系） | 12 张 GSI 共享表（只读，不写入） |
 
 ---
 
@@ -71,21 +72,23 @@
 | `sbp_ai_kb_dup_group` | 重复分组 | 台账（治理物化） | `kb.dup_result.service._materialize`、`_save_preview`、管理端 `KbDupGroupService.update_status` | 永久 |
 | `sbp_ai_kb_chat_session` | 问答会话 | 台账（软删） | `KbChatSessionService.create_owned/_clear/_delete`、`update` | 永久；删除与清空都是改状态，行保留 |
 | `sbp_ai_kb_chat_message` | 会话消息 | 明细（软删） | `kb.chat.service.KbChatService._persist`、`KbChatMessageCRUD.mark_session_deleted` | 永久；清空/删除只置 `status='deleted'` |
+| `sbp_ai_kb_chat_turn_metric` | 问答单轮指标 | 明细（只追加） | `kb.chat_metric.meter.TurnMeter.save/fail`（成功轮与失败轮都写） | 设计按保留期裁剪，**无清理实现**；写失败只告警，不影响问答 |
 
 字段、键、索引与表间引用见 [`02-数据模型与表关系.md`](02-数据模型与表关系.md)；保留策略的完整口径见 [`01-业务功能说明.md`](01-业务功能说明.md) §六。
 
-**同库只读的 GSI 业务表（11 张）**——本侧只在 `app/modules_gsi/` 映射契约 §四 允许的列，不建表、不写入、不清理：
+**同库只读的 GSI 业务表（12 张）**——本侧只在 `app/modules_gsi/` 映射契约 §四 允许的列，不建表、不写入、不清理：
 
 | 表名 | 中文名 | 写入方（GSI 侧） | 本侧用途 |
 | --- | --- | --- | --- |
-| `sbp_sys_org` | 组织（部门/团队） | GSI 组织管理 | 组织树核对（`/gsi/org`） |
-| `sbp_sys_org_member` | 组织成员关联 | GSI 组织管理 | 组织内成员（`/gsi/org`） |
-| `sbp_sys_audience_team` | 受众团队（知识权限组） | GSI 权限治理 | **授权判定**（`group_code`）+ 团队页 |
-| `sbp_sys_audience_team_member` | 受众团队成员关联 | GSI 权限治理 | **授权判定** + 成员标识页 |
-| `sbp_sys_user` | 系统用户（限 `id/status/allow_login/deleted`） | GSI 账号管理 | 成员有效性核对 |
+| `sbp_sys_org` | 组织（部门/团队） | GSI 组织管理 | 组织树核对与「含下级」下钻（`/gsi/relations`） |
+| `sbp_sys_org_member` | 组织成员关联 | GSI 组织管理 | 组织归属与组织数（`/gsi/relations`） |
+| `sbp_sys_audience_team` | 受众团队（知识权限组） | GSI 权限治理 | **授权判定**（`group_code`）+ 团队下钻 |
+| `sbp_sys_audience_team_member` | 受众团队成员关联 | GSI 权限治理 | **授权判定** + 团队数与团队下钻 |
+| `sbp_sys_user` | 系统用户档案（`username/cn_name/en_name/position_name/rank_id` + `id/status/allow_login/deleted`） | GSI 账号管理 | 成员有效性核对 + 「用户与组织关系」页的用户主档（`org_count`/`team_count`） |
+| `sbp_sys_rank` | 职级主数据 | GSI 职级维护 | 把 `rank_id` 译成职级名称（不参与授权） |
 | `sbp_km_doc` | 知识文档主记录 | GSI 知识管理 | 文档状态核对（`/gsi/km-doc`） |
-| `sbp_km_doc_publication` | 文档按团队生效关系 | GSI 审批发布 | **授权判定**：`id` 即本侧 `publication_id` |
-| `sbp_km_doc_record` | 文档整篇审批快照 | GSI 审批流 | `record_id` 来源核对 |
+| `sbp_km_doc_publication` | 文档按团队生效关系 | GSI 审批发布 | **授权判定**：`id` 即本侧 `publication_id`；随 `/gsi/km-doc` 详情抽屉按 `doc_id` 展示 |
+| `sbp_km_doc_record` | 文档整篇审批快照 | GSI 审批流 | `record_id` 来源核对；`/gsi/km-doc` 详情抽屉的送审快照明细展示送审人 / 受众团队 / 审批人 / 送审时间（详情再给审批意见） |
 | `sbp_faq` | FAQ 主记录（正文未授权） | GSI 知识管理 | FAQ 状态核对 |
 | `sbp_faq_publication` | FAQ 按团队生效关系 | GSI 审批发布 | 生效关系与 `access_rules_json` |
 | `sbp_faq_record` | FAQ 审批快照（四阶段） | GSI 审批流 | 审批阶段与 `snapshot_json` |
@@ -99,7 +102,7 @@
 两组前缀，鉴权方式完全不同（详细约定见 [`03-接口清单.md`](03-接口清单.md) §一）：
 
 - 契约侧 `/v1`：HMAC 五头 + 裸 JSON（不套 `code/msg/data`），20 个端点，写操作走幂等台账；
-- 管理端 `/api/v1/kb`：管理台 JWT + 统一 `ResponseSchema`，40 个端点。
+- 管理端 `/api/v1/kb`：管理台 JWT + 统一 `ResponseSchema`，42 个端点。
 
 | 组 | 方法 | 路径 | 用途 | 数量 |
 | --- | --- | --- | --- | --- |
@@ -116,11 +119,12 @@
 | 会话 | GET / PUT / DELETE | `/api/v1/kb/chat-session/*` | 列表/详情/改名/清空/删除 | 5 |
 | 消息 | GET | `/api/v1/kb/chat-message/list`、`/detail/{message_id}` | 历史消息浏览 | 2 |
 | 对话 | POST | `/api/v1/kb/chat/ask`、`/chat/ask/stream` | 非流式问答、SSE 流式问答 | 2 |
+| 问答指标 | GET | `/api/v1/kb/chat-metric/list`、`/summary` | 单轮明细（按会话取）、会话维度汇总（概览卡） | 2 |
 
 两条口径要先记住：
 
 - 重复治理四个端点的真实前缀**带 `/knowledge`**（`DuplicateRouter` 声明为 `prefix="/knowledge"`，见 `app/modules_api/kb/duplicate/controller.py`）。写作 `/v1/duplicates/*` 的描述不可用于对接或测试断言。
-- `/gsi` 域另有 **23 个管理端只读接口**（JWT + `ResponseSchema`），与本表的 60 个分属不同域、不计入 60；台账见 [`03-接口清单.md`](03-接口清单.md) §六。
+- `/gsi` 域另有 **23 个管理端只读接口**（JWT + `ResponseSchema`），与本表的 62 个分属不同域、不计入 62；台账见 [`03-接口清单.md`](03-接口清单.md) §六。
 
 ---
 
@@ -131,7 +135,8 @@
 | `app/modules/kb/publication/entry_service.py` | `KbEntryService`：契约写入引擎（03.1 首发 / 03.2 基线 / 03.3 修订 / 03.4 删除 / D05 停用），领域异常 `Entry*Error` 也定义在这里 | 473 行；向量化在事务之前；自持 `async_session_factory`，不接收 `self.db` |
 | `app/modules/kb/publication/service.py` | `KbPublicationService`：管理端 16 个动作（含正文写入/修订/停用/溯源），写入时复用 `KbEntryService` | 671 行；管理端正文入口先切片再交给同一引擎 |
 | `app/modules/kb/retrieval/service.py` | 授权下推、关键词打分、向量召回、RRF 融合、精排闸门 | 335 行；`authorized_publication_ids` 被契约/管理端/问答三处共用 |
-| `app/modules/kb/chat/service.py` + `sse.py` | 问答编排（检索→生成→落库）与 SSE 帧协议 | `sse.py` 只有事件定义，编排在 `service.py` |
+| `app/modules/kb/chat/service.py` + `sse.py` + `prompt.py` | 问答编排（检索→生成→落库）、SSE 帧协议、提示词组装（模板 + 证据/历史预算） | `sse.py` 只有事件定义；`prompt.py` 的 `recall_block` 与二判共用同一份资料文本 |
+| `app/modules/kb/chat_metric/` | 单轮指标 model + `TurnMeter`（写入，失败只告警）+ 管理端只读投影（`schema` / `crud` / `admin_service` / `controller`） | 与 LangSmith trace 用 `trace_id` 对齐；读侧汇总 JOIN 会话表与列表同口径，明细按 `assistant_message_id` 在前端与消息对齐 |
 | `app/modules/kb/chat/admin_service.py` | 管理端两个出口：`ask` 与 `open_stream` | 自己开会话（无请求级事务），首轮自动建会话 |
 | `app/modules/kb/dup_result/service.py` | 检测、快照存取、物化治理行、合并预览 | 常量在 `dup_result/schema.py`（30 分钟、1000 项、0.65 阈值） |
 | `app/modules/kb/dup_group/` | 治理行读写 + 管理端主动治理三端点（`controller.py` / `service.py`） | `_scope` 把 `publication_ids` 反查成正式 `scope`；`ADMIN_USER_ID` 保证检测与预览读同一快照 |
@@ -143,7 +148,7 @@
 | `app/modules_api/base/` | 契约基座：`deps.py`（验签/nonce/幂等）、`errors.py`（错误码+路由类）、`signature.py`、`audit.py`、`common.py`（`make_contract_router`）、`test_utils/` | 新增对外接口直接复用，业务包不复制协议口径 |
 | `app/modules_api/base/deps.py` | 五头验签、nonce 防重放、三类幂等预约、授权时效校验 | `verified_signature` 必须在 Pydantic 之前拿到原始 body |
 | `app/modules_api/base/errors.py` | 错误码常量、码→HTTP 状态映射、`ContractApiRoute` | 所有契约错误码的唯一来源 |
-| `app/modules_gsi/` | GSI 11 张共享表的**只读**模型与查询：`SbpBase`（独立 metadata）、`SbpReadCRUD`（只有查询/分页，无写方法），tag 201–211 | 业务判定只用其中 3 张（授权链）；其余 8 张只服务「GSI 业务数据」菜单 |
+| `app/modules_gsi/` | GSI 12 张共享表的**只读**模型与查询：`SbpBase`（独立 metadata）、`SbpReadCRUD`（只有查询/分页，无写方法），tag 201–212 | 业务判定只用其中 3 张（授权链）；其余 9 张只服务「GSI 业务数据」菜单 |
 | `app/api/v1/routers.py` + `app/modules_api/router.py` | 两组前缀的挂载点 | `/api/v1` 下 8 个管理端 Router（含 `/gsi`）；`/v1` 下 4 个契约 Router |
 | `app/__init__.py`（lifespan） | 建扩展/建表/补关键词索引/改判未完成解析任务/确保对象存储桶 | 页图改由对象存储预签名 URL 提供，本地 `/previews/parse` 路由已下线 |
 | `frontend/src/views/module_kb/`、`api/module_kb/` | 6 个页面 + 6 个接口封装 | 页面不做本地过滤，全部下推后端 |
@@ -163,7 +168,9 @@
 | `chunk_id` 归属 | v3 起切片 ID 由 AI 分配（`record_id:seq`），GSI 只引用；请求里可省略 |
 | 授权下推 | 先算「这个用户能看到哪些 `publication_id`」，再在 SQL 里带 `publication_id IN (...)`，不是查完再过滤 |
 | 精排闸门 | 两层：绝对下限 `KB_RERANK_MIN_SCORE` 与相对下限「top1 分数 × `KB_RERANK_RELATIVE_RATIO`」，取两者较大值 |
-| 拒绝回答（no_evidence） | 召回条数低于 `KB_GRADE_MIN_CHUNKS` 时直接拒答，`finish_reason=no_evidence`，不编答案 |
+| 拒绝回答（no_evidence） | 两种成因：召回条数低于 `KB_GRADE_MIN_CHUNKS`，或灰区二判判为资料不足（`KB_GRADE_JUDGE_ENABLE`，默认关）；对外都是 `finish_reason=no_evidence` 且不编答案 |
+| 灰区二判 | 条数够但最高相关度低时，让模型用结构化输出判「资料够不够」；默认关、只在灰区调用、失败按「够答」降级 |
+| 单轮指标 | `sbp_ai_kb_chat_turn_metric` 一行/轮：证据条数、相关度、token、分段耗时、收尾原因；只聚合、不参与业务读写；可在「会话记录」页概览卡与抽屉里看（`/kb/chat-metric/*` 只读） |
 | 知识依赖（knowledge_deps） | 一条回答用到的 `publication_id + revision`；任意一项失效，该回答整条不再展示 |
 | 迟到丢弃 | 生成过程中会话被删除/清空，写回前用行锁 + 状态快照比对，判定丢弃并回 `TURN_DISCARDED` |
 | 治理快照 | `dup_result` 的 30 分钟只读结果；`scope_digest` 排除 `scope_id` 与时间戳，翻页时重新签发的 scope 仍能对齐 |
@@ -180,6 +187,6 @@
 | 文档 | 回答 |
 | --- | --- |
 | [`01-业务功能说明.md`](01-业务功能说明.md) | 谁在什么场景用什么功能；解析/写入/检索/问答/治理五条主流程；状态如何判定；数据留多久；现在做不到什么 |
-| [`02-数据模型与表关系.md`](02-数据模型与表关系.md) | 十张表每列的含义；键与索引；表与表怎么对上（R1–R12）；谁写谁读；删除一条知识后行还在不在；**§九 = GSI 11 张共享表、授权链与契约六步校验的落地对照** |
-| [`03-接口清单.md`](03-接口清单.md) | 60 个端点怎么调；字段、错误码、示例；契约编号与代码编号的对应；前端函数映射；**§六 = `/gsi` 23 个只读核对接口** |
-| [`04-实现与运维说明.md`](04-实现与运维说明.md) | 代码在哪；十四个关键实现决策；配置项与调错的后果；按症状排障（含「任务卡在 35%」与「授权为空」逐跳核对）；测试覆盖与已知限制 |
+| [`02-数据模型与表关系.md`](02-数据模型与表关系.md) | 十一张表每列的含义；键与索引；表与表怎么对上（R1–R13）；谁写谁读；删除一条知识后行还在不在；**§九 = GSI 12 张共享表、授权链与契约六步校验的落地对照** |
+| [`03-接口清单.md`](03-接口清单.md) | 62 个端点怎么调；字段、错误码、示例；契约编号与代码编号的对应；前端函数映射；**§六 = `/gsi` 26 个只读核对接口** |
+| [`04-实现与运维说明.md`](04-实现与运维说明.md) | 代码在哪；十八个关键实现决策；配置项（含 `AI_TRACE_*` 与灰区二判）与调错的后果；按症状排障（含「任务卡在 35%」「授权为空」「追踪无数据」「概览卡全 0」）；测试覆盖与已知限制 |

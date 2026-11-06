@@ -70,6 +70,9 @@ async def _seed(rid: str) -> None:
                 auth_mode="hmac",
                 client_id="gsi-service",
                 request_id=rid,
+                # 报文关键字过滤用例的靶点：请求体/响应体各留一个只在本行出现的串
+                request_payload={"body": {"question": f"{rid}-payload"}, "query": {}},
+                response_json={"code": 0, "data": {"answer": f"{rid}-answer"}},
                 security_check={"signature_result": "failed", "nonce_state": "reused", "failure_code": "UNAUTHORIZED"},
             )
         )
@@ -112,6 +115,40 @@ def test_query_param_jsonb_fields_stay_raw() -> None:
     assert data["request_id"] == ("like", "abc")
     assert data["status"] == ("eq", 1)
     assert data["signature_result"] == "failed"
+
+
+def test_query_param_payload_keywords_stay_raw() -> None:
+    """报文关键字不是列（JSONB 要 cast 成 text 再 ILIKE），不能带 q 交给通用 CRUD。"""
+    data = search_to_dict(AccessTraceQueryParam(request_body="order-2026", response_body="NO_EVIDENCE"))
+    assert data["request_body"] == "order-2026"
+    assert data["response_body"] == "NO_EVIDENCE"
+
+
+@requires_db
+async def test_calls_filter_by_payload_keyword() -> None:
+    """请求体 / 响应体关键字能命中 JSONB 报文；空串按「未筛选」处理，不当成命中全表。"""
+    rid = _rid()
+    await _seed(rid)
+    try:
+        async with async_session_factory() as session:
+            by_request = await AccessTraceService(session).page_calls(
+                page_no=1, page_size=10, search=AccessTraceQueryParam(request_body=f"{rid}-payload")
+            )
+            by_response = await AccessTraceService(session).page_calls(
+                page_no=1, page_size=10, search=AccessTraceQueryParam(response_body=f"{rid}-answer")
+            )
+            absent = await AccessTraceService(session).page_calls(
+                page_no=1, page_size=10, search=AccessTraceQueryParam(request_body=f"{rid}-absent")
+            )
+            blank = await AccessTraceService(session).page_calls(
+                page_no=1, page_size=10, search=AccessTraceQueryParam(request_id=rid, request_body="   ")
+            )
+        assert [row.request_id for row in by_request.items] == [rid]
+        assert [row.request_id for row in by_response.items] == [rid]
+        assert absent.total == 0
+        assert [row.request_id for row in blank.items] == [rid]
+    finally:
+        await _cleanup(rid)
 
 
 @requires_db

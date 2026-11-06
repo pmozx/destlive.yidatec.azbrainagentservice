@@ -52,7 +52,6 @@ class KbRetrievalAdminService:
             rerank_relative_ratio=settings.KB_RERANK_RELATIVE_RATIO,
             rerank_score_is_logit=settings.RERANK_SCORE_IS_LOGIT,
             rrf_k=settings.SEARCH_RRF_K,
-            snippet_length=settings.SEARCH_SNIPPET_LENGTH,
         )
 
     async def search(self, data: KbRetrievalSearchSchema) -> KbRetrievalSearchOutSchema:

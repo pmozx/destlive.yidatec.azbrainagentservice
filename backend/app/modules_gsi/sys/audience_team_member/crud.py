@@ -7,6 +7,7 @@ from sqlalchemy.sql.elements import ColumnElement
 
 from app.modules_gsi.base import SbpReadCRUD
 from app.modules_gsi.sys.audience_team.model import SbpSysAudienceTeamModel
+from app.modules_gsi.sys.rank.model import SbpSysRankModel
 from app.modules_gsi.sys.user.model import SbpSysUserModel
 
 from .model import SbpSysAudienceTeamMemberModel
@@ -24,6 +25,8 @@ class SbpSysAudienceTeamMemberCRUD(SbpReadCRUD[SbpSysAudienceTeamMemberModel]):
         limit: int,
         team_id: int | None = None,
         user_id: int | None = None,
+        username: str | None = None,
+        cn_name: str | None = None,
         group_code: str | None = None,
         group_name: str | None = None,
         audience_team: str | None = None,
@@ -31,16 +34,19 @@ class SbpSysAudienceTeamMemberCRUD(SbpReadCRUD[SbpSysAudienceTeamMemberModel]):
         user_status: str | None = None,
         valid_only: bool = False,
     ) -> tuple[list[dict[str, Any]], int]:
-        """成员 + 团队三标识 + 用户状态联表分页。
+        """成员 + 团队三标识 + 用户档案联表分页。
 
-        两处 LEFT JOIN 都是必要的：团队或用户被物理清掉时，成员关系行仍要能被看到，
+        三处 LEFT JOIN 都是必要的：团队、用户或职级被物理清掉时，成员关系行仍要能被看到，
         缺失侧以 ``None`` 返回，页面据此提示「团队/用户不存在」，而不是整行消失。
         """
         team = SbpSysAudienceTeamModel
         user = SbpSysUserModel
+        rank = SbpSysRankModel
         conditions = self._with_team_conditions(
             team_id=team_id,
             user_id=user_id,
+            username=username,
+            cn_name=cn_name,
             group_code=group_code,
             group_name=group_name,
             audience_team=audience_team,
@@ -57,6 +63,12 @@ class SbpSysAudienceTeamMemberCRUD(SbpReadCRUD[SbpSysAudienceTeamMemberModel]):
                 team.status.label("team_status"),
                 team.deleted.label("team_deleted"),
                 self.model.user_id.label("user_id"),
+                user.username.label("user_username"),
+                user.cn_name.label("user_cn_name"),
+                user.en_name.label("user_en_name"),
+                user.position_name.label("user_position_name"),
+                user.rank_id.label("user_rank_id"),
+                rank.rank_name.label("user_rank_name"),
                 user.status.label("user_status"),
                 user.allow_login.label("allow_login"),
                 user.deleted.label("user_deleted"),
@@ -64,6 +76,7 @@ class SbpSysAudienceTeamMemberCRUD(SbpReadCRUD[SbpSysAudienceTeamMemberModel]):
             .select_from(self.model)
             .outerjoin(team, team.id == self.model.team_id)
             .outerjoin(user, user.id == self.model.user_id)
+            .outerjoin(rank, rank.id == user.rank_id)
         )
         count_sql = (
             select(func.count())
@@ -94,6 +107,8 @@ class SbpSysAudienceTeamMemberCRUD(SbpReadCRUD[SbpSysAudienceTeamMemberModel]):
                 team.audience_team.label("audience_team"),
                 team.status.label("team_status"),
                 team.deleted.label("team_deleted"),
+                team.leader_name.label("leader_name"),
+                team.remark.label("remark"),
             )
             .select_from(self.model)
             .join(team, team.id == self.model.team_id)
@@ -103,18 +118,13 @@ class SbpSysAudienceTeamMemberCRUD(SbpReadCRUD[SbpSysAudienceTeamMemberModel]):
         result = await self.db.execute(sql)
         return [dict(row) for row in result.mappings().all()]
 
-    async def get_user(self, user_id: int) -> SbpSysUserModel | None:
-        """按主键取用户有效性（用户不存在返回 ``None``）。"""
-        result = await self.db.execute(
-            select(SbpSysUserModel).where(SbpSysUserModel.id == user_id).limit(1)
-        )
-        return result.scalars().first()
-
     def _with_team_conditions(
         self,
         *,
         team_id: int | None,
         user_id: int | None,
+        username: str | None,
+        cn_name: str | None,
         group_code: str | None,
         group_name: str | None,
         audience_team: str | None,
@@ -130,6 +140,10 @@ class SbpSysAudienceTeamMemberCRUD(SbpReadCRUD[SbpSysAudienceTeamMemberModel]):
             conditions.append(self.model.team_id == team_id)
         if user_id is not None:
             conditions.append(self.model.user_id == user_id)
+        if username:
+            conditions.append(user.username.like(f"%{username}%"))
+        if cn_name:
+            conditions.append(user.cn_name.like(f"%{cn_name}%"))
         if group_code:
             conditions.append(team.group_code == group_code)
         if group_name:

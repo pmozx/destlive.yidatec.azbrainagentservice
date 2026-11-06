@@ -40,3 +40,13 @@ class SbpSysOrgCRUD(SbpReadCRUD[SbpSysOrgModel]):
         )
         result = await self.db.execute(sql)
         return list(result.scalars().all())
+
+    async def list_id_parent_pairs(self) -> list[tuple[int, int | None]]:
+        """取 ``(id, parent_id)`` 两列，用于把组织展开成子树 id 集合。
+
+        只读两列：展开「含下级」不需要名称/状态，整表扫一遍也比递归 CTE 更好测、
+        更容易把脏数据（自引用、互指成环）在纯函数里处理掉。
+        """
+        sql = select(self.model.id, self.model.parent_id)
+        result = await self.db.execute(sql)
+        return [(row[0], row[1]) for row in result.all()]

@@ -62,12 +62,12 @@
 
 | # | 方法 | 路径 | 用途 | 文档 |
 | --- | --- | --- | --- | --- |
-| F1 | GET | `/api-log/list` | 分页查审计行（不返回请求/响应大字段） | [03](03-接口清单.md) §3.1 |
+| F1 | GET | `/api-log/list` | 分页查审计行（不返回请求/响应大字段；请求体 / 响应体支持关键字模糊） | [03](03-接口清单.md) §3.1 |
 | F2 | GET | `/api-log/detail/{id}` | 单条审计详情（含请求/响应体） | §3.2 |
 | F3 | DELETE | `/api-log/delete` | 批量物理删除 | §3.3 |
 | F4 | POST | `/api-log/clean` | 按保留天数清理 | §3.4 |
 | F5 | GET | `/access-trace/summary` | 近 N 小时概览（9 个计数） | §3.5 |
-| F6 | GET | `/access-trace/calls` | 契约调用明细分页（JSONB 过滤） | §3.6 |
+| F6 | GET | `/access-trace/calls` | 契约调用明细分页（JSONB 过滤 + 请求体/响应体关键字） | §3.6 |
 | F7 | GET | `/access-trace/calls/detail/{id}` | 调用详情（含报文） | §3.7 |
 | F8 | GET | `/access-trace/nonces` | 防重放台账分页 | §3.8 |
 | F9 | GET | `/access-trace/idempotency` | 幂等台账分页 | §3.9 |

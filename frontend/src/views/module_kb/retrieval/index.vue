@@ -45,7 +45,6 @@
           {{ config.rerank_score_is_logit ? 'logit（sigmoid 归一）' : '0–1 概率' }}
         </el-descriptions-item>
         <el-descriptions-item label="RRF k">{{ config.rrf_k ?? '-' }}</el-descriptions-item>
-        <el-descriptions-item label="摘要长度">{{ config.snippet_length ? `${config.snippet_length} 字符` : '-' }}</el-descriptions-item>
         <el-descriptions-item label="精排模型" :span="2">{{ config.rerank_model || '-' }}</el-descriptions-item>
       </el-descriptions>
     </SectionCard>
@@ -121,7 +120,7 @@
         <el-table-column align="center" prop="title" label="标题" min-width="170" show-overflow-tooltip />
         <el-table-column align="center" prop="publication_id" label="发布单元" min-width="170" show-overflow-tooltip />
         <el-table-column align="center" prop="chunk_id" label="切片" min-width="170" show-overflow-tooltip />
-        <el-table-column align="center" prop="snippet" label="命中摘要" min-width="320" show-overflow-tooltip />
+        <el-table-column align="center" prop="snippet" label="切片正文" min-width="320" show-overflow-tooltip />
         <el-table-column align="center" label="页码" width="96">
           <template #default="{ row }">{{ pageText(row) }}</template>
         </el-table-column>
@@ -151,7 +150,9 @@
             {{ detail.resource_type }} / {{ detail.resource_id || '-' }}
           </el-descriptions-item>
           <el-descriptions-item label="页码">{{ pageText(detail) }}</el-descriptions-item>
-          <el-descriptions-item label="命中摘要">{{ detail.snippet }}</el-descriptions-item>
+          <el-descriptions-item label="切片正文">
+            <pre class="retrieval-detail__content">{{ detail.snippet }}</pre>
+          </el-descriptions-item>
         </el-descriptions>
         <div class="retrieval-detail__block">
           <JsonViewer title="hits[] 原始字段" :data="detail" max-height="320px" />
@@ -291,6 +292,17 @@ onMounted(loadConfig)
 .retrieval-alert {
   margin: 12px 26px 0;
   width: auto;
+}
+
+.retrieval-detail__content {
+  margin: 0;
+  max-height: 260px;
+  overflow: auto;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .retrieval-detail__block {

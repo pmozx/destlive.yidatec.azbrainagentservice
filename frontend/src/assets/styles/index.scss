@@ -143,11 +143,14 @@
 .el-table {
   --el-table-border-color: var(--app-border-color);
   --el-table-header-bg-color: var(--app-tint-bg);
-  --el-table-row-hover-bg-color: color-mix(in srgb, var(--el-color-primary) 4%, transparent);
+  /* hover 与行底色都要与卡片底色混合、不能写 transparent：
+     fixed 列的 sticky 单元格靠继承行背景避开滚动内容，
+     行背景透明时被盖住的列会从固定列下透出，两列文字叠在一起 */
+  --el-table-row-hover-bg-color: color-mix(in srgb, var(--el-color-primary) 4%, var(--app-card-bg));
   --el-table-header-text-color: var(--app-text-secondary);
   --el-table-text-color: var(--app-text-regular);
   --el-table-bg-color: transparent;
-  --el-table-tr-bg-color: transparent;
+  --el-table-tr-bg-color: var(--app-card-bg);
   font-size: 13px;
 
   th.el-table__cell {

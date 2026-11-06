@@ -27,6 +27,14 @@ export function formatDuration(seconds) {
   return `${Math.floor(seconds / 60)} min ${Math.round(seconds % 60)} s`
 }
 
+/** 毫秒转可读耗时（指标/耗时列统一口径，避免每个页面各写一份） */
+export function formatMs(ms) {
+  if (ms === null || ms === undefined || Number.isNaN(Number(ms))) return '-'
+  const value = Number(ms)
+  if (value < 1000) return `${Math.round(value)} ms`
+  return `${(value / 1000).toFixed(1)} s`
+}
+
 /** 千分位数字 */
 export function formatNumber(value) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return '-'

@@ -17,6 +17,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     这些均为辅助/待集成能力，初始化失败只告警不阻断启动。
     """
+    # AI 链路追踪（LangSmith）：必须在任何 LangChain 调用之前把配置写进 LANGSMITH_*——
+    # langsmith 读取环境变量带缓存，晚于首次读取就改不动了（详见 core/observability/tracing.py）
+    from app.core.observability import configure_tracing
+
+    configure_tracing()
+
     # pgvector 扩展：kb 分片表的 vector 列与 HNSW 索引依赖它，必须先于各域建表。
     # 失败只告警——数据库暂不可用时不拖住整个应用启动
     from app.core.table_bootstrap import ensure_pgvector_extension

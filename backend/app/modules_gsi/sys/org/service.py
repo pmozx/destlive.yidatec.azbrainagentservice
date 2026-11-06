@@ -1,7 +1,7 @@
 """GSI 组织架构只读服务。"""
 
-from collections import defaultdict
-from collections.abc import Sequence
+from collections import defaultdict, deque
+from collections.abc import Iterable, Sequence
 from typing import cast
 
 from fastapi import status
@@ -113,3 +113,35 @@ class SbpSysOrgService:
             if node.id not in visited:
                 forest.append(build(node))
         return forest
+
+    async def subtree_ids(self, root_id: int) -> list[int]:
+        """组织子树 id 集合（含自身），供「含下级」下钻成员范围使用。"""
+        return self._collect_subtree_ids(root_id, await self.crud.list_id_parent_pairs())
+
+    @staticmethod
+    def _collect_subtree_ids(
+        root_id: int, edges: Iterable[tuple[int, int | None]]
+    ) -> list[int]:
+        """``(id, parent_id)`` 边集 → root 子树 id 列表（含自身）。
+
+        与 ``_build_tree`` 同样要吞脏数据：自引用直接丢弃，A↔B 互指靠 visited
+        截断回边，否则一次「含下级」查询会挂在环上。根节点自身始终返回，
+        即使它在表里不存在——让调用方得到「空结果」而不是「没有过滤条件」。
+        """
+        children: dict[int, list[int]] = defaultdict(list)
+        for node_id, parent_id in edges:
+            if parent_id is None or parent_id == node_id:
+                continue
+            children[parent_id].append(node_id)
+
+        visited = {root_id}
+        queue: deque[int] = deque([root_id])
+        ordered = [root_id]
+        while queue:
+            for child in children.get(queue.popleft(), []):
+                if child in visited:
+                    continue
+                visited.add(child)
+                ordered.append(child)
+                queue.append(child)
+        return ordered

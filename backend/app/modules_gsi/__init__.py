@@ -4,7 +4,8 @@
 的类名统一使用 **Sbp** 前缀（如 ``SbpSysOrgModel``、``SbpSysOrgCRUD``、``SbpSysOrgService``、
 ``SbpSysOrgRouter``）。访问路径按「模块名 / 业务名」组织：
 
-- ``app.modules_gsi.sys``：``org`` / ``org_member`` / ``audience_team`` / ``audience_team_member`` / ``user``
+- ``app.modules_gsi.sys``：``org`` / ``org_member`` / ``audience_team`` / ``audience_team_member`` /
+  ``user`` / ``rank``
 - ``app.modules_gsi.km``：``doc`` / ``doc_publication`` / ``doc_record``
 - ``app.modules_gsi.faq``：``faq`` / ``faq_publication`` / ``faq_record``
 

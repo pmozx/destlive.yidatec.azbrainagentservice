@@ -1,4 +1,4 @@
-"""GSI 用户有效性只读接口（``/gsi/sys/user``）。"""
+"""GSI 用户档案只读接口（``/gsi/sys/user``）。"""
 
 from typing import Annotated
 
@@ -15,13 +15,13 @@ from .schema import SbpSysUserOutSchema, SbpSysUserQueryParam
 from .service import SbpSysUserService
 
 SbpSysUserRouter = APIRouter(
-    route_class=ApiLogRoute, prefix="/sys/user", tags=["205-GSI用户有效性"]
+    route_class=ApiLogRoute, prefix="/sys/user", tags=["205-GSI用户档案"]
 )
 
 
 @SbpSysUserRouter.get(
     "/list",
-    summary="01-分页查询GSI用户有效性",
+    summary="01-分页查询GSI用户档案",
     response_model=ResponseSchema[PageResultSchema[SbpSysUserOutSchema]],
 )
 async def get_sbp_sys_user_list_controller(
@@ -35,12 +35,12 @@ async def get_sbp_sys_user_list_controller(
         search=search,
         order_by=page.order_by,
     )
-    return SuccessResponse(data=result_dict, msg="查询GSI用户有效性成功")
+    return SuccessResponse(data=result_dict, msg="查询GSI用户档案成功")
 
 
 @SbpSysUserRouter.get(
     "/detail/{id}",
-    summary="02-查询GSI用户有效性详情",
+    summary="02-查询GSI用户档案详情",
     response_model=ResponseSchema[SbpSysUserOutSchema],
 )
 async def get_sbp_sys_user_detail_controller(
@@ -48,4 +48,4 @@ async def get_sbp_sys_user_detail_controller(
     id: Annotated[int, Path(description="用户ID", ge=1)],
 ) -> JSONResponse:
     result_dict = await SbpSysUserService(db).detail(id=id)
-    return SuccessResponse(data=result_dict, msg="获取GSI用户有效性详情成功")
+    return SuccessResponse(data=result_dict, msg="获取GSI用户档案详情成功")

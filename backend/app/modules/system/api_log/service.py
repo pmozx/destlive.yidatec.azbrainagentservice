@@ -13,6 +13,7 @@ from app.core.base_schema import PageResultSchema
 from app.core.database import async_session_factory
 from app.core.exceptions import CustomException
 from app.core.logger import logger
+from app.modules.system.payload_filter import jsonb_text_like, pop_like_keyword
 from app.utils.common_util import search_to_dict
 
 from .crud import SystemApiLogCRUD
@@ -34,13 +35,27 @@ class SystemApiLogService:
         search: SystemApiLogQueryParam | None = None,
         order_by: list[dict[str, str]] | None = None,
     ) -> PageResultSchema[SystemApiLogOutSchema]:
-        """分页查询审计日志：默认按时间倒序（最新操作在最前）。"""
+        """分页查询审计日志：默认按时间倒序（最新操作在最前）。
+
+        请求体 / 响应体是 ``JSONB``，走不了 CRUD 的普通 ``like``（PG 不提供 jsonb ~~ text）；
+        关键字先取走，再 cast 成 text 做 ILIKE，作为额外条件与其余筛选 AND 起来。
+        """
+        data = search_to_dict(search) or {}
+        extra = []
+        for key, column in (
+            ("request_body", SystemApiLogModel.request_payload),
+            ("response_body", SystemApiLogModel.response_json),
+        ):
+            keyword = pop_like_keyword(data, key)
+            if keyword:
+                extra.append(jsonb_text_like(column, keyword))
         return await self.crud.page(
             offset=(page_no - 1) * page_size,
             limit=page_size,
             order_by=order_by or [{"id": "desc"}],
-            search=search_to_dict(search),
+            search=data,
             out_schema=SystemApiLogOutSchema,
+            extra_conditions=extra or None,
         )
 
     async def detail(self, id: int) -> SystemApiLogDetailOutSchema:

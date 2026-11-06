@@ -12,7 +12,9 @@ class SbpSysAudienceTeamOutSchema(BaseModel):
     group_code: str = Field(..., description="团队编码")
     group_name: str = Field(..., description="团队名称")
     audience_team: str | None = Field(default=None, description="受众团队标识")
+    leader_name: str = Field(default="", description="负责人姓名（字符串快照，不是 user_id）")
     status: str = Field(..., description="状态：1启用 0停用")
+    remark: str = Field(default="", description="备注")
     deleted: int = Field(..., description="逻辑删除：0否 1是")
 
 
@@ -27,6 +29,9 @@ class SbpSysAudienceTeamQueryParam(BaseModel):
     )
     audience_team: str | None = Field(
         default=None, description="受众团队标识", json_schema_extra={"q": "eq"}
+    )
+    leader_name: str | None = Field(
+        default=None, description="负责人姓名", json_schema_extra={"q": "like"}
     )
     status: str | None = Field(
         default=None, description="状态：1启用 0停用", json_schema_extra={"q": "eq"}

@@ -1,4 +1,4 @@
-"""GSI 业务模块 ``sys``：组织、组织成员、受众团队、受众团队成员、用户有效性。"""
+"""GSI 业务模块 ``sys``：组织、组织成员、受众团队、受众团队成员、用户档案、职级。"""
 
 from .audience_team import (
     SbpSysAudienceTeamCRUD,
@@ -27,6 +27,13 @@ from .org_member import (
     SbpSysOrgMemberOutSchema,
     SbpSysOrgMemberQueryParam,
     SbpSysOrgMemberService,
+)
+from .rank import (
+    SbpSysRankCRUD,
+    SbpSysRankModel,
+    SbpSysRankOutSchema,
+    SbpSysRankQueryParam,
+    SbpSysRankService,
 )
 from .user import (
     SbpSysUserCRUD,
@@ -62,4 +69,9 @@ __all__ = [
     "SbpSysUserOutSchema",
     "SbpSysUserQueryParam",
     "SbpSysUserService",
+    "SbpSysRankCRUD",
+    "SbpSysRankModel",
+    "SbpSysRankOutSchema",
+    "SbpSysRankQueryParam",
+    "SbpSysRankService",
 ]

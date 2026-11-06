@@ -39,7 +39,7 @@ def body(**overrides: Any) -> bytes:
 
 
 def hit(publication_id: str, record_id: str) -> SearchHit:
-    """一条 chunk 级命中（字段口径与 #07 一致，``snippet`` 由检索层折叠空白）。"""
+    """一条 chunk 级命中（字段口径与 #07 一致，``snippet`` 是切片完整正文）。"""
     return SearchHit(
         resource_type="document",
         resource_id=f"doc-{publication_id}",
@@ -70,6 +70,9 @@ def stub_llm(monkeypatch: pytest.MonkeyPatch, answer: str) -> None:
     """一次性生成打桩：只验编排与落库，不把用例绑在真实 LLM 上。"""
 
     class _FakeLlm:
+        # 编排层把模型名记进指标表：桩对象必须具备与 LlmClient 相同的接口面
+        model = "stub-model"
+
         async def chat(self, messages, **kwargs):  # noqa: ANN001, ANN003, ANN202 - 同上
             return answer
 
@@ -89,6 +92,9 @@ def stub_stream(
     """
 
     class _FakeLlm:
+        # 同上：指标表要模型名快照
+        model = "stub-model"
+
         async def chat(self, messages, **kwargs):  # noqa: ANN001, ANN003, ANN202 - 同上
             raise AssertionError("流式路径不应调用一次性生成 chat()")
 

@@ -9,7 +9,8 @@
    本来就没有可比量纲；
 3. **``score`` 的取法**：精排可用时用重排序相关度（绝对口径，归一在 ``core.chat.rerank``
    完成，此处只能看到 0–1），不可用时用 RRF 相对分（按 top1 归一）。两者都落在 0–1；
-4. **``snippet`` 只来自本次命中的已授权切片正文**（FR-RAG-09），不跨来源拼接；
+4. **``snippet`` 就是本次命中的已授权切片正文**（FR-RAG-09）：整段原样返回，不截断、不折叠、
+   不跨来源拼接——契约 #04 的示例给的就是切片全文，调用方要拿它核对原文；
 5. **不静默降级**：授权数据不可用 → 503；自然语言通道的向量化不可用 → 503（不能拿
    「只有字面命中」冒充语义检索结果）；精排不可用只影响排序，回落融合序并留日志。
 """
@@ -78,32 +79,16 @@ def _score(content: str, heading: str | None, keywords: tuple[str, ...]) -> floa
     return round(min(1.0, 0.7 * coverage + 0.2 * density + 0.1 * heading_hits), 4)
 
 
-def _snippet(content: str, keywords: tuple[str, ...]) -> str:
-    """截取命中点附近的定长摘要（折叠空白），只取本切片正文。
-
-    纯语义命中（正文里没有字面命中）时取开头窗口：摘要用于展示，不参与打分。
-    """
-    text = " ".join(content.split())
-    limit = max(20, settings.SEARCH_SNIPPET_LENGTH)
-    lowered = text.lower()
-    positions = [lowered.find(keyword.lower()) for keyword in keywords]
-    hits = [position for position in positions if position >= 0]
-    position = min(hits) if hits else 0
-    # 命中点放在窗口前 1/4 处，前后都留上下文
-    start = max(0, position - limit // 4)
-    window = text[start : start + limit]
-    prefix = "…" if start > 0 else ""
-    suffix = "…" if start + limit < len(text) else ""
-    return f"{prefix}{window}{suffix}"
-
-
 def _to_hits(
     scored: list[tuple[float, ChunkCandidate]],
     *,
-    keywords: tuple[str, ...],
     limit: int,
 ) -> tuple[SearchHit, ...]:
-    """(分数, 候选) → 契约 hits：两条通道共用同一投影，顺序由调用方给定。"""
+    """(分数, 候选) → 契约 hits：两条通道共用同一投影，顺序由调用方给定。
+
+    ``snippet`` 直接给切片正文全文：检索结果就是调用方的证据，摘一段定长窗口会让人无法
+    核对原文（契约 #04 的示例值也是整段正文）。展示层要折叠/截断由前端自己做。
+    """
     return tuple(
         SearchHit(
             resource_type=candidate.resource_type,
@@ -115,7 +100,7 @@ def _to_hits(
             knowledge_no=candidate.knowledge_no,
             chunk_id=candidate.chunk_id,
             title=candidate.title,
-            snippet=_snippet(candidate.content, keywords),
+            snippet=candidate.content,
             score=score,
             page_from=candidate.page_from,
             page_to=candidate.page_to,
@@ -171,8 +156,9 @@ class _RerankText:
 def _rerank_input(candidate: ChunkCandidate, score: float) -> _RerankText:
     """构造单条精排入参：标题不截断，正文截到 ``SEARCH_RERANK_DOC_CHARS``。
 
-    截断只影响送给交叉编码器的原文量，不影响返回给调用方的 ``snippet``；实测 800 字符
-    正文比 500 字符多花约 25% 时间，而排序结果不变（关键句大多在切片开头）。
+    截断只影响送给交叉编码器的原文量，不影响返回给调用方的 ``snippet``（始终是完整切片
+    正文）；实测 800 字符正文比 500 字符多花约 25% 时间，而排序结果不变（关键句大多在
+    切片开头）。
     """
     title = "\n".join(part for part in (candidate.title, candidate.heading) if part)
     content = candidate.content[: max(100, settings.SEARCH_RERANK_DOC_CHARS)]
@@ -265,7 +251,7 @@ class KbRetrievalService:
                 limit=_keyword_window(data.limit),
             )
 
-        hits = _to_hits(_keyword_scored(candidates, keywords), keywords=keywords, limit=data.limit)
+        hits = _to_hits(_keyword_scored(candidates, keywords), limit=data.limit)
         logger.info(
             "关键词检索完成：user_id={} 授权发布单元={} 候选={} 命中={}",
             data.user_id,
@@ -305,7 +291,7 @@ class KbRetrievalService:
             )
 
         fused = _rrf_fuse(vector_candidates, keyword_candidates)
-        hits = _to_hits(await _rerank(data.query, fused, limit=data.limit), keywords=keywords, limit=data.limit)
+        hits = _to_hits(await _rerank(data.query, fused, limit=data.limit), limit=data.limit)
         logger.info(
             "自然语言检索完成：user_id={} 授权发布单元={} 向量候选={} 关键词候选={} 融合={} 命中={}",
             data.user_id,

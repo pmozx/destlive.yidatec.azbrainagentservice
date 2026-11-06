@@ -3,7 +3,9 @@
     <div class="page-header">
       <div>
         <h2 class="page-header__title">日志审计</h2>
-        <p class="page-header__desc">对接后端 /api/v1/system/api-log 接口，查看写操作的请求留痕、响应摘要与耗时</p>
+        <p class="page-header__desc">
+          对接后端 /api/v1/system/api-log 接口，查看写操作的请求留痕、响应摘要与耗时；请求体 / 响应体支持关键字模糊搜索
+        </p>
       </div>
       <div class="page-header__actions">
         <el-button size="small" @click="openClean">
@@ -31,6 +33,12 @@
             <el-select v-model="query.status" placeholder="全部" clearable style="width: 110px">
               <el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" />
             </el-select>
+          </el-form-item>
+          <el-form-item label="请求体">
+            <el-input v-model="query.request_body" placeholder="关键字，如文件名/ID" clearable style="width: 170px" @keyup.enter="search" />
+          </el-form-item>
+          <el-form-item label="响应体">
+            <el-input v-model="query.response_body" placeholder="关键字，如错误码/ID" clearable style="width: 170px" @keyup.enter="search" />
           </el-form-item>
           <el-form-item>
             <el-button type="primary" :loading="loading" @click="search">查询</el-button>
@@ -174,12 +182,14 @@ function buildQueryParams(params) {
   if (params.request_path) result.request_path = params.request_path
   if (params.request_method) result.request_method = params.request_method
   if (params.status === 0 || params.status === 1) result.status = params.status
+  if (params.request_body) result.request_body = params.request_body
+  if (params.response_body) result.response_body = params.response_body
   return result
 }
 
 const { loading, list, total, pagination, query, load, search, reset, handlePageChange, handleSizeChange } = useTable(
   (params) => getOperationLogList(buildQueryParams(params)),
-  { defaultQuery: { username: '', request_path: '', request_method: '', status: '' } },
+  { defaultQuery: { username: '', request_path: '', request_method: '', status: '', request_body: '', response_body: '' } },
 )
 
 const selectedIds = ref([])

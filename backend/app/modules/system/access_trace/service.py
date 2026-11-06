@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.base_schema import PageResultSchema
 from app.core.exceptions import CustomException
+from app.modules.system.payload_filter import jsonb_text_like, pop_like_keyword
 from app.utils.common_util import search_to_dict
 
 from .crud import (
@@ -69,7 +70,7 @@ class AccessTraceService:
         search: AccessTraceQueryParam | None = None,
         order_by: list[dict[str, str]] | None = None,
     ) -> PageResultSchema[AccessTraceOutSchema]:
-        """分页查询契约调用；签名结果与 nonce 状态走 JSONB 子字段过滤。"""
+        """分页查询契约调用；签名结果、nonce 状态与报文关键字走额外条件。"""
         data = search_to_dict(search) or {}
         signature_result = data.pop("signature_result", None)
         nonce_state = data.pop("nonce_state", None)
@@ -88,6 +89,15 @@ class AccessTraceService:
             extra.append(SystemApiLogModel.security_check["signature_result"].astext == signature_result)
         if nonce_state:
             extra.append(SystemApiLogModel.security_check["nonce_state"].astext == nonce_state)
+
+        # 报文关键字：JSONB 不能直接 LIKE，cast 成 text 再 ILIKE（与日志审计 F1 同一口径）
+        for key, column in (
+            ("request_body", SystemApiLogModel.request_payload),
+            ("response_body", SystemApiLogModel.response_json),
+        ):
+            keyword = pop_like_keyword(data, key)
+            if keyword:
+                extra.append(jsonb_text_like(column, keyword))
 
         return await self.calls.page(
             offset=(page_no - 1) * page_size,

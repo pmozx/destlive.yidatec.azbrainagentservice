@@ -52,6 +52,12 @@
               <el-form-item label="调用方">
                 <el-input v-model="calls.query.client_id" placeholder="client_id" clearable style="width: 140px" />
               </el-form-item>
+              <el-form-item label="请求体">
+                <el-input v-model="calls.query.request_body" placeholder="报文关键字" clearable style="width: 140px" />
+              </el-form-item>
+              <el-form-item label="响应体">
+                <el-input v-model="calls.query.response_body" placeholder="报文关键字" clearable style="width: 140px" />
+              </el-form-item>
               <el-form-item label="签名">
                 <el-select v-model="calls.query.signature_result" placeholder="全部" clearable style="width: 108px">
                   <el-option label="通过" value="passed" />
@@ -405,6 +411,8 @@ const calls = useTable(
           signature_result: params.signature_result,
           nonce_state: params.nonce_state,
           status: params.status,
+          request_body: params.request_body,
+          response_body: params.response_body,
         },
         ranges.calls,
       ),
@@ -412,7 +420,16 @@ const calls = useTable(
   {
     pageSize: 20,
     immediate: false,
-    defaultQuery: { request_id: '', request_path: '', client_id: '', signature_result: '', nonce_state: '', status: '' },
+    defaultQuery: {
+      request_id: '',
+      request_path: '',
+      client_id: '',
+      signature_result: '',
+      nonce_state: '',
+      status: '',
+      request_body: '',
+      response_body: '',
+    },
   },
 )
 

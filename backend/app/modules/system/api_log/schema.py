@@ -3,6 +3,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from app.core.base_schema import BaseQueryParam, BaseSchema
+from app.modules.system.payload_filter import PAYLOAD_KEYWORD_MAX_LENGTH
 
 
 class SystemApiLogCreateSchema(BaseModel):
@@ -53,6 +54,13 @@ class SystemApiLogQueryParam(BaseQueryParam):
     status: int | None = Field(None, ge=0, le=1, description="操作状态(0:成功 1:失败)", json_schema_extra={"q": "eq"})
     response_code: int | None = Field(None, ge=100, le=599, description="响应状态码", json_schema_extra={"q": "eq"})
     request_ip: str | None = Field(None, description="请求IP", json_schema_extra={"q": "like"})
+    # 报文关键字：不是列（JSONB 需 cast 成 text 再 ILIKE），故意不带 q，由 service 单独转条件
+    request_body: str | None = Field(
+        None, max_length=PAYLOAD_KEYWORD_MAX_LENGTH, description="请求体关键字（JSON 文本模糊，大小写不敏感）"
+    )
+    response_body: str | None = Field(
+        None, max_length=PAYLOAD_KEYWORD_MAX_LENGTH, description="响应体关键字（JSON 文本模糊，大小写不敏感）"
+    )
 
 
 class SystemApiLogCleanSchema(BaseModel):

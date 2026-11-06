@@ -19,6 +19,10 @@ from app.modules_gsi.sys.audience_team_member.schema import (
 )
 from app.modules_gsi.sys.org.model import SbpSysOrgModel
 from app.modules_gsi.sys.org.service import SbpSysOrgService
+from app.modules_gsi.sys.org_member.schema import SbpSysOrgMemberWithOrgOutSchema
+from app.modules_gsi.sys.org_member.service import SbpSysOrgMemberService
+from app.modules_gsi.sys.user.model import SbpSysUserModel
+from app.modules_gsi.sys.user.schema import SbpSysUserQueryParam
 
 GSI_READ_PATHS: set[str] = {
     "/api/v1/gsi/sys/org/list",
@@ -26,6 +30,7 @@ GSI_READ_PATHS: set[str] = {
     "/api/v1/gsi/sys/org/tree",
     "/api/v1/gsi/sys/org-member/list",
     "/api/v1/gsi/sys/org-member/page-with-org",
+    "/api/v1/gsi/sys/org-member/user-orgs",
     "/api/v1/gsi/sys/audience-team/list",
     "/api/v1/gsi/sys/audience-team/detail/{id}",
     "/api/v1/gsi/sys/audience-team-member/list",
@@ -33,6 +38,8 @@ GSI_READ_PATHS: set[str] = {
     "/api/v1/gsi/sys/audience-team-member/user-teams",
     "/api/v1/gsi/sys/user/list",
     "/api/v1/gsi/sys/user/detail/{id}",
+    "/api/v1/gsi/sys/rank/list",
+    "/api/v1/gsi/sys/rank/detail/{id}",
     "/api/v1/gsi/km/doc/list",
     "/api/v1/gsi/km/doc/detail/{id}",
     "/api/v1/gsi/km/doc-publication/list",
@@ -48,7 +55,7 @@ GSI_READ_PATHS: set[str] = {
 
 
 def test_gsi_read_routes_are_registered() -> None:
-    """契约 §四的 11 张表都有对应只读入口，包括本次新增的联表与 FAQ 三类。"""
+    """契约 §四的表都有只读入口，含联表视图、按用户反查与职级引用表。"""
     paths = set(create_app().openapi()["paths"])
     assert GSI_READ_PATHS <= paths
 
@@ -130,6 +137,60 @@ def test_member_with_team_derives_valid_flags() -> None:
     assert (disabled.team_valid, disabled.user_exists, disabled.user_valid) == (False, False, False)
 
 
+def test_org_member_with_org_carries_user_profile() -> None:
+    """组织成员联表必须带出用户档案，页面才能以人为主体展示。"""
+    row = SbpSysOrgMemberWithOrgOutSchema.model_validate(
+        {
+            "org_id": 1,
+            "org_status": "1",
+            "org_deleted": 0,
+            "user_id": 42,
+            "user_username": "zhangsan",
+            "user_cn_name": "张三",
+            "user_position_name": "解决方案架构师",
+            "user_rank_id": 3,
+            "user_rank_name": "P6",
+            "user_status": "1",
+            "user_deleted": 0,
+        }
+    )
+    assert (row.user_username, row.user_cn_name, row.user_rank_name) == (
+        "zhangsan",
+        "张三",
+        "P6",
+    )
+    assert (row.user_exists, row.user_valid, row.org_valid) == (True, True, True)
+
+
+def test_sys_user_model_excludes_sensitive_columns() -> None:
+    """用户档案只映射可展示列；敏感列不在模型上就不会被查询带出。"""
+    columns = set(SbpSysUserModel.__table__.columns.keys())
+    assert columns == {
+        "id",
+        "username",
+        "cn_name",
+        "en_name",
+        "rank_id",
+        "position_name",
+        "status",
+        "allow_login",
+        "deleted",
+    }
+    assert not columns & {"password_hash", "email", "phone"}
+
+
+def test_compose_org_path_stops_at_cycle_and_missing_parent() -> None:
+    """层级路径向上拼接时，悬挂 parent 与互指成环都不能死循环。"""
+    names = {1: ("总部", 0), 2: ("研发中心", 1), 3: ("平台组", 2)}
+    assert (
+        SbpSysOrgMemberService._compose_path(3, names) == "总部 / 研发中心 / 平台组"
+    )
+    # 悬挂 parent：只拼到能解析的部分
+    assert SbpSysOrgMemberService._compose_path(9, {9: ("孤儿部门", 999)}) == "孤儿部门"
+    # A↔B 环：在每个节点只出现一次的前提下截断
+    assert SbpSysOrgMemberService._compose_path(5, {5: ("A", 6), 6: ("B", 5)}) == "B / A"
+
+
 def test_doc_publication_distinguishes_unmatched_team() -> None:
     """team 编码未命中受众团队表时必须显式暴露，而不是当普通行展示。"""
     unmatched = SbpKmDocPublicationWithTeamOutSchema.model_validate(
@@ -204,3 +265,37 @@ def test_build_tree_keeps_dirty_nodes_visible() -> None:
     # 正常层级仍然成立：2 挂在 1 下面
     node1 = next(node for node in forest if node.id == 1)
     assert [child.id for child in node1.children] == [2]
+
+
+# ── 子树展开（含下级下钻） ────────────────────────────────────────
+
+
+def test_collect_subtree_ids_walks_children_and_survives_cycles() -> None:
+    """「含下级」展开：子孙全收，自引用与互指成环都不能死循环。"""
+    edges = [
+        (1, 0),
+        (2, 1),
+        (3, 2),
+        (4, 999),  # 悬挂父节点，不属于任何已选子树
+        (5, 5),  # 自引用
+        (6, 8),
+        (8, 6),  # 与 8 互指成环
+    ]
+    assert SbpSysOrgService._collect_subtree_ids(1, edges) == [1, 2, 3]
+    # 环上不会无限展开，且每个节点只出现一次
+    assert sorted(SbpSysOrgService._collect_subtree_ids(6, edges)) == [6, 8]
+    # 根不在表里：返回自身，调用方得到「空结果」而不是「没有过滤条件」
+    assert SbpSysOrgService._collect_subtree_ids(99, edges) == [99]
+
+
+def test_user_query_param_keeps_relation_filters_out_of_column_conditions() -> None:
+    """组织/团队过滤是关系条件，不能带 ``q`` 标记。
+
+    带上 ``q`` 会被 ``search_to_dict`` 包成 ``(op, val)`` 元组，service 里
+    pop 出来的就不是 ID 而是元组；不带标记则必须由 service 主动 pop，
+    否则会被 ``_build_conditions`` 当未知字段静默忽略，变成「加了条件却全量返回」。
+    """
+    fields = SbpSysUserQueryParam.model_fields
+    assert fields["include_sub"].default is False
+    for name in ("org_id", "include_sub", "team_id"):
+        assert (fields[name].json_schema_extra or {}).get("q") is None

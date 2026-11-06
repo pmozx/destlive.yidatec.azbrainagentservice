@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- 使用根绝对路径，由 Vite 按照 base 自动补上 /ui/ 前缀 -->
+    <!-- <link rel="icon" type="image/svg+xml" href="/favicon.svg" /> -->
+    <link rel="icon" type="image/png" href="favicon.png" />
+    <title>智能体应用监控台</title>
+    <script>
+      // 首屏前应用已保存的主题，避免暗色模式闪白与主色闪蓝
+      try {
+        if (localStorage.getItem('agent_theme_mode') === 'dark') {
+          document.documentElement.classList.add('dark')
+        }
+        document.documentElement.style.setProperty(
+          '--el-color-primary',
+          localStorage.getItem('agent_primary_color') || '#8b1e56',
+        )
+      } catch (error) {
+        console.warn('读取本地主题配置失败', error)
+      }
+    </script>
+    <script type="module" crossorigin src="/ui/assets/js/index-CnWF31ct.js"></script>
+    <link rel="modulepreload" crossorigin href="/ui/assets/js/vue-CypWauIY.js">
+    <link rel="modulepreload" crossorigin href="/ui/assets/js/element-Cpn9ZMud.js">
+    <link rel="stylesheet" crossorigin href="/ui/assets/css/index-BeEeLzP8.css">
+  </head>
+  <body>
+    <div id="app"></div>
+  </body>
+</html>

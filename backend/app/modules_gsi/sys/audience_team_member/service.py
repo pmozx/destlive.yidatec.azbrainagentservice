@@ -3,6 +3,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.base_schema import PageResultSchema
+from app.modules_gsi.sys.user.crud import SbpSysUserCRUD
 from app.utils.common_util import search_to_dict
 
 from .crud import SbpSysAudienceTeamMemberCRUD
@@ -56,6 +57,8 @@ class SbpSysAudienceTeamMemberService:
             limit=page_size,
             team_id=params.team_id,
             user_id=params.user_id,
+            username=params.username,
+            cn_name=params.cn_name,
             group_code=params.group_code,
             group_name=params.group_name,
             audience_team=params.audience_team,
@@ -82,13 +85,18 @@ class SbpSysAudienceTeamMemberService:
         """
         rows = await self.crud.list_teams_by_user(user_id)
         teams = [SbpUserTeamOutSchema.model_validate(row) for row in rows]
-        user = await self.crud.get_user(user_id)
+        user = await SbpSysUserCRUD(self.crud.db).get_with_rank(user_id)
         return SbpUserTeamsOutSchema(
             user_id=user_id,
             user_exists=user is not None,
-            user_status=user.status if user else None,
-            allow_login=user.allow_login if user else None,
-            user_deleted=user.deleted if user else None,
+            user_username=user["username"] if user else None,
+            user_cn_name=user["cn_name"] if user else None,
+            user_position_name=user["position_name"] if user else None,
+            user_rank_id=user["rank_id"] if user else None,
+            user_rank_name=user["rank_name"] if user else None,
+            user_status=user["status"] if user else None,
+            allow_login=user["allow_login"] if user else None,
+            user_deleted=user["deleted"] if user else None,
             team_count=len(teams),
             valid_team_count=sum(1 for team in teams if team.team_valid),
             teams=teams,

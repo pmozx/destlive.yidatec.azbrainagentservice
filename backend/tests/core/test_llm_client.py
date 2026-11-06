@@ -2,7 +2,8 @@
 
 守住三条：① 标准消息按顺序原样送进模型（本层不做二次包装）；
 ② 末帧 usage 映射到 ``ChatStreamChunk``（落库 token 统计依赖它）；
-③ 未配置 / 空回答仍是可读异常，且 503 不被兜底成 502。
+③ 未配置 / 空回答仍是可读异常，且 503 不被兜底成 502；
+④ 调用方给的 ``config`` 原样透传到模型调用（不透传时模型 run 会成为 trace 里的孤立根节点）。
 不触达真实模型服务：桩替换底层 LangChain ChatModel。
 """
 
@@ -26,13 +27,16 @@ class _Stub:
         self.answer = answer
         self.deltas = deltas
         self.seen: list[list[BaseMessage]] = []
+        self.calls: list[dict[str, Any]] = []
 
     async def ainvoke(self, messages: list[BaseMessage], **kwargs: Any) -> AIMessage:
         self.seen.append(list(messages))
+        self.calls.append(dict(kwargs))
         return AIMessage(content=self.answer)
 
     async def astream(self, messages: list[BaseMessage], **kwargs: Any) -> AsyncIterator[AIMessageChunk]:
         self.seen.append(list(messages))
+        self.calls.append(dict(kwargs))
         for delta in self.deltas:
             yield AIMessageChunk(content=delta)
         yield AIMessageChunk(content="", usage_metadata={"input_tokens": 11, "output_tokens": 22, "total_tokens": 33})
@@ -97,3 +101,20 @@ def test_chat_model_is_cached_per_model_name() -> None:
 
     assert client.chat_model() is stub
     assert client.chat_model(MODEL) is stub
+
+
+async def test_trace_config_reaches_both_model_calls() -> None:
+    """``config`` 必须透传到一次性与流式两条底层调用：追踪树靠它把模型 run 挂回本轮。
+
+    本层不自己造 ``run_name``/``metadata``（那是 ``core.observability`` 的口径），
+    只负责原样转发；顺带固定「不给 config 时传 None」——不能隐式自带一套默认值。
+    """
+    stub = _Stub(deltas=("好",))
+    client = _client(stub)
+    config = {"run_name": "kb.qa.generate", "metadata": {"mode": "stream"}}
+
+    await client.chat([HumanMessage(content="问题")], config=config)
+    _ = [chunk async for chunk in client.stream_chat_events([HumanMessage(content="问题")], config=config)]
+    await client.chat([HumanMessage(content="问题")])
+
+    assert [call.get("config") for call in stub.calls] == [config, config, None]

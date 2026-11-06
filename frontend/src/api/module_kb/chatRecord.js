@@ -36,3 +36,13 @@ export function deleteChatSession(sessionId) {
 export function getChatMessageList(params) {
   return request.get('/kb/chat-message/list', { params })
 }
+
+/** 分页查询单轮指标（GET /api/v1/kb/chat-metric/list，按会话取、时间升序） */
+export function getChatTurnMetricList(params) {
+  return request.get('/kb/chat-metric/list', { params })
+}
+
+/** 查询会话维度指标汇总（GET /api/v1/kb/chat-metric/summary，与列表同一套筛选条件） */
+export function getChatTurnMetricSummary(params) {
+  return request.get('/kb/chat-metric/summary', { params })
+}

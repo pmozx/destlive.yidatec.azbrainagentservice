@@ -16,6 +16,7 @@ from .schema import (
     SbpSysOrgMemberQueryParam,
     SbpSysOrgMemberWithOrgOutSchema,
     SbpSysOrgMemberWithOrgQueryParam,
+    SbpUserOrgsOutSchema,
 )
 from .service import SbpSysOrgMemberService
 
@@ -59,3 +60,16 @@ async def get_sbp_sys_org_member_page_with_org_controller(
         search=search,
     )
     return SuccessResponse(data=result_dict, msg="查询组织成员（含组织上下文）成功")
+
+
+@SbpSysOrgMemberRouter.get(
+    "/user-orgs",
+    summary="04-按用户反查组织归属",
+    response_model=ResponseSchema[SbpUserOrgsOutSchema],
+)
+async def get_sbp_sys_user_orgs_controller(
+    db: Annotated[AsyncSession, Depends(db_getter)],
+    user_id: Annotated[int, Query(description="用户ID", ge=1)],
+) -> JSONResponse:
+    result_dict = await SbpSysOrgMemberService(db).user_orgs(user_id=user_id)
+    return SuccessResponse(data=result_dict, msg="查询用户组织归属成功")

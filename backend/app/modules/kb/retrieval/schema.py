@@ -95,7 +95,7 @@ class KbRetrievalHitOutSchema(BaseModel):
     knowledge_no: str = Field(..., description="知识编号")
     chunk_id: str = Field(..., description="切片 ID")
     title: str = Field(..., description="条目标题")
-    snippet: str = Field(..., description="命中摘要（只取本切片正文）")
+    snippet: str = Field(..., description="命中切片的完整正文（不截断，展示层自行折叠）")
     score: float = Field(..., ge=0, le=1, description="召回相关度 0–1（模式内相对分）")
     page_from: int | None = Field(default=None, description="起始页")
     page_to: int | None = Field(default=None, description="结束页")
@@ -132,4 +132,3 @@ class KbRetrievalConfigOutSchema(BaseModel):
     rerank_relative_ratio: float = Field(..., description="精排相对闸门：低于 top1 该比例的命中被舍弃")
     rerank_score_is_logit: bool = Field(..., description="精排服务返回 logit（true）还是 0–1 概率（false）")
     rrf_k: int = Field(..., description="RRF 融合平滑常数 k")
-    snippet_length: int = Field(..., description="命中摘要长度（字符）")

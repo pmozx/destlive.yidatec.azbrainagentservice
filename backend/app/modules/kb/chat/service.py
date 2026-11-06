@@ -27,6 +27,7 @@ from fastapi import status as http_status
 
 from app.config.setting import settings
 from app.core.chat.cite import sanitize_citations
+from app.core.chat.judge import judge_sufficiency
 from app.core.chat.streaming import (
     TICK,
     StreamInterruptedError,
@@ -39,8 +40,10 @@ from app.core.clients import get_llm_client
 from app.core.database import async_session_factory
 from app.core.exceptions import CustomException
 from app.core.logger import logger
+from app.core.observability import RUN_GENERATE, RUN_RETRIEVE, RUN_TURN, llm_config, trace_metadata, traced
 from app.utils.cursor import decode_cursor, encode_cursor
 
+from ..chat_metric.meter import ERR_CLIENT_DISCONNECTED, MODE_STREAM, MODE_SYNC, TurnMeter
 from ..chat_message.crud import KbChatMessageCRUD
 from ..chat_message.model import KbChatMessageModel
 from ..chat_message.schema import MESSAGE_ACTIVE, MESSAGE_ASSISTANT, MESSAGE_USER, MessageRecord
@@ -52,7 +55,7 @@ from ..retrieval.schema import SearchQuery
 from ..retrieval.service import KbRetrievalService, RetrievalAuthorizationUnavailable, RetrievalEmbeddingUnavailable
 from . import sse
 from .crud import ChunkKey, KbChatEvidenceCRUD
-from .prompt import build_messages, history_turns
+from .prompt import build_messages, history_turns, recall_block
 from .schema import (
     FINISH_NO_EVIDENCE,
     FINISH_STOP,
@@ -93,6 +96,7 @@ class KbChatService:
     # §一  生成（#14）
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+    @traced(RUN_TURN, tags=("kb", "qa", MODE_SYNC))
     async def completion(
         self,
         *,
@@ -103,8 +107,21 @@ class KbChatService:
         max_tokens: int | None = None,
     ) -> ChatTurn:
         """一轮问答：检索 → 生成（或拒答）→ 双消息落库 → 刷新会话活跃度。"""
+        meter = TurnMeter(
+            session_id=session_id,
+            tenant_id=self.tenant_id,
+            user_id=self.user_id,
+            mode=MODE_SYNC,
+            model=get_llm_client().model,
+        )
+        meter.prompt(prompt_text)
+        meter.annotate()
+
         snapshot = await self._snapshot(session_id)
-        evidences = await self._retrieve(question)
+        evidences = await self._retrieve(question, meter=meter)
+        if await self._insufficient(question, evidences):
+            # 二判判为「资料不足」：当成无证据走拒答，不拿半相关材料硬答
+            evidences = []
 
         if not self._has_evidence(evidences):
             logger.info("问答无证据：user_id={} session={} 命中={}", self.user_id, session_id, len(evidences))
@@ -120,6 +137,7 @@ class KbChatService:
                 evidences=evidences,
                 history=snapshot.history,
                 max_tokens=max_tokens,
+                meter=meter,
             )
             no_evidence, finish_reason = False, FINISH_STOP
             citations = tuple(evidence.to_citation() for evidence in evidences)
@@ -132,7 +150,9 @@ class KbChatService:
             answer=answer,
             citations=citations,
             evidences=evidences,
+            meter=meter,
         )
+        await meter.save(no_evidence=no_evidence, finish_reason=finish_reason)
         return ChatTurn(
             session_id=session_id,
             user_message_id=user_message_id,
@@ -144,6 +164,7 @@ class KbChatService:
             finish_reason=finish_reason,
         )
 
+    @traced(RUN_TURN, tags=("kb", "qa", MODE_STREAM))
     async def completion_stream(
         self,
         *,
@@ -171,6 +192,15 @@ class KbChatService:
         """
         loop = asyncio.get_running_loop()
         started = perf_counter()
+        meter = TurnMeter(
+            session_id=session_id,
+            tenant_id=self.tenant_id,
+            user_id=self.user_id,
+            mode=MODE_STREAM,
+            model=get_llm_client().model,
+        )
+        meter.prompt(prompt_text)
+        meter.annotate()
         deadline = loop.time() + settings.KB_LLM_TIMEOUT
         yield sse.meta_event(session_id=session_id, request_id=request_id)
 
@@ -181,7 +211,7 @@ class KbChatService:
             evidences: list[ChatEvidence] = []
             # 检索没有增量帧，但可能跑好几秒：期间用心跳占住连接（网关 30–60s 就断空闲连接）
             async for item in iter_with_heartbeat(
-                self._retrieve_in_budget(question, deadline),
+                self._retrieve_in_budget(question, deadline, meter=meter),
                 interval=settings.KB_CHAT_STREAM_PING_INTERVAL,
             ):
                 if item is TICK:
@@ -189,6 +219,9 @@ class KbChatService:
                 else:
                     evidences = item.value
 
+            if await self._insufficient(question, evidences):
+                # 同非流式：判为资料不足就走拒答分支（帧序不变）
+                evidences = []
             if self._has_evidence(evidences):
                 yield sse.stage_event(phase=sse.PHASE_GENERATING, elapsed_ms=_elapsed_ms(started))
                 parts: list[str] = []
@@ -202,11 +235,13 @@ class KbChatService:
                     deadline=deadline,
                     is_disconnected=is_disconnected,
                     parts=parts,
+                    meter=meter,
                 ):
                     yield frame
                 # 已发出的字节收不回来：越界引用编号与多余空白在落库前统一清洗，
                 # 终稿随 done 帧下发，客户端以它为准覆盖渲染（规范 S14）。
                 answer, invalid = sanitize_citations("".join(parts), len(evidences))
+                meter.invalid_citations = len(invalid)
                 if invalid:
                     logger.warning("模型引用了不存在的证据编号，已摘除：user_id={} invalid={}", self.user_id, invalid)
                 answer = answer.strip() or NO_EVIDENCE_ANSWER
@@ -229,7 +264,9 @@ class KbChatService:
                 answer=answer,
                 citations=citations,
                 evidences=evidences,
+                meter=meter,
             )
+            await meter.save(no_evidence=no_evidence, finish_reason=finish_reason)
             yield sse.done_event(
                 session_id=session_id,
                 user_message_id=user_message_id,
@@ -240,19 +277,23 @@ class KbChatService:
                 elapsed_ms=_elapsed_ms(started),
             )
         except ChatSessionNotFoundError as exc:
+            await meter.fail(sse.ERR_SESSION_NOT_FOUND)
             yield sse.error_event(
                 code=sse.ERR_SESSION_NOT_FOUND, message=str(exc), retryable=False, session_id=session_id
             )
         except ChatTurnDiscardedError as exc:
+            await meter.fail(sse.ERR_TURN_DISCARDED)
             yield sse.error_event(code=sse.ERR_TURN_DISCARDED, message=str(exc), retryable=False, session_id=session_id)
         except (RetrievalAuthorizationUnavailable, RetrievalEmbeddingUnavailable) as exc:
             # 与 #07 同一口径：依赖故障如实报错，不拿空 citations 冒充「没有依据」
             logger.warning("问答依赖不可用（流式）：user_id={} session={} {}", self.user_id, session_id, exc)
+            await meter.fail(sse.ERR_DEPENDENCY_UNAVAILABLE)
             yield sse.error_event(
                 code=sse.ERR_DEPENDENCY_UNAVAILABLE, message=str(exc), retryable=True, session_id=session_id
             )
         except (StreamTimeoutError, TimeoutError) as exc:
             logger.warning("问答超时（流式）：user_id={} session={} {}", self.user_id, session_id, exc)
+            await meter.fail(sse.ERR_TIMEOUT)
             yield sse.error_event(
                 code=sse.ERR_TIMEOUT,
                 message="回答超时，请稍后重试，或把问题问得更具体一些。",
@@ -263,8 +304,10 @@ class KbChatService:
             if is_disconnected is not None and await is_disconnected():
                 # 客户端已经走了：没人接收错误帧，只留日志（本轮一字未落库）
                 logger.warning("客户端已断开，本轮问答作废（未落库）：user_id={} session={}", self.user_id, session_id)
+                await meter.fail(ERR_CLIENT_DISCONNECTED)
                 return
             logger.error("模型流式生成中断：user_id={} session={} {}", self.user_id, session_id, exc)
+            await meter.fail(sse.ERR_MODEL_FAILED)
             yield sse.error_event(
                 code=sse.ERR_MODEL_FAILED, message="模型服务异常，请稍后重试。", retryable=True, session_id=session_id
             )
@@ -279,9 +322,11 @@ class KbChatService:
             logger.warning(
                 "问答失败（流式）：user_id={} session={} status={} {}", self.user_id, session_id, exc.status_code, exc
             )
+            await meter.fail(code)
             yield sse.error_event(code=code, message=exc.msg, retryable=True, session_id=session_id)
         except Exception:
             logger.exception("问答未知异常（流式）：user_id={} session={}", self.user_id, session_id)
+            await meter.fail(sse.ERR_INTERNAL)
             yield sse.error_event(
                 code=sse.ERR_INTERNAL, message="服务内部错误，请稍后重试。", retryable=True, session_id=session_id
             )
@@ -389,13 +434,15 @@ class KbChatService:
             history=tuple((row.role, row.content) for row in rows),
         )
 
-    async def _retrieve(self, question: str) -> list[ChatEvidence]:
+    @traced(RUN_RETRIEVE, tags=("kb", "retrieval"))
+    async def _retrieve(self, question: str, *, meter: TurnMeter) -> list[ChatEvidence]:
         """自然语言通道检索 → 回查切片原文 → 组装为带编号的证据。
 
         问答只能用自然语言通道：提问是整句而不是关键词，纯字面命中会把「怎么申请 VPN」
         这种问法漏掉。向量化不可用时**不降级**成关键词检索（契约 #07 同一口径），
-        交给上层按依赖故障处理。
+        交给上层按依赖故障处理。耗时与证据条数顺手记进 ``meter``（指标表与 trace 同源）。
         """
+        started = perf_counter()
         result = await KbRetrievalService().natural_language_search(
             SearchQuery(
                 query=question,
@@ -406,6 +453,7 @@ class KbChatService:
         )
         hits = list(result.hits)
         if not hits:
+            meter.retrieve_ms = _elapsed_ms(started)
             return []
 
         keys = [
@@ -417,8 +465,9 @@ class KbChatService:
         quote_limit = max(1, settings.KB_SNIPPET_CHARS)
         evidences: list[ChatEvidence] = []
         for hit, key in zip(hits, keys, strict=True):
-            quote = (contents.get(key) or "").strip()[:quote_limit]
-            if not quote:
+            # 完整切片正文进上下文（``content``），截断片段只用于引用回放（``quote``）
+            content = (contents.get(key) or "").strip()
+            if not content:
                 # 切片已被删除或正文为空：引用无法逐字校验，直接剔除而不是留个空引用
                 logger.warning(
                     "证据切片回查不到正文，已剔除：publication={} record={} chunk={}",
@@ -437,11 +486,14 @@ class KbChatService:
                     version_id=hit.version_id,
                     revision=hit.revision,
                     chunk_id=hit.chunk_id,
-                    quote=quote,
+                    quote=content[:quote_limit],
+                    content=content,
                     title=hit.title,
                     score=hit.score,
                 )
             )
+        meter.evidences([evidence.score for evidence in evidences])
+        meter.retrieve_ms = _elapsed_ms(started)
         return evidences
 
     @staticmethod
@@ -449,12 +501,37 @@ class KbChatService:
         """证据够不够：少于 ``KB_GRADE_MIN_CHUNKS`` 直接拒答（流式与非流式同一口径）。"""
         return len(evidences) >= max(1, settings.KB_GRADE_MIN_CHUNKS)
 
-    async def _retrieve_in_budget(self, question: str, deadline: float) -> list[ChatEvidence]:
+    async def _insufficient(self, question: str, evidences: Sequence[ChatEvidence]) -> bool:
+        """灰区二判：条数与绝对分闸过关、但最高相关度偏低时，让模型判一次「资料够不够」。
+
+        只在 ``KB_GRADE_JUDGE_ENABLE`` 打开且 ``top_score < KB_GRADE_JUDGE_TOP_SCORE`` 时
+        才多花一次模型调用；判定失败按「够答」处理（``judge_sufficiency`` 内部已降级），
+        给不出结论时宁可按原样回答，也不因为质检异常而拒答。
+        """
+        if not settings.KB_GRADE_JUDGE_ENABLE or not evidences:
+            return False
+        top_score = max((evidence.score for evidence in evidences), default=0.0)
+        if top_score >= settings.KB_GRADE_JUDGE_TOP_SCORE:
+            return False
+        sufficient, missing = await judge_sufficiency(question, recall_block(evidences))
+        trace_metadata(grade_judge="sufficient" if sufficient else "insufficient", grade_top_score=round(top_score, 4))
+        if sufficient:
+            return False
+        # 证据条数保留检索时那份（没进上下文），失败/拒答轮都靠 top_score 与这个标记区分
+        logger.info(
+            "证据二判判为资料不足，转拒答：user_id={} 相关度={} 缺={}",
+            self.user_id,
+            round(top_score, 4),
+            missing or "未说明",
+        )
+        return True
+
+    async def _retrieve_in_budget(self, question: str, deadline: float, *, meter: TurnMeter) -> list[ChatEvidence]:
         """检索也受整轮预算约束：剩余时间不足时立即超时，而不是拖到生成阶段才发现没预算。"""
         remaining = deadline - asyncio.get_running_loop().time()
         if remaining <= 0:
             raise StreamTimeoutError("检索尚未开始就已耗尽本轮总预算")
-        return await asyncio.wait_for(self._retrieve(question), remaining)
+        return await asyncio.wait_for(self._retrieve(question, meter=meter), remaining)
 
     async def _delta_frames(
         self,
@@ -468,6 +545,7 @@ class KbChatService:
         deadline: float,
         is_disconnected: Callable[[], Awaitable[bool]] | None,
         parts: list[str],
+        meter: TurnMeter,
     ) -> AsyncIterator[dict[str, Any]]:
         """生成阶段的帧：逐片转发 ``delta``，正文按序累积到 ``parts`` 里供落库。
 
@@ -481,10 +559,12 @@ class KbChatService:
             history=history_turns(history),
             question=question,
         )
+        started = perf_counter()
         stream = get_llm_client().stream_chat_events(
             messages,
             temperature=settings.KB_ANSWER_TEMPERATURE,
             max_tokens=max_tokens or settings.KB_ANSWER_MAX_TOKENS,
+            config=llm_config(RUN_GENERATE, mode=MODE_STREAM, evidence_count=len(evidences)),
         )
         seq = 0
         tokens_in = tokens_out = 0
@@ -501,10 +581,14 @@ class KbChatService:
                 tokens_out = chunk.tokens_out or tokens_out
                 if not chunk.delta:
                     continue
+                if meter.first_token_ms is None:
+                    meter.first_token_ms = _elapsed_ms(started)
                 parts.append(chunk.delta)
                 seq += 1
                 yield sse.delta_event(seq=seq, text=chunk.delta)
         finally:
+            meter.generate_ms = _elapsed_ms(started)
+            meter.tokens_in, meter.tokens_out = tokens_in, tokens_out
             # 超时/断连时上游生成器可能还在跑：不关掉会继续烧 token
             await close_stream(stream)
         logger.info(
@@ -520,8 +604,10 @@ class KbChatService:
         evidences: Sequence[ChatEvidence],
         history: Sequence[tuple[str, str]],
         max_tokens: int | None,
+        meter: TurnMeter,
     ) -> str:
         """调用模型并清理越界引用编号（编号与证据一一对应，只摘除不重排）。"""
+        started = perf_counter()
         messages = build_messages(
             prompt_text=prompt_text,
             language=language,
@@ -533,8 +619,11 @@ class KbChatService:
             messages,
             temperature=settings.KB_ANSWER_TEMPERATURE,
             max_tokens=max_tokens or settings.KB_ANSWER_MAX_TOKENS,
+            config=llm_config(RUN_GENERATE, mode=MODE_SYNC, evidence_count=len(evidences)),
         )
+        meter.generate_ms = _elapsed_ms(started)
         cleaned, invalid = sanitize_citations(answer, len(evidences))
+        meter.invalid_citations = len(invalid)
         if invalid:
             logger.warning("模型引用了不存在的证据编号，已摘除：user_id={} invalid={}", self.user_id, invalid)
         return cleaned.strip() or NO_EVIDENCE_ANSWER
@@ -548,6 +637,7 @@ class KbChatService:
         answer: str,
         citations: tuple[dict[str, Any], ...],
         evidences: Sequence[ChatEvidence],
+        meter: TurnMeter,
     ) -> tuple[str, str]:
         """写回用户消息与助手消息，并刷新会话。
 
@@ -555,6 +645,7 @@ class KbChatService:
         没有锁时读到的状态可能已经过期，迟到的回答会把清空/删除的结果覆盖回去。
         """
         now = datetime.now(UTC)
+        started = perf_counter()
         dependencies = [evidence.to_dependency() for evidence in evidences]
         async with async_session_factory() as db, db.begin():
             session = await KbChatSessionCRUD(db).lock_owned(session_id=session_id, user_id=self.user_id)
@@ -593,6 +684,8 @@ class KbChatService:
                 session.title = derive_title(question)
             await db.flush()
 
+        meter.assistant_message_id = assistant_row.uuid
+        meter.persist_ms = _elapsed_ms(started)
         return user_row.uuid, assistant_row.uuid
 
     @staticmethod

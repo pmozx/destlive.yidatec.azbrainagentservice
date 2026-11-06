@@ -93,12 +93,12 @@ cd backend && uv run python -m tests.contract.debug_signed_headers
 ## 七、当前基线
 
 ```bash
-cd backend && uv run pytest -q     # 261 collected
+cd backend && uv run pytest -q     # 325 collected
 ```
 
 | 包 | 用例数 | 文件 |
 |---|---|---|
-| `core/` | 121 | base_model 9 / base_crud 2 / settings 3 / db_getter 3 / request_body 5 / chat_cite 4 / chat_rerank 8 / chat_streaming 10 / sse 6 / vector_store 20 / embedding_client 5 / llm_client 4 / s3_client 30 / idempotent_guard_verify 3 / time_util 5 / audit_payload 4 |
+| `core/` | 135 | base_model 9 / base_crud 2 / settings 3 / db_getter 3 / request_body 5 / chat_cite 3 / chat_judge 5 / chat_rerank 8 / chat_streaming 10 / sse 6 / vector_store 20 / embedding_client 5 / llm_client 5 / s3_client 30 / idempotent_guard_verify 3 / time_util 5 / audit_payload 4 / observability 9 |
 | `contract/` | 0 | 无 pytest 用例：`run_parse_tests.py` / `run_knowledge_tests.py` / `run_search_tests.py` 是对已启动服务发签名请求的回归脚本，pytest 不收集；`debug_signed_headers.py` 是手工调试脚本 |
-| `modules/` | 138 | kb 106（parse_job 11 / publication 10 / entry_write 12 / keyword_search 12 / natural_language_search 12 / knowledge_admin 3 / retrieval_admin 4 / chat_admin 6 / chat_stream 7 / dup_payload 6 / dup_group_admin 4 / parse_job_admin 4 / publication_entry 10 / publication_source 5）；system 20（access_trace 9 / storage 11）；gsi 12（test_gsi_read） |
+| `modules/` | 188 | kb 139（parse_job 16 / publication 10 / entry_write 12 / keyword_search 11 / natural_language_search 12 / knowledge_admin 3 / retrieval_admin 4 / chat_admin 6 / chat_stream 7 / chat_grade 3 / chat_metric 7 / chat_metric_admin 5 / chat_prompt 7 / dup_payload 6 / dup_group_admin 4 / parse_job_admin 11 / publication_entry 10 / publication_source 5）；system 32（access_trace 11 / api_log_query 2 / storage 19）；gsi 17（test_gsi_read） |
 | `stages/` | 2 | m1_contract：路由清单 / 错误响应声明（501 骨架断言已于 #07 上线时删除） |

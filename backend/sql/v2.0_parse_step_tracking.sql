@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS sbp_ai_kb_parse_step (
     job_id          VARCHAR(64)     NOT NULL,
     attempt         INTEGER         NOT NULL DEFAULT 1,
     step            VARCHAR(32)     NOT NULL,
-    status          VARCHAR(16)     NOT NULL,
+    status          VARCHAR(16)     NOT NULL DEFAULT 'running',
     fatal           BOOLEAN         NOT NULL DEFAULT true,
     started_time    TIMESTAMPTZ     NOT NULL,
     finished_time   TIMESTAMPTZ,

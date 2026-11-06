@@ -4,6 +4,7 @@
 - ``nonce`` / ``idempotency`` / ``request_log`` / ``prompt_template`` / ``auth_cache``：
   一表一目录，各自 ``model.py`` + ``crud.py``（nonce、idempotency 另含 ``service.py``）
 - ``access_trace``：契约调用只读追踪视图
+- ``payload_filter``：审计报文（JSONB）关键字过滤口径，日志审计 F1 与调用明细 F6 共用
 - ``storage``：对象存储目录浏览 / 上传 / 删除视图（无数据表，直接编排 ``core.clients.s3``）
 - ``models``：模型聚合入口，供启动期建表与测试统一引用
 

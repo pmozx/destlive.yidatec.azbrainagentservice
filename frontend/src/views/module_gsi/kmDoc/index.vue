@@ -4,9 +4,10 @@
       <div>
         <h2 class="page-header__title">知识文档</h2>
         <p class="page-header__desc">
-          只读查看 GSI 知识文档元数据（sbp_km_doc）与送审快照（sbp_km_doc_record）。文档只给标题、状态、类型、
-          归属团队与有效期，正文不在契约授权范围内；点「查看快照」即按 doc_id 下钻该文档的审批快照，
-          快照详情里的 snapshot_json 是整篇不可变快照，按 JSON 展开查看。
+          只读查看 GSI 知识文档元数据（sbp_km_doc）与送审快照（sbp_km_doc_record）。点「详情」开抽屉：上半是文档档案，
+          下半是送审快照明细（送审人、所属团队、审批人、送审时间），逐条详情里按 JSON 展开 snapshot_json；业务状态为 Published 时，同一抽屉里直接给出该
+          文档的知识发布关系（团队编码/名称、编码是否命中、授权是否有效、生效快照与索引状态）——
+          发布关系不再单独维护。
         </p>
       </div>
       <div class="page-header__actions">
@@ -85,9 +86,9 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column align="center" label="操作" width="100" fixed="right">
+        <el-table-column align="center" label="操作" width="80" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" size="small" @click="openRecords(row)">查看快照</el-button>
+            <el-button link type="primary" size="small" @click="openDetail(row)">详情</el-button>
           </template>
         </el-table-column>
         <template #empty>
@@ -110,100 +111,193 @@
       </div>
     </SectionCard>
 
-    <SectionCard
-      :title="recordsTitle"
-      subtitle="阶段 save/owner/audience 对应保存、内容审、受众审；列表不含大字段，详情才读 snapshot_json"
-      flush
-    >
-      <div class="gsi-toolbar">
-        <el-form :inline="true" :model="recordQuery" size="small" @submit.prevent>
-          <el-form-item label="知识ID">
-            <el-input v-model="recordQuery.doc_id" placeholder="不填则看全部" clearable style="width: 170px" />
-          </el-form-item>
-          <el-form-item label="阶段">
-            <el-select v-model="recordQuery.stage" placeholder="全部" clearable style="width: 110px">
-              <el-option label="save" value="save" />
-              <el-option label="owner" value="owner" />
-              <el-option label="audience" value="audience" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="状态">
-            <el-select v-model="recordQuery.status" placeholder="全部" clearable style="width: 120px">
-              <el-option label="saved" value="saved" />
-              <el-option label="pending" value="pending" />
-              <el-option label="approved" value="approved" />
-              <el-option label="returned" value="returned" />
-              <el-option label="cancelled" value="cancelled" />
-            </el-select>
-          </el-form-item>
-          <el-form-item>
-            <el-button type="primary" :loading="recordLoading" @click="searchRecords">查询</el-button>
-            <el-button @click="clearRecords">重置</el-button>
-          </el-form-item>
-        </el-form>
-      </div>
+    <el-drawer v-model="docDrawerVisible" :title="drawerTitle" size="72%" destroy-on-close>
+      <div v-loading="docDetailLoading" class="gsi-doc-detail">
+        <template v-if="currentDoc">
+          <div class="gsi-doc-detail__head">
+            <div class="gsi-doc-detail__title">{{ currentDoc.title || '（无标题）' }}</div>
+            <div class="gsi-doc-detail__tags">
+              <el-tag size="small" effect="light" :type="currentDoc.status === 'Published' ? 'success' : 'info'">
+                {{ currentDoc.status }}
+              </el-tag>
+              <el-tag size="small" effect="plain">{{ currentDoc.doc_type }}</el-tag>
+              <el-tag v-if="currentDoc.domain" size="small" effect="plain">{{ currentDoc.domain }}</el-tag>
+              <el-tag v-if="currentDoc.team" size="small" effect="plain">归属 {{ currentDoc.team }}</el-tag>
+              <el-tag v-if="currentDoc.deleted === 1" size="small" type="danger" effect="plain">已删除</el-tag>
+            </div>
+          </div>
 
-      <el-table v-loading="recordLoading" :data="recordList" size="small" style="width: 100%">
-        <el-table-column align="center" prop="id" label="快照ID" min-width="160" show-overflow-tooltip />
-        <el-table-column align="center" prop="doc_id" label="知识ID" min-width="160" show-overflow-tooltip />
-        <el-table-column align="center" label="阶段" width="110">
-          <template #default="{ row }">
-            <el-tag size="small" effect="plain">{{ row.stage }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column align="center" label="状态" width="110">
-          <template #default="{ row }">
-            <el-tag size="small" effect="light" :type="recordStatusTagType(row.status)">{{ row.status }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column align="center" label="操作" width="100" fixed="right">
-          <template #default="{ row }">
-            <el-button link type="primary" size="small" @click="openRecordDetail(row)">详情</el-button>
-          </template>
-        </el-table-column>
-        <template #empty>
-          <el-empty description="该文档还没有送审快照" :image-size="70" />
-        </template>
-      </el-table>
-
-      <div class="gsi-pagination">
-        <el-pagination
-          :current-page="recordPagination.page_no"
-          :page-size="recordPagination.page_size"
-          :page-sizes="[10, 20, 50]"
-          :total="recordTotal"
-          layout="total, sizes, prev, pager, next, jumper"
-          background
-          size="small"
-          @current-change="handleRecordPageChange"
-          @size-change="handleRecordSizeChange"
-        />
-      </div>
-    </SectionCard>
-
-    <el-dialog v-model="recordDetailVisible" title="送审快照详情" width="860px" destroy-on-close>
-      <div v-loading="recordDetailLoading" class="gsi-detail">
-        <template v-if="recordDetail">
           <el-descriptions :column="3" border size="small">
-            <el-descriptions-item label="快照ID">{{ recordDetail.id }}</el-descriptions-item>
-            <el-descriptions-item label="知识ID">{{ recordDetail.doc_id }}</el-descriptions-item>
-            <el-descriptions-item label="阶段">{{ recordDetail.stage }}</el-descriptions-item>
-            <el-descriptions-item label="状态" :span="3">{{ recordDetail.status }}</el-descriptions-item>
+            <el-descriptions-item label="知识ID">{{ currentDoc.id }}</el-descriptions-item>
+            <el-descriptions-item label="知识编号">{{ currentDoc.knowledge_no || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="有效期至">{{ currentDoc.expire_at || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="业务状态">{{ currentDoc.status }}</el-descriptions-item>
+            <el-descriptions-item label="知识类型">{{ currentDoc.doc_type }}</el-descriptions-item>
+            <el-descriptions-item label="归属团队">{{ currentDoc.team || '-' }}</el-descriptions-item>
           </el-descriptions>
-          <JsonViewer :data="recordDetail.snapshot_json" title="snapshot_json（整篇不可变快照）" max-height="420px" />
+
+          <div class="gsi-doc-detail__section">
+            <div class="gsi-doc-detail__section-head">
+              <span class="gsi-doc-detail__section-title">
+                <el-icon><Files /></el-icon>
+                <span>送审快照明细</span>
+              </span>
+              <span class="gsi-doc-detail__section-meta">
+                共 {{ formatNumber(recordTotal) }} 条 · 阶段 save / owner / audience ·
+                created_by 即送审人，team 是受众团队编码（内容审为空），created_at 即送审时间（save 阶段为保存时间）
+              </span>
+            </div>
+            <el-table :data="records" size="small" style="width: 100%" empty-text="该文档还没有送审快照">
+              <el-table-column align="center" prop="id" label="快照ID" min-width="170" show-overflow-tooltip />
+              <el-table-column align="center" label="阶段" width="96">
+                <template #default="{ row }">
+                  <el-tag size="small" effect="plain">{{ row.stage }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column align="center" label="状态" width="96">
+                <template #default="{ row }">
+                  <el-tag size="small" effect="light" :type="recordStatusTagType(row.status)">{{ row.status }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column align="center" label="送审人" min-width="110" show-overflow-tooltip>
+                <template #default="{ row }">{{ row.created_by || '-' }}</template>
+              </el-table-column>
+              <el-table-column align="center" label="所属团队" min-width="120" show-overflow-tooltip>
+                <template #default="{ row }">
+                  <span v-if="row.team" class="gsi-code">{{ row.team }}</span>
+                  <span v-else>-</span>
+                </template>
+              </el-table-column>
+              <el-table-column align="center" label="审批人" min-width="110" show-overflow-tooltip>
+                <template #default="{ row }">{{ row.assignee || '-' }}</template>
+              </el-table-column>
+              <el-table-column align="center" label="送审时间" width="160">
+                <template #default="{ row }">{{ row.created_at || '-' }}</template>
+              </el-table-column>
+              <el-table-column align="center" label="操作" width="84">
+                <template #default="{ row }">
+                  <el-button link type="primary" size="small" @click="openRecordDetail(row)">详情</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+
+          <div class="gsi-doc-detail__section">
+            <div class="gsi-doc-detail__section-head">
+              <span class="gsi-doc-detail__section-title">
+                <el-icon><Link /></el-icon>
+                <span>知识发布</span>
+              </span>
+              <span class="gsi-doc-detail__section-meta">
+                <template v-if="isPublished">
+                  共 {{ formatNumber(publicationTotal) }} 条生效关系 · team 存的是团队编码 group_code
+                </template>
+                <template v-else>业务状态不是 Published，尚未产生生效关系</template>
+              </span>
+            </div>
+
+            <template v-if="isPublished">
+              <el-alert
+                v-if="unmatchedTeams > 0"
+                type="warning"
+                :closable="false"
+                show-icon
+                :title="`有 ${unmatchedTeams} 条生效关系的 team 编码在受众团队表中未命中`"
+                description="历史数据可能写入的是团队名称或兼容标识而不是 group_code；授权只认 group_code，这些行会让该知识对该团队不可见。"
+              />
+              <el-table
+                :data="publications"
+                size="small"
+                style="width: 100%"
+                empty-text="已发布但未查到生效关系（发布链路可能尚未落库）"
+              >
+                <el-table-column align="center" prop="team" label="团队编码" min-width="130" show-overflow-tooltip>
+                  <template #default="{ row }">
+                    <span class="gsi-code">{{ row.team }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column align="center" label="团队名称" min-width="120" show-overflow-tooltip>
+                  <template #default="{ row }">{{ row.team_name || '（未命中）' }}</template>
+                </el-table-column>
+                <el-table-column align="center" label="兼容标识" min-width="120" show-overflow-tooltip>
+                  <template #default="{ row }">{{ row.team_ident || '-' }}</template>
+                </el-table-column>
+                <el-table-column align="center" label="团队状态" width="90">
+                  <template #default="{ row }">
+                    <el-tag size="small" effect="light" :type="row.team_status === '1' ? 'success' : 'info'">
+                      {{ row.team_status === '1' ? '启用' : row.team_status === '0' ? '停用' : '-' }}
+                    </el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column align="center" label="授权有效" width="92">
+                  <template #default="{ row }">
+                    <el-tag size="small" effect="plain" :type="row.team_valid ? 'success' : 'danger'">
+                      {{ row.team_valid ? '有效' : '无效' }}
+                    </el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column align="center" label="生效快照" min-width="180" show-overflow-tooltip>
+                  <template #default="{ row }">
+                    <el-button link type="primary" size="small" @click="openRecordDetail({ id: row.record_id })">
+                      {{ row.record_id }}
+                    </el-button>
+                  </template>
+                </el-table-column>
+                <el-table-column align="center" label="索引状态" width="105">
+                  <template #default="{ row }">
+                    <el-tag size="small" effect="light" :type="indexTagType(row.index_status)">
+                      {{ row.index_status }}
+                    </el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column align="center" prop="updated_at" label="更新时间" width="165">
+                  <template #default="{ row }">{{ row.updated_at || '-' }}</template>
+                </el-table-column>
+              </el-table>
+            </template>
+            <el-empty v-else description="未发布文档没有生效关系，发布后会自动出现在这里" :image-size="70" />
+          </div>
         </template>
       </div>
       <template #footer>
-        <el-button size="small" @click="recordDetailVisible = false">关闭</el-button>
+        <el-button size="small" @click="docDrawerVisible = false">关闭</el-button>
       </template>
-    </el-dialog>
+    </el-drawer>
+
+    <el-drawer v-model="recordDrawerVisible" title="送审快照详情" size="720px" append-to-body destroy-on-close>
+      <div v-loading="recordDetailLoading" class="gsi-doc-detail">
+        <template v-if="recordDetail">
+          <el-descriptions :column="2" border size="small">
+            <el-descriptions-item label="快照ID">{{ recordDetail.id }}</el-descriptions-item>
+            <el-descriptions-item label="知识ID">{{ recordDetail.doc_id }}</el-descriptions-item>
+            <el-descriptions-item label="阶段">{{ recordDetail.stage }}</el-descriptions-item>
+            <el-descriptions-item label="状态">{{ recordDetail.status }}</el-descriptions-item>
+            <el-descriptions-item label="送审人">{{ recordDetail.created_by || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="所属团队">{{ recordDetail.team || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="审批人">{{ recordDetail.assignee || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="送审时间">{{ recordDetail.created_at || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="更新时间">{{ recordDetail.updated_at || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="审批意见" :span="2">{{ recordDetail.comment || '-' }}</el-descriptions-item>
+          </el-descriptions>
+          <JsonViewer :data="recordDetail.snapshot_json" title="snapshot_json（整篇不可变快照）" max-height="460px" />
+        </template>
+      </div>
+      <template #footer>
+        <el-button size="small" @click="recordDrawerVisible = false">关闭</el-button>
+      </template>
+    </el-drawer>
   </div>
 </template>
 
 <script setup>
 import { computed, ref } from 'vue'
 
-import { getGsiKmDocList, getGsiKmDocRecordDetail, getGsiKmDocRecordList } from '@/api'
+import {
+  getGsiDocPublicationPageWithTeam,
+  getGsiKmDocList,
+  getGsiKmDocRecordDetail,
+  getGsiKmDocRecordList,
+} from '@/api'
 import JsonViewer from '@/components/common/JsonViewer.vue'
 import SectionCard from '@/components/common/SectionCard.vue'
 import StatCard from '@/components/common/StatCard.vue'
@@ -232,39 +326,52 @@ const publishedCount = computed(() => list.value.filter((row) => row.status === 
 const deletedCount = computed(() => list.value.filter((row) => row.deleted === 1).length)
 const teamCount = computed(() => new Set(list.value.map((row) => row.team).filter(Boolean)).size)
 
-// ── 送审快照 ────────────────────────────────────────────────────────
+// ── 文档详情抽屉：快照明细 + 发布关系 ────────────────────────────────
 
-const selectedDoc = ref(null)
+/** 单文档的快照/发布关系都是个位数，抽屉里一次拉够，不再叠一层分页 */
+const DETAIL_PAGE_SIZE = 100
 
-const recordsTitle = computed(() =>
-  selectedDoc.value ? `送审快照 · ${selectedDoc.value.title}（${selectedDoc.value.id}）` : '送审快照',
-)
+const docDrawerVisible = ref(false)
+const docDetailLoading = ref(false)
+const currentDoc = ref(null)
+const records = ref([])
+const recordTotal = ref(0)
+const publications = ref([])
+const publicationTotal = ref(0)
 
-const {
-  loading: recordLoading,
-  list: recordList,
-  total: recordTotal,
-  pagination: recordPagination,
-  query: recordQuery,
-  search: searchRecords,
-  reset: resetRecords,
-  handlePageChange: handleRecordPageChange,
-  handleSizeChange: handleRecordSizeChange,
-} = useTable((params) => getGsiKmDocRecordList(params), {
-  defaultQuery: { doc_id: '', stage: '', status: '' },
-  immediate: false,
-})
+const drawerTitle = computed(() => (currentDoc.value ? `知识详情 · ${currentDoc.value.title}` : '知识详情'))
+const isPublished = computed(() => currentDoc.value?.status === 'Published')
+const unmatchedTeams = computed(() => publications.value.filter((item) => !item.team_matched).length)
 
-function openRecords(row) {
-  selectedDoc.value = row
-  recordQuery.doc_id = row.id
-  searchRecords()
+async function openDetail(row) {
+  currentDoc.value = row
+  docDrawerVisible.value = true
+  await loadDetail(row)
 }
 
-/** 重置要连标题一起清掉，否则标题还写着某篇文档、列表已经是全量了 */
-function clearRecords() {
-  selectedDoc.value = null
-  resetRecords()
+async function loadDetail(doc) {
+  docDetailLoading.value = true
+  records.value = []
+  recordTotal.value = 0
+  publications.value = []
+  publicationTotal.value = 0
+  try {
+    const [recordResult, publicationResult] = await Promise.all([
+      getGsiKmDocRecordList({ doc_id: doc.id, page_no: 1, page_size: DETAIL_PAGE_SIZE }),
+      // 未发布文档不会有生效关系，省掉这一次请求
+      doc.status === 'Published'
+        ? getGsiDocPublicationPageWithTeam({ doc_id: doc.id, page_no: 1, page_size: DETAIL_PAGE_SIZE })
+        : Promise.resolve(null),
+    ])
+    records.value = recordResult?.items ?? []
+    recordTotal.value = recordResult?.total ?? 0
+    publications.value = publicationResult?.items ?? []
+    publicationTotal.value = publicationResult?.total ?? 0
+  } catch {
+    // 请求拦截器已统一提示错误
+  } finally {
+    docDetailLoading.value = false
+  }
 }
 
 function recordStatusTagType(status) {
@@ -274,12 +381,22 @@ function recordStatusTagType(status) {
   return 'info'
 }
 
-const recordDetailVisible = ref(false)
+function indexTagType(status) {
+  if (status === 'succeeded') return 'success'
+  if (status === 'failed') return 'danger'
+  if (status === 'pending') return 'warning'
+  return 'info'
+}
+
+// ── 快照详情（二级抽屉）────────────────────────────────────────────
+
+const recordDrawerVisible = ref(false)
 const recordDetailLoading = ref(false)
 const recordDetail = ref(null)
 
+/** 发布关系行的生效快照也能直接点开：传 `{ id: record_id }` 即可，详情接口只按主键查 */
 async function openRecordDetail(row) {
-  recordDetailVisible.value = true
+  recordDrawerVisible.value = true
   recordDetailLoading.value = true
   recordDetail.value = null
   try {
@@ -308,7 +425,49 @@ async function openRecordDetail(row) {
   padding: 12px 26px 20px;
 }
 
-.gsi-detail {
-  @include flex($direction: column, $gap: 16px);
+.gsi-doc-detail {
+  @include flex($direction: column, $gap: 18px);
+
+  &__head {
+    @include flex($direction: column, $gap: 8px);
+  }
+
+  &__title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--app-text-primary);
+  }
+
+  &__tags {
+    @include flex($gap: 6px);
+    flex-wrap: wrap;
+  }
+
+  &__section {
+    @include flex($direction: column, $gap: 8px);
+  }
+
+  &__section-head {
+    @include flex($justify: space-between, $align: center, $gap: 8px);
+    flex-wrap: wrap;
+  }
+
+  &__section-title {
+    @include flex($align: center, $gap: 6px);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--app-text-primary);
+  }
+
+  &__section-meta {
+    font-size: 12px;
+    color: var(--app-text-muted);
+  }
+}
+
+.gsi-code {
+  font-family: var(--el-font-family-mono, monospace);
+  font-size: 12px;
+  color: var(--el-color-primary);
 }
 </style>

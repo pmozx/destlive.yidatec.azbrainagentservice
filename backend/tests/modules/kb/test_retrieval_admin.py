@@ -47,7 +47,6 @@ async def test_retrieval_config_reports_channel_params() -> None:
     assert response.status_code == 200, response.text
     data = response.json()["data"]
     assert data["rrf_k"] == settings.SEARCH_RRF_K
-    assert data["snippet_length"] == settings.SEARCH_SNIPPET_LENGTH
     assert data["vector_dim"] == settings.VECTOR_DIM
     assert 0 <= data["vector_min_score"] <= 1
     assert data["embedding_ready"] is bool(settings.EMBEDDING_BASE_URL)
@@ -81,7 +80,8 @@ async def test_retrieval_search_returns_hits_for_authorized_user() -> None:
         assert hit["publication_id"] == publication_id
         assert hit["chunk_id"].startswith("record-")
         assert 0 <= hit["score"] <= 1
-        assert "vpn" in hit["snippet"]
+        # 切片正文整段回显（不截断、不折叠）：调试台要能直接核对原文
+        assert hit["snippet"] == "在服务台提交 vpn 申请，由负责人开通账号。"
     finally:
         await cleanup([publication_id], [team_id])
 

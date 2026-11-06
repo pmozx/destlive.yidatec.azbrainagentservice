@@ -112,6 +112,19 @@ class Settings(BaseSettings):
     LLM_TIMEOUT: float = Field(default=60.0, description="聊天请求超时（秒）")
     LLM_MAX_RETRIES: int = Field(default=2, description="聊天请求重试次数（仅超时/429/5xx 重试）")
 
+    # ---- AI 链路追踪（LangSmith）：只做观测，不改编排与 SSE 帧序（规范 4.7 L24/L25）----
+    # 开关与脱敏都按环境给：开发环境默认开、并对正文强脱敏；其他环境默认关。
+    # 注意：这些值在启动期由 app.core.observability.configure_tracing 写入 LANGSMITH_*，
+    # 必须在进程首次调用 LangChain 之前完成（langsmith 读取环境变量带缓存）。
+    AI_TRACE_ENABLE: bool = Field(default=False, description="是否把问答链路上报 LangSmith；关闭时零上报、零开销")
+    AI_TRACE_PROJECT: str = Field(default="service-brain-agent", description="LangSmith 项目名（多环境共用一个 Key 时建议带环境后缀）")
+    AI_TRACE_ENDPOINT: str = Field(default="", description="LangSmith 地址；留空用官方 SaaS 默认，自建/私有化时覆盖")
+    AI_TRACE_API_KEY: str = Field(default="", description="LangSmith API Key（密钥，仅写 env；留空则追踪失败关闭，不会静默半开）")
+    AI_TRACE_MASK_CONTENT: bool = Field(
+        default=True,
+        description="是否隐藏上送内容（问题/检索切片/回答/提示词）；true 只留 run 树、耗时、token 与数值口径",
+    )
+
     EMBEDDING_PROTOCOL: str = Field(default="openai", description="向量化协议：openai（/v1/embeddings）或 ollama（/api/embed）")
     EMBEDDING_BASE_URL: str = Field(default="", description="向量化服务地址；ollama 填到端口（如 http://service-brain-ollama:11434）")
     EMBEDDING_API_KEY: str = Field(default="", description="向量化服务密钥（ollama 私有化无需）")
@@ -163,8 +176,6 @@ class Settings(BaseSettings):
         default=8.0,
         description="检索链路的精排尾段预算（秒）：超时即降级为 RRF 融合序，不让调用方白等 RERANK_TIMEOUT",
     )
-    SEARCH_SNIPPET_LENGTH: int = Field(default=120, description="命中摘要长度（字符数，超出以省略号截断）")
-
     PARSE_THREAD_POOL_SIZE: int = Field(default=4, description="文档解析线程池并发（CPU/IO 密集，建议不超过逻辑核数）")
     PARSE_CHUNK_SIZE: int = Field(default=800, description="默认分片长度（字符数）")
     PARSE_CHUNK_OVERLAP: int = Field(default=120, description="默认相邻分片重叠字符数，须小于分片长度")
@@ -214,9 +225,25 @@ class Settings(BaseSettings):
         default=0.6, description="精排相对闸门：低于 top1 相关度该比例的命中被丢弃（必须在 0–1 空间，logit 乘比例会反向）"
     )
     KB_GRADE_MIN_CHUNKS: int = Field(default=1, description="命中条数下限，低于该值直接拒答")
+    KB_GRADE_JUDGE_ENABLE: bool = Field(
+        default=False,
+        description=(
+            "结构化输出二判：证据条数够但最高相关度偏低时，让模型判一次「资料是否足以回答」；"
+            "默认关闭（多一次模型调用就多一次延迟与费用），按环境开启"
+        ),
+    )
+    KB_GRADE_JUDGE_TOP_SCORE: float = Field(
+        default=0.55, description="二判触发门限：最高相关度低于它才让模型判一次，高于它直接回答（省一次调用）"
+    )
+    KB_GRADE_JUDGE_TIMEOUT: float = Field(
+        default=8.0, description="二判超时（秒）；超时/上游异常/解析失败一律按「资料够答」处理，绝不因质检异常而拒答"
+    )
     KB_CONTEXT_MAX_CHARS: int = Field(default=6000, description="拼给模型的知识片段总字符上限")
     KB_SNIPPET_CHARS: int = Field(default=160, description="引用来源摘要片段长度")
     KB_HISTORY_TURNS: int = Field(default=4, description="带入多轮上下文的历史消息条数")
+    KB_HISTORY_MAX_CHARS: int = Field(
+        default=1200, description="历史正文字符总预算（从最新往旧累计，超出即停）：只按条数裁时一条超长回答就能挤出本轮证据"
+    )
     KB_ANSWER_TEMPERATURE: float = Field(default=0.2, description="回答温度（知识问答建议低温）")
     KB_ANSWER_MAX_TOKENS: int = Field(default=1500, description="回答最大 token 数")
     KB_LLM_TIMEOUT: float = Field(default=90.0, description="单轮回答总预算（秒）：覆盖检索 + 生成 + 落库")

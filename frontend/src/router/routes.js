@@ -98,36 +98,19 @@ export const constantRoutes = [
     path: '/gsi',
     name: 'GsiData',
     component: Layout,
-    redirect: '/gsi/org',
+    redirect: '/gsi/relations',
     meta: { title: 'GSI 业务数据', icon: 'Coin' },
     children: [
       {
-        path: 'org',
-        name: 'GsiOrg',
-        component: () => import('@/views/module_gsi/org/index.vue'),
-        meta: { title: '组织与成员', icon: 'OfficeBuilding' },
-      },
-      {
-        path: 'audience-team',
-        name: 'GsiAudienceTeam',
-        component: () => import('@/views/module_gsi/audienceTeam/index.vue'),
-        meta: { title: '受众团队', icon: 'UserFilled' },
-      },
-      {
-        path: 'team-member',
-        name: 'GsiTeamMember',
-        component: () => import('@/views/module_gsi/teamMember/index.vue'),
-        meta: { title: '团队成员标识', icon: 'Avatar' },
-      },
-      {
-        path: 'doc-publication',
-        name: 'GsiDocPublication',
-        component: () => import('@/views/module_gsi/docPublication/index.vue'),
-        meta: { title: '知识发布关系', icon: 'Link' },
+        path: 'relations',
+        name: 'GsiRelations',
+        component: () => import('@/views/module_gsi/relations/index.vue'),
+        meta: { title: '用户与组织关系', icon: 'Share' },
       },
       {
         path: 'km-doc',
         name: 'GsiKmDoc',
+        // 知识文档排在发布链路之前：发布关系已并入本页详情抽屉，不再单独成页
         component: () => import('@/views/module_gsi/kmDoc/index.vue'),
         meta: { title: '知识文档', icon: 'Document' },
       },
