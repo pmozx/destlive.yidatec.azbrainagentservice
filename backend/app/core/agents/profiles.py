@@ -13,8 +13,8 @@
 1. **只做投影，不做第二份配置**：档案的值来自 settings 与配置表，本模块不新增真理源；
 2. **回落链路固定**：配置表查不到 → 按 env 槽位当模型名直传 → 再空用 ``LLM_MODEL``；
 3. **参数逐键覆盖**：env 兜底 < 配置表默认 ``default_config_json`` < 用途场景 < 单次调用；
-4. **不决定调用方式**：档案描述「怎么调模型」，不决定「要不要套 agent」——单轮直出仍走
-   ``LlmClient.chat``，需要工具决策时把档案交给 :func:`app.core.agents.build_agent`。
+4. **不决定调用方式**：档案描述「怎么调模型」，不决定「要不要套 agent」——单轮直出走
+   ``LlmClient.chat``；将来出现工具决策场景时，档案同样可以直接交给 ``create_agent``。
 """
 
 from dataclasses import dataclass, field

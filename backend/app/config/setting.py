@@ -99,9 +99,6 @@ class Settings(BaseSettings):
     VECTOR_ENABLE: bool = Field(default=True, description="是否启用 pgvector 向量存储（仅 DATABASE_TYPE=postgres 生效）")
     VECTOR_DIM: int = Field(default=1024, description="向量维度，须与 embedding 模型输出一致（bge-m3 为 1024）")
     VECTOR_AUTO_CREATE: bool = Field(default=True, description="首次读写向量表时幂等创建 vector 扩展、向量表与 HNSW 索引")
-    CHECKPOINT_ENABLE: bool = Field(
-        default=True, description="是否启用 LangGraph PostgresSaver 断点（文档流水线节点级快照，DB 非 postgres 时自动跳过）"
-    )
 
     # ==================== 模型服务集成配置（LLM / Embedding / Rerank，两个集成域共用） ====================
     # 三类推理服务都按“OpenAI 兼容 / 私有化部署”统一收口；地址留空 = 尚未接入，调用时抛可读 503，

@@ -1,6 +1,5 @@
 """AI 对话 SSE 帧口径：事件名、错误码与 payload 构造函数。
 
-口径来源：`00-document/03-服务大脑AI项目开发规范文档/02-AI对话SSE流式输出规范.md`（§四 / §五）。
 三条约束直接落在本模块：
 
 1. **事件名封闭**：只有 ``meta`` / ``stage`` / ``ping`` / ``delta`` / ``citations`` / ``done`` / ``error``

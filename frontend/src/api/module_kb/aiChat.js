@@ -14,7 +14,7 @@ export function askKnowledgeChat(data) {
 /**
  * 发起一轮 AI 问答（POST /api/v1/kb/chat/ask/stream，SSE 逐帧返回）。
  *
- * 帧契约见 `02-AI对话SSE流式输出规范.md`：`meta` → `stage` → `delta`* → `citations`
+ * 帧契约：`meta` → `stage` → `delta`* → `citations`
  * → `done`，失败以 `error` 收尾。这里只做传输，事件语义由页面决定怎么渲染。
  *
  * @param {object} data 请求体（`session_id` 留空则后端首轮自动建会话）

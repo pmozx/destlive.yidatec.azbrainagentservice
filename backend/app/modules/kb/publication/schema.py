@@ -307,7 +307,7 @@ class KbPublicationParseJobBriefOutSchema(BaseModel):
 class KbPublicationSourceOutSchema(BaseModel):
     """发布单元来源与关联（只读溯源）。
 
-    发布单元与解析任务之间没有库级关联（见 ``02-数据模型与表关系.md`` §1.2「内容与作业分离」），
+    发布单元与解析任务之间没有库级关联（「内容与作业分离」），
     这里只回「可以核对得上的线索」：写入渠道 + 按 ``file_meta.doc_id`` 反查的解析任务。
     """
 

@@ -23,9 +23,9 @@
 | 项 | 说明 |
 | --- | --- |
 | 契约版本 | v3（21 个接口 / 19 个路径，编号 #01–#13 + D01–D06）；页面内嵌 `info.version` 仍为 2.1.0，正式版本号待 GSI 同步 |
-| 认证 | HMAC-SHA256 五头签名（`X-AI-Signature-Version` / `X-AI-Client-Id` / `X-AI-Timestamp` / `X-AI-Nonce` / `X-AI-Signature`）；具体实现见 `backend/app/core/security_signature.py` 与规范 `03-…/01-团队开发规范.md` §2 |
+| 认证 | HMAC-SHA256 五头签名（`X-AI-Signature-Version` / `X-AI-Client-Id` / `X-AI-Timestamp` / `X-AI-Nonce` / `X-AI-Signature`）；具体实现见 `backend/app/core/security_signature.py` |
 | 数据位置 | 与 GSI 共用 `service_brain` 库；AI 使用独立账号在 `ai_knowledge` schema 管理切片、向量、会话、消息与幂等记录，GSI 业务表按指定字段只读开放 |
 | 手册效力 | 手册定义**对接契约**，不作为服务上线或验收证明；示例中的域名、ID、时间、摘要不可用于生产 |
 | 只读的例外 | 仅当 GSI 发布新版手册/DDL 时整份替换，并在本节记录替换日期；不在原文件上做局部批注 |
 
-> 契约疑点的历史沉淀：POC 期 14 条疑点（Q1–Q14）见 [`../../04-服务大脑AI项目开发过程文档/01-POC验证/02-POC结论与契约疑点清单.md`](../../04-服务大脑AI项目开发过程文档/01-POC验证/02-POC结论与契约疑点清单.md)；接口复核的 30 项问题与 v2.1 对照见 [`../../02-服务大脑AI项目开发计划文档/01-接口复核结论.md`](../../02-服务大脑AI项目开发计划文档/01-接口复核结论.md)。
+> 契约疑点的历史沉淀：接口复核的 30 项问题与 v2.1 对照见 [`../../02-服务大脑AI项目开发计划文档/01-接口复核结论.md`](../../02-服务大脑AI项目开发计划文档/01-接口复核结论.md)。

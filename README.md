@@ -6,7 +6,7 @@
 - 前端：Vue 3 + Vite 7 + Element Plus，顶部横向导航 + 白色大圆角卡片布局，酒红紫主题，支持深色模式与主题色切换
 - 工程化：uv 管理 Python 依赖、npm 管理前端依赖；pytest + ruff；SCSS（BEM + mixins）
 
-> **能力边界（务必先读）**：知识库域（`kb`）与语音质检域（`voice`）当前**只有数据模型与表结构，没有 controller**，即无 HTTP 出口。对外能力 = `/v1` 契约面（**20 条中 5 条已实现业务逻辑，其余 15 条为骨架，返回 501**）+ `/api/v1` 管理面（日志审计、接入调用追踪）+ `/api/v1/gsi` 只读查询面（12 张 GSI 共享表、26 条 GET，无写入）。原 `integration` 过渡域（知识空间、分片 CRUD、对象存储、集成自检端点）已整体删除，删除决策与能力回退清单见 [`00-document/04-.../03-代码评审与优化/01-backend代码优化建议报告.md`](00-document/04-服务大脑AI项目开发过程文档/03-代码评审与优化/01-backend代码优化建议报告.md) 的 〇-A 章。
+> **能力边界（务必先读）**：知识库域（`kb`）与语音质检域（`voice`）当前**只有数据模型与表结构，没有 controller**，即无 HTTP 出口。对外能力 = `/v1` 契约面（**20 条中 5 条已实现业务逻辑，其余 15 条为骨架，返回 501**）+ `/api/v1` 管理面（日志审计、接入调用追踪）+ `/api/v1/gsi` 只读查询面（12 张 GSI 共享表、26 条 GET，无写入）。原 `integration` 过渡域（知识空间、分片 CRUD、对象存储、集成自检端点）已整体删除。
 
 ## 技术栈
 
@@ -288,8 +288,8 @@ MinerU 返回的 `content_list` 会转成「文本 → 页码」映射，分片�
 - 路由注册：`register_routers()` 只挂载 `backend/app/api/v1/routers.py` 的 `api_v1`；新增业务模块时在 `backend/app/modules/<域>/<功能>/controller.py` 定义 Router，GSI 只读模块在 `backend/app/modules_gsi/<模块>/<业务>/controller.py` 定义 Router，再到 `DOMAIN_CONTROLLERS` 登记（GSI 统一挂 `/gsi` 域），不做包扫描自动注册
 - 命名口径：AI 表名 `sbp_ai_[域缩写]_[业务名]`（`system` / `kb` / `voice`），与目录、模型类一一对应，详见 `backend/app/modules/__init__.py`。当前共 **24 张**：kb 8（`chunk`/`publication`/`revision`/`parse_job`/`parse_result`/`dup_group`/`chat_session`/`chat_message`）、system 6（`api_log`/`nonce`/`idempotency`/`request_log`/`auth_cache`/`prompt_template`）、voice 8、通用向量层 2（`kb_vector_collection`/`kb_vector_embedding`，由 `core/rag/vector_store.py` 懒建，非 ORM 模型）。GSI 侧 `sbp_*` 表为外部只读表，不占 AI 模块码，按「模块名/业务名」放在 `app/modules_gsi/`，类名统一 `Sbp` 前缀（如 `SbpSysOrgModel`），共 12 张且**不计入**上述 24 张
 - 域收敛：`app/modules/` 只有 `kb` / `system` / `voice` 三个正式域，无过渡域；`app/modules_gsi/` 是 GSI 外部只读包，不属于正式域、不参与 `bootstrap.py` 建表。`bootstrap.py` 按 `kb → system → voice` 顺序建表（kb 在前，因分片表含 pgvector 列，须待 vector 扩展就绪）
-- 表结构初始化：启动期 `create_missing_tables` 按「**缺表才建，已存在的表一律跳过**」——不补列、不加索引、不补默认值、不改类型。因此：**新建库**由模型定义一切（含 `__table_args__` 里的表达式索引）；**存量库**的加列/加索引/改类型必须由提交者写出 `ALTER` 并随 PR 交付、在目标环境执行。删列属破坏性变更，人工确认 + 备份后手动做，没有任何脚本会自动删。规则见 `00-document/03-.../01-团队开发规范.md` **D17**（早期曾有 `upgrade_schema` 对齐脚本，v2.2 已移除）。`modules_gsi` 的模型使用独立 metadata，**完全不进入**这条建表链路；GSI 表结构由 GSI 侧 Flyway 维护
-- 删除语义：基座**不做软删**（`ModelMixin` 无 `is_deleted`/`deleted_time`，`CRUDBase.delete()` 一律物理删，无 `restore()`）。需要留痕迹由领域自己用 `status` 表达（`kb_revision` 留 `archived` 墓碑、`kb_chunk` 必须物理删否则向量仍会被召回）——细节见 `00-document/03-.../01-团队开发规范.md` 规则 D19
+- 表结构初始化：启动期 `create_missing_tables` 按「**缺表才建，已存在的表一律跳过**」——不补列、不加索引、不补默认值、不改类型。因此：**新建库**由模型定义一切（含 `__table_args__` 里的表达式索引）；**存量库**的加列/加索引/改类型必须由提交者写出 `ALTER` 并随 PR 交付、在目标环境执行。删列属破坏性变更，人工确认 + 备份后手动做，没有任何脚本会自动删（早期曾有 `upgrade_schema` 对齐脚本，v2.2 已移除）。`modules_gsi` 的模型使用独立 metadata，**完全不进入**这条建表链路；GSI 表结构由 GSI 侧 Flyway 维护
+- 删除语义：基座**不做软删**（`ModelMixin` 无 `is_deleted`/`deleted_time`，`CRUDBase.delete()` 一律物理删，无 `restore()`）。需要留痕迹由领域自己用 `status` 表达（`kb_revision` 留 `archived` 墓碑、`kb_chunk` 必须物理删否则向量仍会被召回）
 - 契约链路：`app/modules_api/contract/` 自成一套接入层——`ContractApiRoute` 负责请求级审计，`deps.py` 的幂等守卫按 `reserve → processing → complete/release` 状态机推进，异常路径用 `asyncio.shield` 保证释放动作不被取消吞掉
 - 解析生命周期：解析任务跑在请求之外，用 `async_session_factory` 自开短事务回写状态；进程重启后由 `KbParseJobService.reset_unfinished()` 把残留「解析中」批量改判 `failed`（不再有「回退待解析」语义）
 - 事务出口：`db_getter` 显式三分支——正常 commit / 契约失败标记命中则 rollback / 异常 rollback 后上抛，避免契约路由吞异常导致请求级事务「错误提交」

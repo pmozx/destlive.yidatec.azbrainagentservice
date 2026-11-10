@@ -7,7 +7,7 @@
 
     rem 同时把验收记录写成 Markdown（M1 交付物）
     .venv\\Scripts\\python.exe -m app.scripts.contract.verify_m1 --base-url http://127.0.0.1:8002 ^
-        --record "..\\00-document\\04-服务大脑AI项目开发过程文档\\02-P1接入层与审计验收\\01-M1验收记录.md"
+        --record ".\\m1-acceptance.md"
 
 复查的正是 M1 的三条验收标志：
 

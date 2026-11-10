@@ -1,8 +1,8 @@
 """事件循环工厂：交给 uvicorn 的 ``loop`` 参数，替代已弃用的 ``asyncio.set_event_loop_policy``。
 
-背景：psycopg v3 的异步模式（LangGraph 断点 ``AsyncPostgresSaver``）不能在 Windows 默认的
-ProactorEventLoop 上运行（"Psycopg cannot use the 'ProactorEventLoop' to run in async mode"），
-必须换 Selector。旧写法是在建循环之前设全局策略
+背景：psycopg v3 的异步模式不能在 Windows 默认的 ProactorEventLoop 上运行
+（"Psycopg cannot use the 'ProactorEventLoop' to run in async mode"），必须换 Selector。
+旧写法是在建循环之前设全局策略
 （``asyncio.set_event_loop_policy(WindowsSelectorEventLoopPolicy())``），但该 API 自
 Python 3.14 起弃用、3.16 移除；uvicorn 0.36 起把循环创建收敛为 ``loop`` 工厂
 （``Config.get_loop_factory`` → ``asyncio.run(..., loop_factory=...)``），

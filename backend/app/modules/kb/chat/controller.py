@@ -4,8 +4,7 @@
 ``ApiLogRoute`` 自动留痕。与「会话记录」页的分工：这里产生会话与消息，那边按会话
 查看与维护；写库走的是与契约 #14 同一个编排服务，所以两边看到的是同一批数据。
 
-``/ask/stream`` 的帧契约见 `00-document/03-…/02-AI对话SSE流式输出规范.md`：
-帧构造在 `sse.py`、序列化在 `app/utils/sse.format_sse`，本文件只负责拼响应头。
+``/ask/stream`` 的帧契约由 `sse.py` 定义：帧构造在 `sse.py`、序列化在 `app/utils/sse.format_sse`，本文件只负责拼响应头。
 """
 
 from collections.abc import AsyncIterator

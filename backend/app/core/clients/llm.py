@@ -8,7 +8,7 @@
    （规范 L27 的配置表投影），本层只负责把它们变成厂商客户端；env 的
    ``LLM_BASE_URL`` / ``LLM_API_KEY`` 退化为「档案没写时的兜底」；
 3. 只暴露 ``chat`` / ``stream_chat`` / ``stream_chat_events`` 三种出口与 ``chat_model``
-   （``build_agent`` 等框架能力的取用口）；提示词模板、工具调用、结果解析都不在这一层；
+   （底层模型实例，供框架能力直接取用）；提示词模板、工具调用、结果解析都不在这一层；
 4. 内网/回环目标不读代理环境变量：自建的 vLLM 在局域网里，一旦被 ``HTTP_PROXY`` 劫持
    就只剩 502（见 :func:`app.core.clients.base.trust_env_for_url`），因此显式注入 httpx 客户端；
 5. 用量统计依赖 ``stream_usage=True``：网关支持时末帧带 usage，映射到 ``ChatStreamChunk`` 的

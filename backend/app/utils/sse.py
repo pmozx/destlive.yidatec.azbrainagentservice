@@ -1,8 +1,8 @@
 """SSE（Server-Sent Events）帧工具：响应头常量与事件字典序列化。
 
 链路层只产出 ``{"event": str, "data": dict}``，序列化在此收口；
-改帧格式不必改动检索/生成逻辑。帧契约（事件名、顺序、错误码）见
-`00-document/03-…/02-AI对话SSE流式输出规范.md`。
+改帧格式不必改动检索/生成逻辑。帧契约（事件名、顺序、错误码）由
+``app.modules.kb.chat.sse`` 与 ``tests/support.parse_sse_frames`` 共同定义。
 """
 
 import json

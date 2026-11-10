@@ -130,7 +130,7 @@ class KbPublicationService:
     async def source(self, publication_id: str) -> KbPublicationSourceOutSchema:
         """来源与关联（只读）：判定写入渠道，并按 ``file_meta.doc_id`` 反查解析任务。
 
-        发布单元与解析任务之间没有库级关联（见 ``02-数据模型与表关系.md`` §1.2「内容与作业分离」）：
+        发布单元与解析任务之间没有库级关联（「内容与作业分离」）：
         解析产物是「AI 看到什么」，知识切片是「审批后确认什么」。因此这里只回线索——
         契约 #01 把 ``doc_id`` 落在 ``parse_job.file_meta`` 里，用它比对 ``publication.resource_id``；
         管理台上传的任务没有 ``doc_id``，永远匹配不上，页面需按「仅供参考」展示。

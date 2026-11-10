@@ -1,7 +1,6 @@
 /**
  * SSE（Server-Sent Events）客户端：帧解析 + 带鉴权的 POST 流。
  *
- * 口径来源：`00-document/03-服务大脑AI项目开发规范文档/02-AI对话SSE流式输出规范.md` §三 / §九。
  * 为什么不用 `EventSource`：它只支持 GET、不能写请求体也不能带 `Authorization`，而问答是
  * 「POST + JSON 正文 + 登录态」——所以只能 `fetch` + `ReadableStream` 边收边解（S30）。
  *

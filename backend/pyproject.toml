@@ -18,13 +18,12 @@ dependencies = [
     "loguru>=0.7.3,<1",
     "rich>=15.0.0,<16",
     "pgvector>=0.3.6,<0.4",                   # Vector 列类型（kb 分片表 embedding 列；向量存取走原生 SQL）
-    "psycopg[binary]>=3.2,<4",                # PostgreSQL 驱动：向量层连接池 + LangGraph checkpointer（binary 自带 libpq）
-    "langchain>=1.4,<2",                     # LangChain 1.4 智能体框架（create_agent / langgraph astream）
-    "langgraph>=1.2.18,<2",                  # StateGraph 显式编排（文档流水线与问答链路）
+    "psycopg[binary]>=3.2,<4",                # PostgreSQL 驱动：向量层连接池与原生 SQL（binary 自带 libpq）
+    "langchain>=1.4,<2",                     # LangChain 1.4（init_chat_model / init_embeddings / 标准消息）
+    "langgraph>=1.2.18,<2",                  # 随 langchain 传递引入；显式钉版本防漂移（当前无直接图编排代码）
     "langchain-openai>=1.7.3,<2",            # ChatOpenAI(DeepSeek 兼容模式) + init_embeddings(provider=openai)
     "langchain-ollama>=1.1,<2",              # init_embeddings(provider=ollama)：EMBEDDING_PROTOCOL=ollama 的私有化部署
     "langchain-text-splitters>=1.1,<2",      # RecursiveCharacterTextSplitter（文档分片）
-    "langgraph-checkpoint-postgres>=3.2,<4", # PostgresSaver（文档流水线断点续跑）
     # langsmith 由 langchain-core 传递引入（core/observability 直接使用），不单列依赖以免 uv.lock 漂移
     "pydantic-settings>=2.16,<3",
     "pydantic[email]>=2.14,<3",

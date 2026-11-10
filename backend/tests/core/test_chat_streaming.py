@@ -1,7 +1,6 @@
 """LLM 流式消费（`app.core.chat.streaming`）回归：三类超时、断连、心跳。
 
-口径来源：`02-AI对话SSE流式输出规范.md` §六（S19–S22）。编排层的帧序在
-`tests/modules/kb/test_chat_stream.py`，这里只验这个通用工具本身：
+编排层的帧序在 `tests/modules/kb/test_chat_stream.py`，这里只验这个通用工具本身：
 
 1. 首字超时与空闲超时分开判定，都折算为 :class:`StreamTimeoutError`；
 2. 总预算按**绝对 deadline** 判定：剩余时间短于空闲上限时以剩余时间为准（S22）；

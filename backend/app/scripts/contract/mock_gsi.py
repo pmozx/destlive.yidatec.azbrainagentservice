@@ -10,7 +10,7 @@
 
     rem 输出冒烟记录
     .venv\\Scripts\\python.exe -m app.scripts.contract.mock_gsi --base-url http://127.0.0.1:8003 --allow-skeleton ^
-        --record "..\\00-document\\04-服务大脑AI项目开发过程文档\\01-POC验证\\01-POC冒烟记录.md"
+        --record ".\\poc-smoke.md"
 
 它做的事：
 1. 起一个本地 `http.server` 托管样例 Markdown，给 #01 一个**真实可拉取**的 `file_url`
@@ -22,7 +22,7 @@
 
 退出码非 0 表示有用例不符合预期 —— 便于在联调期直接把它当回归脚本用。
 
-与 `verify_m1` 的分工（见 `03-POC下线与契约迁移方案.md` §五 风险 7）：
+与 `verify_m1` 的分工：
 - `verify_m1` 保「M1 门禁 + `--record` 证据」；
 - 本脚本保「GSI 侧样例 + 负向用例 + 联调」。
 

@@ -1,6 +1,5 @@
 """SSE 帧序列化与解析（`app.utils.sse` + `tests.support.parse_sse_frames`）。
 
-口径来源：`00-document/03-服务大脑AI项目开发规范文档/02-AI对话SSE流式输出规范.md` §三（S7–S10）。
 这里只验**帧形本身**（编排层的帧序在 `tests/modules/kb/test_chat_stream.py`）：
 
 1. 帧固定为 ``event:`` + 单行 ``data:`` + 空行，正文里的换行被 JSON 转义，不会撕开帧边界；
