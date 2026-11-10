@@ -249,6 +249,31 @@ async def _reserve_with_verify(
     return reservation
 
 
+#: 授权块里的「调用时刻」字段：重试必然重新签发，不计入幂等正文摘要
+_IDEMPOTENCY_VOLATILE_AUTH_FIELDS = ("issued_at", "expires_at")
+
+
+def idempotency_payload(payload: Any) -> Any:
+    """幂等摘要用的正文：剔除 ``authorization`` 的时效字段。
+
+    ``issued_at`` / ``expires_at`` 是「本次调用时刻」的映射：GSI 重试时必须重新签发
+    （旧块 120 秒后过期，服务端会拒），所以同一业务请求两次调用的这两个值必不相同。
+    把它们算进摘要，会让合法重试被判成「同 ID 异正文」→ 409，幂等台账在它唯一想
+    解决的场景（首次成功但响应丢失后的重发）里失效。
+
+    ``scope_id`` 保留在摘要里：不同授权范围仍视为不同正文。非 dict 正文原样返回。
+    """
+    if not isinstance(payload, dict):
+        return payload
+    out = dict(payload)
+    auth = out.get("authorization")
+    if isinstance(auth, dict):
+        out["authorization"] = {
+            key: value for key, value in auth.items() if key not in _IDEMPOTENCY_VOLATILE_AUTH_FIELDS
+        }
+    return out
+
+
 def idempotent_guard(scope: str, *, verify_existing: VerifyExisting | None = None):
     """按幂等域生成依赖：预约 → 交给路由 → 成功登记结果 / 失败释放。
 
@@ -275,7 +300,7 @@ def idempotent_guard(scope: str, *, verify_existing: VerifyExisting | None = Non
                 f"缺少幂等键 {SCOPE_ID_KEYS[scope]}，写操作必须携带。",
             )
 
-        digest = canonical_json_sha256(payload)
+        digest = canonical_json_sha256(idempotency_payload(payload))
         reservation = await _reserve_with_verify(
             scope=scope, biz_id=biz_id, digest=digest, verify_existing=verify_existing
         )

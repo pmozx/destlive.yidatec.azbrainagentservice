@@ -13,6 +13,9 @@
 契约要求「同正文」，而同一份 JSON 因键序不同被判定成「不同正文」会把正常重试逼成 409。
 （签名原文用**原始字节**摘要，两者口径不同，各自都对：签名防篡改，幂等判语义同一。）
 
+摘要前剔除 ``authorization.issued_at / expires_at``（见 ``deps.idempotency_payload``）：
+这两个值是「本次调用时刻」，重试时必重新签发，计入摘要会让合法重试必然 409。
+
 数据访问与状态机已迁入 ``app.modules.system.idempotency.service.SystemIdempotencyService``；
 本文件只保留契约层适配：业务 ID 提取、错误码映射与 ``Reservation`` 结构。
 """

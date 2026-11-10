@@ -47,6 +47,12 @@ export const constantRoutes = [
         component: () => import('@/views/module_system/storage/index.vue'),
         meta: { title: '文件存储', icon: 'FolderOpened' },
       },
+      {
+        path: 'model-config',
+        name: 'SystemModelConfig',
+        component: () => import('@/views/module_system/modelConfig/index.vue'),
+        meta: { title: '模型配置', icon: 'Cpu' },
+      },
     ],
   },
   {

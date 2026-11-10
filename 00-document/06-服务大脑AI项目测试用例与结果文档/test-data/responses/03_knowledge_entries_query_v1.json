@@ -4,17 +4,191 @@
   "request": {
     "request_id": "req-kb-query-001",
     "tenant_id": "gsi-default",
-    "user_id": "user-demo-001",
+    "user_id": "1",
     "record_id": "rec-test-crud-001-v1",
     "limit": 100
   },
-  "response_status": 404,
+  "response_status": 200,
   "response_body": {
-    "error": {
-      "code": "NOT_FOUND",
-      "message": "发布单元 pub-test-crud-001 不存在。",
-      "retryable": false
+    "request_id": "req-kb-query-001",
+    "resource_type": "document",
+    "resource_id": "doc-lane2005-fdc",
+    "publication_id": "pub-test-crud-001",
+    "record_id": "rec-test-crud-001-v1",
+    "version_id": "v1",
+    "revision": 1,
+    "knowledge_no": "KB-HYDRO-2026-001",
+    "metadata": {
+      "owner": "admin",
+      "title": "流量历时曲线对造林的响应",
+      "doc_type": "document",
+      "language": "en",
+      "source_parse_job_id": "parse-doc-100001"
     },
-    "request_id": "req-kb-query-001"
+    "content_hash": "sha256:3d1de5e2b4f2ff2d020defb365d3468ca6e8495849b13b436db36560a3101e3b",
+    "chunks": [
+      {
+        "chunk_id": "rec-test-crud-001-v1:1",
+        "seq": 1,
+        "heading": "《流量历时曲线对造林的响应》一文的研究目的是什么？",
+        "content": "该文旨在量化人工林建立后流域年度流量制度的变化，具体目标包括：(1)拟合观测的FDC百分位数年序列模型，即以年降雨量和人工林年龄为参数拟合每年记录的第10百分位数流量；(2)用长期平均降雨量替代年降雨量变化以获得气候调整后的FDC；(3)量化人工林老化过程中FDC百分位数的变化，从而在缺乏配对流域数据的情况下评估造林对流量历时曲线的影响。",
+        "page_from": null,
+        "page_to": null
+      },
+      {
+        "chunk_id": "rec-test-crud-001-v1:2",
+        "seq": 2,
+        "heading": "论文中用于评估造林对流量历时曲线影响的FDC百分位数回归模型（方程2）的具体形式是什么？",
+        "content": "模型形式为 Q% = a + b(ΔP) + Y / [1 + exp((T - Thalf)/S)]，其中Q%是百分位数流量（如Q50为第50百分位数流量），ΔP是年降雨量与记录期平均值的偏差，T是人工林年龄，Y和S是S型项的系数，Thalf是造林导致Q%减少一半所需的时间（年）。对于平均气候条件ΔP=0，a是达到造林下新平衡人工林耗水量时的Q%值，Y给出造林导致的变化幅度，S描述响应形状。",
+        "page_from": null,
+        "page_to": null
+      },
+      {
+        "chunk_id": "rec-test-crud-001-v1:3",
+        "seq": 3,
+        "heading": "论文中用于评估造林对零流量天数影响的模型（方程3）与FDC模型有何不同？",
+        "content": "零流量天数模型采用与FDC模型类似的逆S型函数形式，即 Nzero = a + b(ΔP) + Y / [1 + exp((T - Thalf)/S)]，但将方程(2)的左边替换为每年零流量天数Nzero，且b和S被限制为负值，因为Nzero随降雨量增加而减少、随人工林生长而增加。对于处理前的平均条件ΔP=0和T=0，Nzero约等于a；Y给出造林导致的零流量天数变化幅度，a+Y是达到新平衡时的零流量天数。",
+        "page_from": null,
+        "page_to": null
+      },
+      {
+        "chunk_id": "rec-test-crud-001-v1:4",
+        "seq": 4,
+        "heading": "论文使用了哪些流域的数据？共多少个流域？分布在哪几个国家？",
+        "content": "论文使用了来自澳大利亚东南部、新西兰和南非的10个流域的每日径流数据，包括Traralgon Ck（澳大利亚维多利亚州）、Redhill（澳大利亚新南威尔士州）、Pine Ck（澳大利亚维多利亚州）、Stewarts Ck 5（澳大利亚维多利亚州）、Glendhu 2（新西兰）、Cathedral Peak 2和3（南非）、Lambrechtsbos A和B（南非）以及Biesievlei（南非）。选择标准是已知的植被历史和良好质量的径流记录，且流域约100%从草地或等效作物转换为人工林。",
+        "page_from": null,
+        "page_to": null
+      },
+      {
+        "chunk_id": "rec-test-crud-001-v1:5",
+        "seq": 5,
+        "heading": "论文中10个流域的哪些特征被用于分析？",
+        "content": "论文中使用了10个流域的面积、树种、造林面积比例、年均降雨量、降雨分布（均匀、冬季为主或夏季为主）、处理前年数、林龄、平均土壤深度、基流指数（BFI）等特征。土壤深度和BFI用于指示流域相对蓄水能力；降雨分布用于确定水文年（5月-4月或11月-10月）；造林面积比例用于解释流量减少的差异。",
+        "page_from": null,
+        "page_to": null
+      },
+      {
+        "chunk_id": "rec-test-crud-001-v1:6",
+        "seq": 6,
+        "heading": "论文如何对FDC进行气候调整？",
+        "content": "在成功将模型(2)拟合到观测百分位数后，通过将ΔP设为零（代表长期平均年降雨量）对FDC进行气候调整。调整后的FDC产生了每个流域由于造林导致的流量百分位数随时间变化的估计，即以长期平均降雨量替代年降雨量变化，从而消除降雨信号，使FDC的变化完全归因于植被。",
+        "page_from": null,
+        "page_to": null
+      },
+      {
+        "chunk_id": "rec-test-crud-001-v1:7",
+        "seq": 7,
+        "heading": "论文中模型拟合的效率系数E的判定标准是什么？",
+        "content": "效率系数E由 Nash-Sutcliffe 公式 E = 1.0 - Σ(Oi-Pi)^2 / Σ(Oi-Ō)^2 计算，其中O是观测数据，P是预测值，Ō是整个时期的平均值。E范围从-∞到1.0，越高表示拟合越好。由于E总是小于r²，论文任意认为E>0.7表示模型拟合充分。",
+        "page_from": null,
+        "page_to": null
+      },
+      {
+        "chunk_id": "rec-test-crud-001-v1:8",
+        "seq": 8,
+        "heading": "论文中模型对10个流域FDC拟合的总体表现如何？哪些百分位数拟合最好？",
+        "content": "完整模型方程(2)对观测数据的拟合总体良好，大多数拟合(77%)返回E>0.7，60%达到0.8或更好。最差的E值来自Lambrechtsbos A和B。模型对较高流量（较低十分位数）的拟合通常更好，大多数较差的拟合在80-100百分位数范围内。第10-50百分位数的结果特别令人鼓舞，在50个数据集中有45个在0.05水平下显著。",
+        "page_from": null,
+        "page_to": null
+      },
+      {
+        "chunk_id": "rec-test-crud-001-v1:9",
+        "seq": 9,
+        "heading": "论文识别出的两种流域响应类型（组别）分别是什么？各包含哪些流域？",
+        "content": "论文识别出两种响应类型（组别）：第1组流域显示零流量天数大幅增加，低流量的比例减少大于高流量，包括Stewarts Creek、Pine Creek和Redhill；第2组流域显示所有百分位数的流量比例减少更为均匀，包括Cathedral Peak 2和3、Lambrechtsbos A、Lambrechtsbos B、Glendhu 2、Biesievlei和Traralgon Creek。",
+        "page_from": null,
+        "page_to": null
+      },
+      {
+        "chunk_id": "rec-test-crud-001-v1:10",
+        "seq": 10,
+        "heading": "论文中关于零流量天数（Nzero）分析的结果是什么？",
+        "content": "零流量天数分析仅应用于Stewarts Creek、Pine Creek和Redhill三个流域，模型返回的E值分别为0.95、0.99和0.99，b和ΔNzero的t检验在0.05水平下均显著。气候调整后显示零流量天数大幅增加：到Stewarts Ck和Pine Ck的第8年以及Redhill的第11年，流量限制在不到50%的时间内，Redhill从几乎常年河流变为高度间歇性河流。",
+        "page_from": null,
+        "page_to": null
+      },
+      {
+        "chunk_id": "rec-test-crud-001-v1:11",
+        "seq": 11,
+        "heading": "论文中模拟的流量减少与配对流域实验的已发表结果比较如何？",
+        "content": "论文将模拟的总流量和低流量减少与已发表的配对流域研究结果（Scott等2000、Hickel2001、Nandakumar和Mein1993、Fahey和Jackson1997）进行比较，发现除Lambrechtsbos B的低流量被高估外，其余四个南非流域以及Redhill和Stewarts Creek与已发表值非常吻合，Glendhu 2的减少接近报告的27%。总体没有显著差异，表明模型成功消除了降雨信号。",
+        "page_from": null,
+        "page_to": null
+      },
+      {
+        "chunk_id": "rec-test-crud-001-v1:12",
+        "seq": 12,
+        "heading": "论文中提到的Thalf（造林导致流量减少一半所需时间）的典型范围是什么？哪些流域响应最快？",
+        "content": "大多数响应的Thalf值在5到10年之间，但不同百分位数和流域间差异很大。Pine Creek、Stewarts Creek、Redhill和Lambrechtsbos A表现出最快的响应，而Biesievlei显示出最均匀的缓慢响应。南非流域的Thalf与已发表的年度变化很好地对应，但Glendhu 2的Thalf明显低于其他已发表数据。",
+        "page_from": null,
+        "page_to": null
+      },
+      {
+        "chunk_id": "rec-test-crud-001-v1:13",
+        "seq": 13,
+        "heading": "论文如何解释第1组流域（澳大利亚东南部三个小型流域）流量减少更大的原因？",
+        "content": "第1组流域（Stewarts Creek 5、Pine Creek和Redhill）具有相似的浅层土壤、潜在蒸散发和降雨分布（相对均匀），但Stewarts Creek更湿润。小流域面积和增加的蒸腾需求超过夏季和秋季降雨及蓄水的组合，导致低流量影响远大于高流量。这些流域可能具有最低的蓄水能力（土壤深度和基流指数均较低），因此流量减少最大，特别是低流量。",
+        "page_from": null,
+        "page_to": null
+      },
+      {
+        "chunk_id": "rec-test-crud-001-v1:14",
+        "seq": 14,
+        "heading": "论文中第2组流域内响应幅度差异的原因有哪些？",
+        "content": "第2组流域的响应幅度差异很大：两个Cathedral Peak流域和Lambrechtsbos B的流量减少更大，因为Cathedral Peak站点夏季接收85%的降雨（平均1260毫米），峰值需求与植物水分可用性相结合，且Stocking密度被描述为“异常密集”；Glendhu 2生长明显缓慢，Lambrechtsbos A和Biesievlei处于次优生长区，导致相对较慢的响应时间和更少的减少。",
+        "page_from": null,
+        "page_to": null
+      },
+      {
+        "chunk_id": "rec-test-crud-001-v1:15",
+        "seq": 15,
+        "heading": "论文对Traralgon Creek流量减少较缓和且响应时间较长是如何解释的？",
+        "content": "Traralgon Creek由于巨桉（Eucalyptus regnans）林面积大且植被记录不确定，自然林分的峰值林分耗水量约为30年，且存在持续的森林管理循环（包括采伐），牧场和“灌木”被人造林物种替代，处理前后ET的差异可能小于其他流域，因此预计流量减少最缓和且响应时间较长。",
+        "page_from": null,
+        "page_to": null
+      },
+      {
+        "chunk_id": "rec-test-crud-001-v1:16",
+        "seq": 16,
+        "heading": "论文的主要结论是什么？",
+        "content": "论文的主要结论是：提出的简单模型（以人工林年龄和年降雨量为蒸散发主要驱动因素）能够成功拟合10个流域中8个的FDC，特别是第10-50百分位数，并通过气候调整消除了降雨信号。模拟结果显示最大的比例影响是中位数和低流量，澳大利亚东南部三个小型流域的流量减少最高，可能反映较低蓄水能力。零流量天数分析成功表明零流量显著增加。该方法在缺乏配对流域数据的情况下可替代配对流域方法评估造林水文影响，但需要更多硬木物种（尤其是桉树）的流域数据。",
+        "page_from": null,
+        "page_to": null
+      },
+      {
+        "chunk_id": "rec-test-crud-001-v1:17",
+        "seq": 17,
+        "heading": "论文明确指出哪些局限性？",
+        "content": "论文指出了以下局限性：10个流域中有9个是松树物种，需要更多数据比较硬木物种（特别是桉树）对FDC的影响；Lambrechtsbos A和B的模型拟合较差，可能因林分耗水量随时间减少不符合S型形式；Lambrechtsbos B低流量拟合失败原因不易解释；流域蓄水特征数据不统一，只有土壤深度和基流指数的指示；模型尚未成为预测模型，且未包含蓄水项（因额外参数会牺牲模型简单性）。",
+        "page_from": null,
+        "page_to": null
+      },
+      {
+        "chunk_id": "rec-test-crud-001-v1:18",
+        "seq": 18,
+        "heading": "论文中使用的数据中，各流域的造林面积比例和树种是什么？",
+        "content": "10个流域中除Traralgon Creek外均种植松树（主要是辐射松Pinus radiata，Cathedral Peak两个流域为扭叶松P. patula），Traralgon Creek约有6%松树和大部分桉树（巨桉Eucalyptus regnans）。造林面积比例从Traralgon Ck的约70%到Stewarts Ck 5和Pine Ck的100%不等，具体为：Traralgon Ck ~70%，Redhill 78%，Pine Ck 100%，Stewarts Ck 5 100%，Glendhu 2 67%，Cathedral Peak 2 75%，Cathedral Peak 3 86%，Lambrechtsbos A 82%，Lambrechtsbos B 89%，Biesievlei 98%。",
+        "page_from": null,
+        "page_to": null
+      },
+      {
+        "chunk_id": "rec-test-crud-001-v1:19",
+        "seq": 19,
+        "heading": "论文中降雨项和时间项在FDC模型中的显著性检验结果如何？",
+        "content": "降雨项b在75%的十分位数在0.05水平下显著，另有9%在0.10水平下显著，显著性在10-50百分位数最高（50个数据集中45个在0.05水平下显著）；时间项Y在80%的十分位数在0.05水平下显著，另有9%在0.10水平下显著。检验通过将完整模型(2)与简化模型(5)（设b=0）和(6)（设Y=0）比较，使用单尾t检验（t=F^0.5）在0.05水平比较临界值。",
+        "page_from": null,
+        "page_to": null
+      },
+      {
+        "chunk_id": "rec-test-crud-001-v1:20",
+        "seq": 20,
+        "heading": "论文中如何定义和计算基流指数（BFI）？",
+        "content": "使用Lyne和Hollick(1979)的数字滤波方法（滤波系数为0.925，三次通过）对扰动后前3年的每日流量进行基流分离，得到的平均基流指数(BFI)即基流与总流量的比值。澳大利亚流域的BFI（Traralgon Ck 0.37、Redhill 0.39、Pine Ck 0.26、Stewarts Ck 5 0.28）明显低于南非和新西兰流域（Glendhu 2 0.64、Cathedral Peak 2 0.66、Cathedral Peak 3 0.75、Lambrechtsbos A 0.78、Lambrechtsbos B 0.87、Biesievlei 0.72）。",
+        "page_from": 5,
+        "page_to": 5
+      }
+    ],
+    "searchable": true,
+    "next_cursor": null
   }
 }

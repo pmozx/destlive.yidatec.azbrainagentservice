@@ -55,8 +55,6 @@ def _forbid_generation(monkeypatch: pytest.MonkeyPatch) -> None:
     """生成模型一旦被调用就让用例立刻红。"""
 
     class _ForbiddenLlm:
-        model = "stub-model"
-
         async def chat(self, messages: Any, **kwargs: Any) -> str:  # noqa: ANN401 - 打桩
             raise AssertionError("判为资料不足时不应调用生成模型")
 

@@ -14,8 +14,12 @@
 不覆盖，也不补齐——页面上的改名、改密级、改排序不会被启动流程抹掉，被删除的种子行
 同样不会在重启时「复活」。后续新增种子行只对全新空库生效，存量库需手工补数据。
 
-**当前没有种子表**：原有的空间/分类两张种子表随 ``integration_kb`` 模块删除（对应
-``sql/sbp_ai_integration_kb_*.json`` 已无模型可导入，保留仅作未来 kb 域重建时的字段参考）。
+**当前种子表**：``sbp_ai_system_model_config``（对话 / 嵌入 / 重排序三行）。同名 JSON 只
+固化与环境无关的稳定项——模型名、默认参数、默认标记；``base_url`` / ``api_key`` /
+``model_provider`` 留空，运行时按「行值 or env」回落，既满足「配置集中到表」，又不会把某个
+环境的内网地址与密钥带进仓库。原空间/分类两张种子表随 ``integration_kb`` 模块删除，对应
+JSON 已一并清理。
+
 新增种子表的做法不变：
 
 1. 放 ``sql/<表名>.json``（文件名必须等于 ``Model.__tablename__``）；
@@ -31,16 +35,18 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.path_conf import SCRIPT_DIR
+from app.core.agents.registry import invalidate_model_config_cache
 from app.core.database import async_session_factory
 from app.core.logger import logger
 from app.modules.kb.bootstrap import ensure_tables
+from app.modules.system.model_config.model import SystemModelConfigModel
 
 
 class InitializeData:
     """初始化数据库基础数据"""
 
     # 按依赖关系排序（被引用表在前）；新增种子表把 Model 追加到这里即可
-    prepare_init_models: list[type] = []
+    prepare_init_models: list[type] = [SystemModelConfigModel]
 
     async def init_db(self) -> None:
         """建表并导入种子数据（异常上抛，由调用方决定是否阻断启动）"""
@@ -84,7 +90,10 @@ class InitializeData:
         if skipped:
             logger.info("⏭️ {} 张表已有数据，跳过初始化：{}", len(skipped), ", ".join(skipped))
         if created_total:
-            logger.info("==== 种子数据初始化完成（新增 {} 条）====", created_total)
+            # 快照在 lifespan 里早于种子导入加载（见 app/__init__.py），这里不置过期的话，
+            # 嵌入 / 重排序客户端会一直读空快照按 env 跑，页面看到有行却「没生效」
+            invalidate_model_config_cache()
+            logger.info("==== 种子数据初始化完成（新增 {} 条，模型配置快照已置过期）====", created_total)
 
     @staticmethod
     def __load_json(filename: str) -> list[dict[str, Any]]:

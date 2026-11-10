@@ -1,0 +1,17 @@
+{
+  "request_file": "06_chat_session_delete.json",
+  "request_path": "DELETE /v1/chat/sessions/d947dbd1-4882-415c-a651-f46c66665c98",
+  "request": {
+    "request_id": "req-chat-session-delete-001",
+    "tenant_id": "gsi-default",
+    "user_id": "1"
+  },
+  "response_status": 200,
+  "response_body": {
+    "deleted": true,
+    "request_id": "req-chat-session-delete-001",
+    "session_id": "d947dbd1-4882-415c-a651-f46c66665c98"
+  },
+  "purpose": "DELETE 带 JSON 正文；事件域幂等并留墓碑，防止删除后重发同一 ID 把内容复活",
+  "idempotent_replay": true
+}

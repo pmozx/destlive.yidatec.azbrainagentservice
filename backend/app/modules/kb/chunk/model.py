@@ -3,7 +3,7 @@
 只建 HNSW 向量索引；中文关键词索引（pg_trgm 的 ``gin(content gin_trgm_ops)``）刻意不在此声明：
 ``create_missing_tables`` 对已存在的表一律跳过，声明了也只对新库生效，而且索引建不出来会把整张表
 的 DDL 一起带崩。改由 ``app.core.table_bootstrap.ensure_keyword_index()`` 启动期幂等补建，
-存量库走 ``sql/v1.6_keyword_search_index.sql``（``CONCURRENTLY`` 人工建）。
+存量库改在低峰期人工执行 ``CREATE INDEX CONCURRENTLY``（见知识平台运维说明 §6.4）。
 """
 
 from sqlalchemy import BigInteger, CheckConstraint, Index, Integer, String, text, Text, UniqueConstraint

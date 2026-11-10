@@ -1,0 +1,17 @@
+{
+  "request_file": "06_chat_session_clear.json",
+  "request_path": "DELETE /v1/chat/sessions/d947dbd1-4882-415c-a651-f46c66665c98/messages",
+  "request": {
+    "request_id": "req-chat-session-clear-001",
+    "tenant_id": "gsi-default",
+    "user_id": "1"
+  },
+  "response_status": 200,
+  "response_body": {
+    "cleared": true,
+    "request_id": "req-chat-session-clear-001",
+    "session_id": "d947dbd1-4882-415c-a651-f46c66665c98"
+  },
+  "purpose": "清空保留会话壳；此后迟到生成结果直接丢弃（临时会话无消息，本例验证回执与幂等域）",
+  "idempotent_replay": true
+}

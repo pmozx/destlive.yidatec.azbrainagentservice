@@ -1,0 +1,56 @@
+[
+  {
+    "model_type": "chat",
+    "model_config_name": "DeepSeek V4 Flash",
+    "model_config_key": "deepseek-v4-flash",
+    "model_name": "deepseek-ai/DeepSeek-V4-Flash",
+    "model_provider": "",
+    "base_url": "https://api.siliconflow.cn/v1",
+    "api_key": "sk-dytafwetvdsenhngewpildwzstscrmugqmkaspwsxsyqdwqu",
+    "default_config_json": {
+      "temperature": 0.2,
+      "max_tokens": 1500,
+      "timeout": 60,
+      "max_retries": 2
+    },
+    "description": "问答 / 灰区二判 / FAQ 抽取共用；model 取自 dev 的 LLM_MODEL，地址与密钥取自 dev 的 LLM_BASE_URL / LLM_API_KEY（硅基流动网关）。换网关只改本行，不必回滚代码",
+    "enabled": true,
+    "is_default": true,
+    "sort": 0
+  },
+  {
+    "model_type": "embedding",
+    "model_config_name": "bge-m3（本地 Ollama）",
+    "model_config_key": "bge-m3-local",
+    "model_name": "bge-m3",
+    "model_provider": "",
+    "base_url": "http://192.168.29.120:11434",
+    "api_key": "",
+    "default_config_json": {
+      "timeout": 60,
+      "batch_size": 8,
+      "concurrency": 2,
+      "max_retries": 2
+    },
+    "description": "分片与 query 向量（维度 1024，须与 VECTOR_DIM 一致）；地址取自 dev 的 EMBEDDING_BASE_URL（内网 Ollama）；api_key 留空 = dev 的 EMBEDDING_API_KEY 本就为空（私有化 ollama 无鉴权）；model_provider 留空 = 仍由 env 的 EMBEDDING_PROTOCOL 决定（dev 为 ollama，云端网关改 openai）",
+    "enabled": true,
+    "is_default": true,
+    "sort": 0
+  },
+  {
+    "model_type": "rerank",
+    "model_config_name": "bge-reranker-v2-m3（本地 llama.cpp）",
+    "model_config_key": "bge-reranker-v2-m3",
+    "model_name": "bge-reranker-v2-m3",
+    "model_provider": "local",
+    "base_url": "http://192.168.29.120:8001",
+    "api_key": "",
+    "default_config_json": {
+      "timeout": 30
+    },
+    "description": "召回后精排（走自研 RerankClient 打 /v1/rerank）；地址取自 dev 的 RERANK_BASE_URL（内网 llama.cpp）；api_key 留空 = dev 的 RERANK_API_KEY 本就为空（私有化无鉴权）；分数口径仍由 env 的 RERANK_SCORE_IS_LOGIT 控制",
+    "enabled": true,
+    "is_default": true,
+    "sort": 0
+  }
+]

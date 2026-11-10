@@ -108,9 +108,27 @@ class Settings(BaseSettings):
     # 不做静默降级（避免“看起来跑通、实际未向量化”）。
     LLM_BASE_URL: str = Field(default="", description="聊天模型地址（OpenAI 兼容，如 https://api.deepseek.com/v1、自建 vLLM/Azure 网关）")
     LLM_API_KEY: str = Field(default="", description="聊天模型密钥（私有化部署可留空）")
-    LLM_MODEL: str = Field(default="", description="聊天模型名称")
+    LLM_MODEL: str = Field(default="", description="聊天模型名称（各用途槽位的兜底值）")
     LLM_TIMEOUT: float = Field(default=60.0, description="聊天请求超时（秒）")
     LLM_MAX_RETRIES: int = Field(default=2, description="聊天请求重试次数（仅超时/429/5xx 重试）")
+    # ---- 按用途钉选的模型槽位（规范 14.1.2）：留空即沿用 LLM_MODEL ----
+    # 槽位填「模型标识」（配置表 sbp_ai_system_model_config.model_config_key，仅对话类型 chat 的行参与解析）；
+    # 表里没有同名行时按模型名直传（兼容旧配置）。
+    # 同一份 LLM_MODEL 服务三种用途时，成本与效果无法按用途归集，灰度也改不动其中一处。
+    LLM_MODEL_KB_ANSWER: str = Field(default="", description="问答生成模型标识（留空沿用 LLM_MODEL）")
+    LLM_MODEL_GRADE_JUDGE: str = Field(default="", description="证据二判模型标识（留空沿用 LLM_MODEL；可换更便宜的快模型）")
+    LLM_MODEL_PARSE_FAQ: str = Field(default="", description="FAQ 提取模型标识（留空沿用 LLM_MODEL；可换长上下文模型）")
+
+    # ---- 模型配置表（sbp_ai_system_model_config，规范 L27）----
+    # 表里有连接方式（base_url / api_key）与默认参数；关掉开关即纯 env，改配置不需要回滚代码。
+    # 嵌入 / 重排序服务同表配置（model_type=embedding / rerank），客户端工厂读「该类型 is_default 行」，
+    # 无行即回落 EMBEDDING_* / RERANK_* 的 env；写配置后由 reset_model_clients() 重建单例。
+    LLM_CONFIG_ENABLE: bool = Field(
+        default=True, description="是否从模型配置表读取连接方式与默认参数；关闭则只看 env"
+    )
+    LLM_CONFIG_CACHE_TTL: float = Field(
+        default=60.0, description="配置表进程内快照的刷新间隔（秒）；0 表示每次取档案都重新查表"
+    )
 
     # ---- AI 链路追踪（LangSmith）：只做观测，不改编排与 SSE 帧序（规范 4.7 L24/L25）----
     # 开关与脱敏都按环境给：开发环境默认开、并对正文强脱敏；其他环境默认关。
@@ -125,7 +143,13 @@ class Settings(BaseSettings):
         description="是否隐藏上送内容（问题/检索切片/回答/提示词）；true 只留 run 树、耗时、token 与数值口径",
     )
 
-    EMBEDDING_PROTOCOL: str = Field(default="openai", description="向量化协议：openai（/v1/embeddings）或 ollama（/api/embed）")
+    EMBEDDING_PROTOCOL: str = Field(
+        default="openai",
+        description=(
+            "向量化协议，即 langchain init_embeddings 的 provider：openai（/v1/embeddings）或 ollama（/api/embed）；"
+            "配置表的 model_provider 写法（vllm / tei / llama.cpp 等）由 embedding_provider() 归一后再传入"
+        ),
+    )
     EMBEDDING_BASE_URL: str = Field(default="", description="向量化服务地址；ollama 填到端口（如 http://service-brain-ollama:11434）")
     EMBEDDING_API_KEY: str = Field(default="", description="向量化服务密钥（ollama 私有化无需）")
     EMBEDDING_MODEL: str = Field(default="bge-m3", description="向量化模型名称，输出维度须与 VECTOR_DIM 一致")
@@ -134,6 +158,8 @@ class Settings(BaseSettings):
     EMBEDDING_CONCURRENCY: int = Field(default=3, description="向量化分批并发数（同一批文档的分片并行提交，过大易打爆模型服务）")
     EMBEDDING_MAX_RETRIES: int = Field(default=2, description="向量化单批失败重试次数（指数退避，4xx 也会重试，代价可控）")
 
+    # 重排序仍走自研 HTTP 客户端（BaseHttpClient + RERANK_PATH），不引入 LangChain 集成包：
+    # 本地 llama.cpp 的 /v1/rerank 与 Cohere SDK 固定的 /v2/rerank 不同，换包会直接 404。
     RERANK_BASE_URL: str = Field(default="", description="重排序服务地址（llama.cpp --rerank，如 http://service-brain-rerank:8001）")
     RERANK_PATH: str = Field(default="/v1/rerank", description="重排序接口路径")
     RERANK_API_KEY: str = Field(default="", description="重排序服务密钥（私有化可留空）")
@@ -147,7 +173,7 @@ class Settings(BaseSettings):
     # ==================== 检索配置（#07 关键词 + 自然语言） ====================
     SEARCH_INDEX_AUTO_CREATE: bool = Field(
         default=True,
-        description="启动期幂等补建分片表关键词 GIN 索引；大表建议关闭，改用 sql/v1.6_keyword_search_index.sql 人工 CONCURRENTLY 建",
+        description="启动期幂等补建分片表关键词 GIN 索引；大表建议关闭，改用知识平台运维说明 §6.4 的 CREATE INDEX CONCURRENTLY 人工建",
     )
     SEARCH_KEYWORD_CANDIDATE_MAX: int = Field(
         default=200, description="关键词检索 SQL 候选上限（应用层打分排序后再截断到契约 limit）"

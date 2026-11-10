@@ -1,0 +1,69 @@
+{
+  "request_file": "05_duplicates_merge_preview.json",
+  "request_path": "POST /v1/knowledge/duplicates/merge-preview",
+  "request": {
+    "request_id": "req-dup-preview-001",
+    "tenant_id": "gsi-default",
+    "user_id": "1",
+    "result_id": "dup-result-0b4f9c01-7d24-4b60-990f-dfb7a40dbab3",
+    "group_id": "dup-group-4c633dd5436c4df0",
+    "keep_hit_id": "hit-e4fadb594290",
+    "actions": [
+      {
+        "target_hit_id": "hit-e4fadb594290",
+        "action": "keep"
+      },
+      {
+        "target_hit_id": "hit-14b5d70804d5",
+        "action": "drop"
+      }
+    ],
+    "prompt_text": "保留最早登记的版本，丢弃重复登记的另一份。",
+    "model_key": "default",
+    "scope": {
+      "scope_id": "scope-dup-preview-001",
+      "issued_at": 1794294526513,
+      "expires_at": 1794294646513,
+      "resources": [
+        {
+          "resource_type": "document",
+          "resource_id": "63858256ba974ede",
+          "record_id": "9412b3a0-c617-4562-838a-ff2e6bc0bd34",
+          "content_hash": "sha256:d344ccc4472370e7b8622daa961561f998c777079c6515c4bed7fda07031f242",
+          "publication_ids": [
+            "0876a2b0-2788-4816-a1fd-7f26a2bfd061"
+          ],
+          "entry_mode": "manual"
+        },
+        {
+          "resource_type": "document",
+          "resource_id": "63858256ba974edd",
+          "record_id": "rec-dup-twin-v1",
+          "content_hash": "sha256:30090ce8ce7eab58d7f448df5584f619a46eea3809c3bde497b94d46c14ae0bd",
+          "publication_ids": [
+            "pub-test-dup-twin-001"
+          ],
+          "entry_mode": "manual"
+        }
+      ],
+      "drafts": []
+    }
+  },
+  "response_status": 200,
+  "response_body": {
+    "request_id": "req-dup-preview-001",
+    "preview_id": "dup-preview-3ee86253-15d",
+    "preview_hash": "sha256:6ddb81ecba6058299d7d45bfb10efb42b2692385426f00d3dd159fae5ab2d708",
+    "title": "流量历时曲线对造林的响应",
+    "answer_html": "<p>流量历时曲线对造林的响应：The hydrologic effect of replacing pasture or other short crops with trees is reasonably well understood on a mean annual basis. The impact on flow regime, as described by the annual flow duration curve (FDC) is less certain. A method to assess the impact of plantation establishment on FDCs was developed. The starting point for the analyses was the assumption that rainfall and vegetation age are the principal drivers of evapotranspiration. A key objective was to remove the variability in the rainfall signal, leaving changes in streamflow solely attributable to the evapotranspiration of the plantation. A method was developed to (1) fit a model to the observed annual time series of FDC percentiles; i.e</p><p>Widespread afforestation through plantation establishment on non-forested land represents a potentially significant alteration of catchment evapotranspiration (ET). Using data collated from multiple catchment studies, researchers have demonstrated a consistent difference in ET between forests and grass or short crops, and the relationship between ET and rainfall on a mean annual basis (Holmes and Sinclair, 1986; Vertessy and Bessard, 1999; Zhang et al., 1999, 2001). Once annual rainfall exceeds 400–500 mm, there is an increasing divergence between forest and grassland ET (Zhang et al., 2001). Research from South Africa in particular has demonstrated flow reduction following afforestation with both pine and eucalypt species (Bosch, 1979; Van Lill et al</p><p>## 2. Methods</p><p>## 2.1. Characterisation of flow regime</p><p>Flow duration curves display the relationship between streamflow and the percentage of time the streamflow is exceeded as a cumulative density function. They can be constructed for any time period (daily, weekly, monthly, etc.) and provide a graphical and statistical view of historic streamflow variability in a single catchment or a comparison of intercatchment flow regimes. Vogel and Fennessey (1994) and Smakhtin (1999, 2001) demonstrate the utility (and caveats) of FDCs in characterising, comparing and predicting flow regimes at varying temporal scales. Fig. 1 is an example of annual FDCs constructed from daily flows. For the consideration of annual flow regime, daily flows are an appropriate time step for FDC construction.</p>",
+    "summary": "合并 1 条重复知识，保留《流量历时曲线对造林的响应》并补充区分信息。",
+    "source_hit_ids": [
+      "hit-e4fadb594290"
+    ],
+    "conflicts": [],
+    "warnings": [
+      "处置动作将丢弃 1 个成员：hit-14b5d70804d5。"
+    ]
+  },
+  "purpose": "只产出草稿态预览，不动正式库；主项动作必须是 keep，丢弃成员要出现在 warnings 里"
+}

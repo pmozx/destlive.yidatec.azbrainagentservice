@@ -1,0 +1,81 @@
+{
+  "request_file": "06_chat_completion_replay_again.json",
+  "request_path": "POST /v1/chat/completions",
+  "request": {
+    "request_id": "req-chat-replay-001",
+    "tenant_id": "gsi-default",
+    "user_id": "1",
+    "session_id": "4140d1fc-8fe3-41c9-82d9-c920f46d32cd",
+    "question": "造林对流量历时曲线（FDC）有哪些影响？",
+    "prompt_text": "你是水利科研知识助手。只依据检索到的已授权知识回答；无法从知识中确认时明确说明无依据，不要编造。",
+    "model_key": "default",
+    "stream": false,
+    "options": {
+      "language": "zh-CN",
+      "max_output_tokens": 512
+    },
+    "authorization": {
+      "scope_id": "scope-chat-replay-001",
+      "issued_at": 1794297535768,
+      "expires_at": 1794297655768
+    }
+  },
+  "response_status": 200,
+  "response_body": {
+    "answer": "根据现有资料，造林对流量历时曲线（FDC）的影响主要体现在通过改变流域蒸散量（ET）进而导致流量减少，但资料未提供FDC具体形态（如高流量、低流量段如何变化）的详细说明。\n\n具体结论如下：\n\n1. 造林会导致流量减少。资料指出，南非的研究显示，种植松树和桉树后，流域流量显著减少 [2]。\n\n2. 影响机制是蒸散（ET）差异。造林将非林地转变为森林，会显著改变流域的蒸散量，森林与草地或短作物的蒸散量存在一致差异 [2]。当年均降雨量超过400–500毫米时，森林和草地的蒸散量差异会进一步增大，导致森林地区可用于形成径流的水分减少 [2]。\n\n3. 关于FDC的评估方法，资料提出了一种分析思路：以降雨和植被年龄作为蒸散的主要驱动因素，通过模型拟合观测到的FDC百分位数时间序列，并去除降雨信号的变异性，从而将剩余流量变化归因于造林引起的蒸散 [1]。这提示造林影响会体现在FDC的百分位数（即各历时流量的数值）变化上，但资料未具体描述这些百分位数如何随造林而变化（例如洪峰流量或枯水季流量具体增减幅度）。\n\n需要说明的是，现有资料未覆盖造林对FDC中不同流量区间（如高流量、中流量、低流量）的具体影响特征，这一点无法从现有信息中确认。",
+    "status": "completed",
+    "citations": [
+      {
+        "index": 1,
+        "quote": "The hydrologic effect of replacing pasture or other short crops with trees is reasonably well understood on a mean annual basis. The impact on flow regime, as d",
+        "chunk_id": "9412b3a0-c617-4562-838a-ff2e6bc0bd34:1",
+        "revision": 1,
+        "record_id": "9412b3a0-c617-4562-838a-ff2e6bc0bd34",
+        "version_id": "v1",
+        "citation_id": "c1",
+        "resource_id": "63858256ba974ede",
+        "resource_type": "document",
+        "publication_id": "0876a2b0-2788-4816-a1fd-7f26a2bfd061"
+      },
+      {
+        "index": 2,
+        "quote": "Widespread afforestation through plantation establishment on non-forested land represents a potentially significant alteration of catchment evapotranspiration (",
+        "chunk_id": "9412b3a0-c617-4562-838a-ff2e6bc0bd34:2",
+        "revision": 1,
+        "record_id": "9412b3a0-c617-4562-838a-ff2e6bc0bd34",
+        "version_id": "v1",
+        "citation_id": "c2",
+        "resource_id": "63858256ba974ede",
+        "resource_type": "document",
+        "publication_id": "0876a2b0-2788-4816-a1fd-7f26a2bfd061"
+      }
+    ],
+    "request_id": "req-chat-replay-001",
+    "session_id": "4140d1fc-8fe3-41c9-82d9-c920f46d32cd",
+    "no_evidence": false,
+    "finish_reason": "stop",
+    "user_message_id": "e0c8466c-2061-4946-91fa-718ddd6ff16f",
+    "source_snapshots": [
+      {
+        "revision": 1,
+        "record_id": "9412b3a0-c617-4562-838a-ff2e6bc0bd34",
+        "version_id": "v1",
+        "resource_id": "63858256ba974ede",
+        "resource_type": "document",
+        "publication_id": "0876a2b0-2788-4816-a1fd-7f26a2bfd061"
+      },
+      {
+        "revision": 1,
+        "record_id": "9412b3a0-c617-4562-838a-ff2e6bc0bd34",
+        "version_id": "v1",
+        "resource_id": "63858256ba974ede",
+        "resource_type": "document",
+        "publication_id": "0876a2b0-2788-4816-a1fd-7f26a2bfd061"
+      }
+    ],
+    "assistant_message_id": "5eb3e341-7a8f-4ae1-9cea-1eac9bfe65d3",
+    "authorization_scope_id": "scope-chat-replay-001"
+  },
+  "purpose": "authorization.issued_at / expires_at 是调用时刻，不计入幂等正文摘要；必须回放同一 assistant_message_id（重新生成或 409 都算契约缺陷）",
+  "idempotent_replay": true
+}

@@ -31,6 +31,7 @@ cd backend && .venv\\Scripts\\python.exe -m tests.contract.run_duplicate_tests c
 """
 
 import json
+import re
 import sys
 import time
 from typing import Any
@@ -47,6 +48,9 @@ ONLY: str = sys.argv[1].strip() if len(sys.argv) > 1 else ""
 
 DUP_PATH = "/v1/knowledge/duplicates"
 ENTRIES_PATH = "/v1/knowledge/entries"
+
+#: 占位符形如 `__GROUP_ID__`；既可能独占一个字段值，也可能嵌在路径里（`/groups/__GROUP_ID__/query`）
+PLACEHOLDER = re.compile(r"__[A-Z][A-Z0-9_]*__")
 
 MAIN_REQUEST = "04_knowledge_search_prepare_entry.json"
 TWIN_REQUEST = "05_duplicates_prepare_twin.json"
@@ -91,9 +95,11 @@ def runtime_values() -> dict[str, Any]:
 
 
 def _resolve(value: Any, values: dict[str, Any]) -> Any:
-    """递归替换占位符：只替换「整个字符串就是一个占位符」的位置，不碰正文。"""
+    """递归替换占位符：整串命中直接取映射值，嵌在路径里也按名替换。"""
     if isinstance(value, str):
-        return values.get(value, value)
+        if value in values:
+            return values[value]
+        return PLACEHOLDER.sub(lambda match: str(values.get(match.group(0), match.group(0))), value)
     if isinstance(value, list):
         return [_resolve(item, values) for item in value]
     if isinstance(value, dict):
@@ -104,7 +110,7 @@ def _resolve(value: Any, values: dict[str, Any]) -> Any:
 def _unresolved(value: Any, values: dict[str, Any]) -> list[str]:
     """还剩下哪些占位符没值：缺值就用例跳过，绝不把 `__X__` 原样发出去换 400。"""
     if isinstance(value, str):
-        return [value] if value.startswith("__") and value.endswith("__") and value not in values else []
+        return [name for name in PLACEHOLDER.findall(value) if name not in values]
     if isinstance(value, list):
         return [name for item in value for name in _unresolved(item, values)]
     if isinstance(value, dict):

@@ -10,8 +10,8 @@
     "limit": 10,
     "authorization": {
       "scope_id": "scope-search-keyword-001",
-      "issued_at": 1793877527749,
-      "expires_at": 1793877647749
+      "issued_at": 1794294001467,
+      "expires_at": 1794294121467
     }
   },
   "response_status": 200,
@@ -28,7 +28,7 @@
         "knowledge_no": "KB-0000039",
         "chunk_id": "9412b3a0-c617-4562-838a-ff2e6bc0bd34:1",
         "title": "流量历时曲线对造林的响应",
-        "snippet": "…n annual basis. The impact on flow regime, as described by the annual flow duration curve (FDC) is less certain. A metho…",
+        "snippet": "The hydrologic effect of replacing pasture or other short crops with trees is reasonably well understood on a mean annual basis. The impact on flow regime, as described by the annual flow duration curve (FDC) is less certain. A method to assess the impact of plantation establishment on FDCs was developed. The starting point for the analyses was the assumption that rainfall and vegetation age are the principal drivers of evapotranspiration. A key objective was to remove the variability in the rainfall signal, leaving changes in streamflow solely attributable to the evapotranspiration of the plantation. A method was developed to (1) fit a model to the observed annual time series of FDC percentiles; i.e",
         "page_from": 1,
         "page_to": 1,
         "score": 0.8111
@@ -43,7 +43,7 @@
         "knowledge_no": "KB-0000039",
         "chunk_id": "9412b3a0-c617-4562-838a-ff2e6bc0bd34:3",
         "title": "流量历时曲线对造林的响应",
-        "snippet": "…s ## 2.1. Characterisation of flow regime Flow duration curves display the relationship between streamflow and the perce…",
+        "snippet": "## 2. Methods\n\n## 2.1. Characterisation of flow regime\n\nFlow duration curves display the relationship between streamflow and the percentage of time the streamflow is exceeded as a cumulative density function. They can be constructed for any time period (daily, weekly, monthly, etc.) and provide a graphical and statistical view of historic streamflow variability in a single catchment or a comparison of intercatchment flow regimes. Vogel and Fennessey (1994) and Smakhtin (1999, 2001) demonstrate the utility (and caveats) of FDCs in characterising, comparing and predicting flow regimes at varying temporal scales. Fig. 1 is an example of annual FDCs constructed from daily flows. For the consideration of annual flow regime, daily flows are an appropriate time step for FDC construction.",
         "page_from": 3,
         "page_to": 3,
         "score": 0.8111

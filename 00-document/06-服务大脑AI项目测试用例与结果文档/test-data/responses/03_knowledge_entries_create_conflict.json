@@ -4,7 +4,7 @@
   "request": {
     "request_id": "req-conflict-create",
     "tenant_id": "gsi-default",
-    "user_id": "user-demo-001",
+    "user_id": "1",
     "resource_type": "document",
     "resource_id": "doc-lane2005-fdc",
     "publication_id": "pub-test-conflict-001",
@@ -16,7 +16,7 @@
     "metadata": {
       "title": "流量历时曲线对造林的响应",
       "doc_type": "document",
-      "owner": "kali03",
+      "owner": "admin",
       "language": "en",
       "source_parse_job_id": "parse-doc-100001"
     },
@@ -46,17 +46,17 @@
   },
   "response_status": 201,
   "response_body": {
-    "success": true,
-    "revision": 1,
-    "record_id": "rec-conflict-v1",
     "request_id": "req-conflict-create",
-    "searchable": true,
-    "version_id": "v1",
-    "resource_id": "doc-lane2005-fdc",
-    "content_hash": "sha256:d344ccc4472370e7b8622daa961561f998c777079c6515c4bed7fda07031f242",
     "resource_type": "document",
+    "resource_id": "doc-lane2005-fdc",
     "publication_id": "pub-test-conflict-001",
-    "accepted_chunk_count": 3
+    "record_id": "rec-conflict-v1",
+    "version_id": "v1",
+    "revision": 1,
+    "success": true,
+    "content_hash": "sha256:d344ccc4472370e7b8622daa961561f998c777079c6515c4bed7fda07031f242",
+    "accepted_chunk_count": 3,
+    "searchable": true
   },
   "purpose": "铺场：先建立文档基线，供本次错误基线修订复现 409"
 }

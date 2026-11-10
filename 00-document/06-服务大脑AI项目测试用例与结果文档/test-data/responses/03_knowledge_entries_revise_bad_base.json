@@ -4,7 +4,7 @@
   "request": {
     "request_id": "req-conflict-revise",
     "tenant_id": "gsi-default",
-    "user_id": "user-demo-001",
+    "user_id": "1",
     "resource_type": "document",
     "resource_id": "doc-lane2005-fdc",
     "publication_id": "pub-test-conflict-001",
@@ -16,7 +16,7 @@
     "metadata": {
       "title": "流量历时曲线对造林的响应（修订版）",
       "doc_type": "document",
-      "owner": "kali03",
+      "owner": "admin",
       "language": "en",
       "source_parse_job_id": "parse-doc-100001"
     },
@@ -52,11 +52,11 @@
     ],
     "base_record_id": "rec-wrong-base"
   },
-  "response_status": 404,
+  "response_status": 409,
   "response_body": {
     "error": {
-      "code": "NOT_FOUND",
-      "message": "发布单元 pub-test-conflict-001 不存在。",
+      "code": "STALE_REVISION",
+      "message": "base_record_id 与当前基线不一致，请读取最新内容后重新提交。",
       "retryable": false
     },
     "request_id": "req-conflict-revise"

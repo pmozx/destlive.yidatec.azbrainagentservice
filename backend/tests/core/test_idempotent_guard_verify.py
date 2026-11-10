@@ -79,3 +79,39 @@ async def test_no_verify_keeps_legacy_behaviour(monkeypatch) -> None:
     )
     assert reservation.is_replay
     assert events == ["reserve"]
+
+
+# ── 幂等摘要口径：授权块的时间戳不参与判定 ──────────────────────────
+
+_AUTH_PAYLOAD = {
+    "request_id": "req-1",
+    "question": "造林对流量历时曲线有哪些影响？",
+    "authorization": {"scope_id": "scope-1", "issued_at": 1, "expires_at": 2},
+}
+
+
+def test_idempotency_payload_ignores_authorization_clock() -> None:
+    """重试时重新签发的 issued_at / expires_at 不算换正文。"""
+    retried = {
+        **_AUTH_PAYLOAD,
+        "authorization": {"scope_id": "scope-1", "issued_at": 9_999, "expires_at": 10_000},
+    }
+    assert deps.idempotency_payload(_AUTH_PAYLOAD) == deps.idempotency_payload(retried)
+
+
+def test_idempotency_payload_keeps_scope_and_body() -> None:
+    """scope_id 与业务字段仍参与判定：换授权范围 / 换正文必须判成不同。"""
+    other_scope = {
+        **_AUTH_PAYLOAD,
+        "authorization": {"scope_id": "scope-2", "issued_at": 1, "expires_at": 2},
+    }
+    other_body = {**_AUTH_PAYLOAD, "question": "另一个问题"}
+    assert deps.idempotency_payload(_AUTH_PAYLOAD) != deps.idempotency_payload(other_scope)
+    assert deps.idempotency_payload(_AUTH_PAYLOAD) != deps.idempotency_payload(other_body)
+
+
+def test_idempotency_payload_passes_through_non_dict() -> None:
+    """非对象正文原样返回，不因剔除授权字段而崩。"""
+    assert deps.idempotency_payload(["a"]) == ["a"]
+    assert deps.idempotency_payload(None) is None
+

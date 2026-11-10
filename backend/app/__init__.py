@@ -43,6 +43,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     if created:
         logger.info("==== 表结构初始化完成（本次新建 {} 张）====", len(created))
 
+    # 模型配置快照：对话档案在首次取档案时也会自然加载，但嵌入 / 重排序客户端是同步工厂，
+    # 只能在构造期读内存快照——启动期先填一次，页面配好默认行后无需等首个业务请求。
+    # 表不可用只告警：注册表内部已降级到 env，问答链路不该被配置表拖住
+    from app.core.agents.registry import get_model_config_registry
+
+    try:
+        registry = get_model_config_registry()
+        await registry.ensure_loaded()
+        logger.info("==== 模型配置快照就绪（{} 行）====", registry.size)
+    except Exception as e:
+        logger.error(f"❌ 模型配置快照加载失败（将回落 env 配置）: {e!s}")
+
     # 关键词索引必须在分片表存在之后补建（IF NOT EXISTS 幂等；失败只降级检索性能）
     from app.core.table_bootstrap import ensure_keyword_index
 

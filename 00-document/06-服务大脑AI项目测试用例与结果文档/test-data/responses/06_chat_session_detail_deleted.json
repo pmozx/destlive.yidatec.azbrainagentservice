@@ -1,0 +1,25 @@
+{
+  "request_file": "06_chat_session_detail_deleted.json",
+  "request_path": "POST /v1/chat/sessions/d947dbd1-4882-415c-a651-f46c66665c98/query",
+  "request": {
+    "request_id": "req-chat-session-detail-deleted-001",
+    "tenant_id": "gsi-default",
+    "user_id": "1",
+    "include_messages": false,
+    "authorization": {
+      "scope_id": "scope-chat-detail-deleted-001",
+      "issued_at": 1794297542275,
+      "expires_at": 1794297662275
+    }
+  },
+  "response_status": 404,
+  "response_body": {
+    "error": {
+      "code": "NOT_FOUND",
+      "message": "会话不存在或不属于当前用户。",
+      "retryable": false
+    },
+    "request_id": "req-chat-session-detail-deleted-001"
+  },
+  "purpose": "不存在 / 不属于本人 / 已删除三种情况对调用方是同一件事：一律 404，不泄漏存在性"
+}

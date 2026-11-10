@@ -1,0 +1,109 @@
+{
+  "request_file": "05_duplicates_groups_page2.json",
+  "request_path": "POST /v1/knowledge/duplicates/groups/query",
+  "request": {
+    "request_id": "req-dup-groups-page2-001",
+    "tenant_id": "gsi-default",
+    "user_id": "1",
+    "score_profile": "gsi-duplicate-v1",
+    "kinds": [],
+    "result_id": "dup-result-0b4f9c01-7d24-4b60-990f-dfb7a40dbab3",
+    "cursor": "1",
+    "limit": 1,
+    "scope": {
+      "scope_id": "scope-dup-groups-page2-001",
+      "issued_at": 1794294521592,
+      "expires_at": 1794294641592,
+      "resources": [
+        {
+          "resource_type": "document",
+          "resource_id": "63858256ba974ede",
+          "record_id": "9412b3a0-c617-4562-838a-ff2e6bc0bd34",
+          "content_hash": "sha256:d344ccc4472370e7b8622daa961561f998c777079c6515c4bed7fda07031f242",
+          "publication_ids": [
+            "0876a2b0-2788-4816-a1fd-7f26a2bfd061"
+          ],
+          "entry_mode": "manual"
+        },
+        {
+          "resource_type": "document",
+          "resource_id": "63858256ba974edd",
+          "record_id": "rec-dup-twin-v1",
+          "content_hash": "sha256:30090ce8ce7eab58d7f448df5584f619a46eea3809c3bde497b94d46c14ae0bd",
+          "publication_ids": [
+            "pub-test-dup-twin-001"
+          ],
+          "entry_mode": "manual"
+        }
+      ],
+      "drafts": []
+    }
+  },
+  "response_status": 200,
+  "response_body": {
+    "request_id": "req-dup-groups-page2-001",
+    "result_id": "dup-result-0b4f9c01-7d24-4b60-990f-dfb7a40dbab3",
+    "expires_at": "2026-11-10T07:38:46.532852+00:00",
+    "score_profile": "gsi-duplicate-v1",
+    "groups": [
+      {
+        "group_id": "dup-group-8b0f50f525d9b92f",
+        "kind": "chunk",
+        "title": "Abstract",
+        "similarity": 1.0,
+        "score_method": "chunk_exact_v1",
+        "reason": "切片正文完全一致，建议移除重复切片。",
+        "items": [
+          {
+            "hit_id": "hit-4f4b9f32d270",
+            "hit_kind": "chunk",
+            "resource": {
+              "resource_type": "document",
+              "resource_id": "63858256ba974ede",
+              "record_id": "9412b3a0-c617-4562-838a-ff2e6bc0bd34",
+              "content_hash": "sha256:d344ccc4472370e7b8622daa961561f998c777079c6515c4bed7fda07031f242",
+              "publication_ids": [
+                "0876a2b0-2788-4816-a1fd-7f26a2bfd061"
+              ],
+              "entry_mode": "manual"
+            },
+            "title": "Abstract",
+            "subtitle": "正式知识 · App L3",
+            "snippet": "The hydrologic effect of replacing pasture or other short crops with trees is reasonably well understood on a mean annua…",
+            "similarity": 1.0,
+            "reason": "作为建议保留项（切片最早出现）。",
+            "chunk_id": "9412b3a0-c617-4562-838a-ff2e6bc0bd34:1"
+          },
+          {
+            "hit_id": "hit-a48f00ca5474",
+            "hit_kind": "chunk",
+            "resource": {
+              "resource_type": "document",
+              "resource_id": "63858256ba974edd",
+              "record_id": "rec-dup-twin-v1",
+              "content_hash": "sha256:30090ce8ce7eab58d7f448df5584f619a46eea3809c3bde497b94d46c14ae0bd",
+              "publication_ids": [
+                "pub-test-dup-twin-001"
+              ],
+              "entry_mode": "manual"
+            },
+            "title": "Abstract",
+            "snippet": "The hydrologic effect of replacing pasture or other short crops with trees is reasonably well understood on a mean annua…",
+            "similarity": 1.0,
+            "reason": "切片正文完全一致，可只保留一份。",
+            "chunk_id": "rec-dup-twin-v1:1"
+          }
+        ],
+        "suggested_keep_id": "hit-4f4b9f32d270"
+      }
+    ],
+    "next_cursor": "2",
+    "total_groups": 3,
+    "coverage": {
+      "requested_resources": 2,
+      "evaluated_resources": 2,
+      "complete": true
+    }
+  },
+  "purpose": "带 result_id + cursor 翻页：不重算，分组必须与首查同一批（结果过期回 409 RESULT_EXPIRED）"
+}

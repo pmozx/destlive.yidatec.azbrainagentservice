@@ -1,0 +1,20 @@
+{
+  "request_file": "06_chat_session_create.json",
+  "request_path": "POST /v1/chat/sessions",
+  "request": {
+    "request_id": "req-chat-session-create-001",
+    "tenant_id": "gsi-default",
+    "user_id": "1",
+    "title": "造林对流量历时曲线的影响"
+  },
+  "response_status": 201,
+  "response_body": {
+    "title": "造林对流量历时曲线的影响",
+    "created_at": "2026-11-10T07:03:03Z",
+    "request_id": "req-chat-session-create-001",
+    "session_id": "4140d1fc-8fe3-41c9-82d9-c920f46d32cd",
+    "updated_at": "2026-11-10T07:03:03Z"
+  },
+  "purpose": "session_id 由 AI 分配；不带授权块也必须能建（缺块本身是契约差异，不能一律放宽或一律必填）",
+  "idempotent_replay": true
+}

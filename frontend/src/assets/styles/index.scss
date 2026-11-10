@@ -1,6 +1,7 @@
 @use './variables';
 @use './reset';
-@use './mixins' as *;
+// mixins 由 vite.config.js 的 additionalData 全局注入（@use ... as *），此处不再重复 @use，
+// 否则同一文件被两个 URL（alias 与相对路径）加载，sass 会报「mixin available from multiple global modules」
 
 /* 页面根容器：宽度由内容区决定，内部区块统一拉满，避免各页面宽窄不一 */
 .page {

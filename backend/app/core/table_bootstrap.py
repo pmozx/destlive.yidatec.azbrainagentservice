@@ -52,8 +52,8 @@ async def ensure_keyword_index() -> bool:
 
     中文没有分词器，走 pg_trgm 的字符三元组：``ILIKE '%关键词%'`` 在关键词含 ≥3 个连续
     字符时可命中该索引，2 字词退化为顺序扫描（当前数据量可接受）。大表请关闭
-    ``SEARCH_INDEX_AUTO_CREATE``，改用 ``sql/v1.6_keyword_search_index.sql`` 的
-    ``CREATE INDEX CONCURRENTLY`` 人工建，避免启动期锁表。
+    ``SEARCH_INDEX_AUTO_CREATE``，改在低峰期人工执行
+    ``CREATE INDEX CONCURRENTLY``（见知识平台运维说明 §6.4），避免启动期锁表。
     """
     if not settings.SEARCH_INDEX_AUTO_CREATE:
         return False

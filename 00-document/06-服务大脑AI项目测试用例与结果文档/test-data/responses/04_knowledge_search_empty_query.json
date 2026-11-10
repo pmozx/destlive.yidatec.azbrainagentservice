@@ -10,8 +10,8 @@
     "limit": 10,
     "authorization": {
       "scope_id": "scope-search-empty-query-001",
-      "issued_at": 1793877543045,
-      "expires_at": 1793877663045
+      "issued_at": 1794294023049,
+      "expires_at": 1794294143049
     }
   },
   "response_status": 400,

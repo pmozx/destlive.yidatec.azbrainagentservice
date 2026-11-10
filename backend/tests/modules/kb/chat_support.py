@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 from sqlalchemy import delete
 
+from app.config.setting import settings
 from app.core.clients.llm import ChatStreamChunk
 from app.core.database import async_session_factory
 from app.modules.kb.chat import service as chat_service
@@ -29,6 +30,9 @@ from tests.modules.kb.search_support import KNOWLEDGE_NO, TENANT, TITLE, USER_ID
 CONTENT = "在服务台提交 vpn 申请，由负责人开通账号。"
 ASK_PATH = "/api/v1/kb/chat/ask"
 STREAM_PATH = "/api/v1/kb/chat/ask/stream"
+#: 桩模型名：模型名由用途槽位钉选（规范 14.1.2），指标表记的是「本轮实际调用的模型」，
+#: 它取自 ModelProfile 而不是 LlmClient.model——因此桩只改配置，不模拟模型名属性
+STUB_MODEL = "stub-model"
 
 
 def body(**overrides: Any) -> bytes:
@@ -68,11 +72,9 @@ def stub_search(monkeypatch: pytest.MonkeyPatch, hits: list[SearchHit]) -> None:
 
 def stub_llm(monkeypatch: pytest.MonkeyPatch, answer: str) -> None:
     """一次性生成打桩：只验编排与落库，不把用例绑在真实 LLM 上。"""
+    monkeypatch.setattr(settings, "LLM_MODEL_KB_ANSWER", STUB_MODEL)
 
     class _FakeLlm:
-        # 编排层把模型名记进指标表：桩对象必须具备与 LlmClient 相同的接口面
-        model = "stub-model"
-
         async def chat(self, messages, **kwargs):  # noqa: ANN001, ANN003, ANN202 - 同上
             return answer
 
@@ -90,11 +92,9 @@ def stub_stream(
 
     ``chat()`` 直接断言失败：流式路径一旦回落到一次性生成，用例必须立刻红。
     """
+    monkeypatch.setattr(settings, "LLM_MODEL_KB_ANSWER", STUB_MODEL)
 
     class _FakeLlm:
-        # 同上：指标表要模型名快照
-        model = "stub-model"
-
         async def chat(self, messages, **kwargs):  # noqa: ANN001, ANN003, ANN202 - 同上
             raise AssertionError("流式路径不应调用一次性生成 chat()")
 

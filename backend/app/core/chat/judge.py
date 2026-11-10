@@ -21,7 +21,7 @@ import asyncio
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
-from app.config.setting import settings
+from app.core.agents import PURPOSE_GRADE_JUDGE, load_profile
 from app.core.clients import get_llm_client
 from app.core.logger import logger
 
@@ -47,9 +47,10 @@ async def judge_sufficiency(question: str, recall: str) -> tuple[bool, str]:
         SystemMessage(content=_SYSTEM),
         HumanMessage(content=f"{recall}问题：{question.strip()}"),
     ]
+    profile = await load_profile(PURPOSE_GRADE_JUDGE)
     try:
-        model = get_llm_client().chat_model().with_structured_output(SufficiencyVerdict)
-        verdict = await asyncio.wait_for(model.ainvoke(messages), settings.KB_GRADE_JUDGE_TIMEOUT)
+        model = get_llm_client().chat_model(profile).with_structured_output(SufficiencyVerdict)
+        verdict = await asyncio.wait_for(model.ainvoke(messages), profile.timeout)
     except Exception as exc:  # noqa: BLE001 质检失败不升级：判定是增强，不是门禁
         logger.warning("证据二判失败，按「资料够答」处理（不影响本轮回答）：{}", exc)
         return True, ""

@@ -35,6 +35,7 @@ from fastapi import status
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.config.setting import settings
+from app.core.agents import PURPOSE_PARSE_FAQ, load_profile
 from app.core.clients import get_llm_client
 from app.core.clients.download import DOWNLOAD_TIMEOUT_SECONDS, DownloadError, download_bytes
 from app.core.clients.s3 import get_s3_client
@@ -86,7 +87,7 @@ _INCOMPLETE_ANSWER_TAIL = re.compile(
     r"(?:旨在|来自|包括|包含|如下|以及|用于|其中|例如)[、，,：:；;（(【\[「“]*$|(?:…+|\.{3,})$"
 )
 
-# 模型调用键：GSI 当前默认传 default，映射到服务端配置的 LLM_MODEL
+# 模型调用键：GSI 当前默认传 default，映射到用途槽位（槽位为空再回落 LLM_MODEL）
 _DEFAULT_MODEL_KEY = "default"
 
 _JSON_FENCE = re.compile(r"^```[a-zA-Z]*\s*|\s*```$")
@@ -228,17 +229,18 @@ async def build_faq_chunks(
         SystemMessage(content=f"{prompt_text.strip()}\n\n{_FAQ_FORMAT_INSTRUCTION}"),
         HumanMessage(content=f"文档语言：{language}\n\n文档正文：\n{text}"),
     ]
-    model = model_key.strip() if model_key else ""
+    # GSI 可指定模型标识；传 default（或空串）时走用途槽位，槽位再回落配置表默认行/env
+    override = model_key.strip() if model_key else ""
+    profile = await load_profile(
+        PURPOSE_PARSE_FAQ,
+        key=override if override and override != _DEFAULT_MODEL_KEY else None,
+    )
     try:
         # 必须有整体预算：模型走流式，httpx 的读超时会被每片数据重置，
         # 半开连接或服务端极慢输出下 ``chat()`` 可以无限期不返回（任务永远停在 35%）。
         answer = await asyncio.wait_for(
-            client.chat(
-                messages,
-                temperature=0.1,
-                model=model if model and model != _DEFAULT_MODEL_KEY else None,
-            ),
-            timeout=settings.PARSE_FAQ_TIMEOUT,
+            client.chat(messages, profile=profile),
+            timeout=profile.timeout,
         )
     except TimeoutError as exc:
         raise CustomException(

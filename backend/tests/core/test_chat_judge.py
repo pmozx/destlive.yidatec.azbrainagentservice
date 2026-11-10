@@ -47,7 +47,7 @@ class _FakeClient:
     def __init__(self, model: _FakeModel) -> None:
         self._model = model
 
-    def chat_model(self, model: str | None = None) -> _FakeModel:  # noqa: ANN401 - 与 LlmClient 同签名
+    def chat_model(self, profile: Any, *, overrides: Any = None) -> _FakeModel:  # noqa: ANN401 - 与 LlmClient 同签名
         return self._model
 
 

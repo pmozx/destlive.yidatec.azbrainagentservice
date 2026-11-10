@@ -26,6 +26,7 @@ from typing import Any
 from fastapi import status as http_status
 
 from app.config.setting import settings
+from app.core.agents import PURPOSE_KB_ANSWER, ModelProfile, load_profile
 from app.core.chat.cite import sanitize_citations
 from app.core.chat.judge import judge_sufficiency
 from app.core.chat.streaming import (
@@ -107,12 +108,14 @@ class KbChatService:
         max_tokens: int | None = None,
     ) -> ChatTurn:
         """一轮问答：检索 → 生成（或拒答）→ 双消息落库 → 刷新会话活跃度。"""
+        # 本轮问答的模型档案：指标里的模型标识与生成调用取同一份，不两处各自读配置
+        profile = await load_profile(PURPOSE_KB_ANSWER)
         meter = TurnMeter(
             session_id=session_id,
             tenant_id=self.tenant_id,
             user_id=self.user_id,
             mode=MODE_SYNC,
-            model=get_llm_client().model,
+            model=profile.label,
         )
         meter.prompt(prompt_text)
         meter.annotate()
@@ -138,6 +141,7 @@ class KbChatService:
                 history=snapshot.history,
                 max_tokens=max_tokens,
                 meter=meter,
+                profile=profile,
             )
             no_evidence, finish_reason = False, FINISH_STOP
             citations = tuple(evidence.to_citation() for evidence in evidences)
@@ -192,16 +196,17 @@ class KbChatService:
         """
         loop = asyncio.get_running_loop()
         started = perf_counter()
+        profile = await load_profile(PURPOSE_KB_ANSWER)
         meter = TurnMeter(
             session_id=session_id,
             tenant_id=self.tenant_id,
             user_id=self.user_id,
             mode=MODE_STREAM,
-            model=get_llm_client().model,
+            model=profile.label,
         )
         meter.prompt(prompt_text)
         meter.annotate()
-        deadline = loop.time() + settings.KB_LLM_TIMEOUT
+        deadline = loop.time() + (profile.timeout or settings.KB_LLM_TIMEOUT)
         yield sse.meta_event(session_id=session_id, request_id=request_id)
 
         try:
@@ -236,6 +241,7 @@ class KbChatService:
                     is_disconnected=is_disconnected,
                     parts=parts,
                     meter=meter,
+                    profile=profile,
                 ):
                     yield frame
                 # 已发出的字节收不回来：越界引用编号与多余空白在落库前统一清洗，
@@ -546,11 +552,12 @@ class KbChatService:
         is_disconnected: Callable[[], Awaitable[bool]] | None,
         parts: list[str],
         meter: TurnMeter,
+        profile: ModelProfile,
     ) -> AsyncIterator[dict[str, Any]]:
         """生成阶段的帧：逐片转发 ``delta``，正文按序累积到 ``parts`` 里供落库。
 
         与 ``_generate`` 的差别只有「拿到答案的方式」：一个收齐再清洗，一个边收边发；
-        引用编号清洗、空回答兜底、温度与 token 上限完全一致。
+        引用编号清洗、空回答兜底、模型档案完全一致。
         """
         messages = build_messages(
             prompt_text=prompt_text,
@@ -562,8 +569,9 @@ class KbChatService:
         started = perf_counter()
         stream = get_llm_client().stream_chat_events(
             messages,
-            temperature=settings.KB_ANSWER_TEMPERATURE,
-            max_tokens=max_tokens or settings.KB_ANSWER_MAX_TOKENS,
+            profile=profile,
+            # 请求级 max_tokens 是三级覆盖的最后一层（配置表默认 < 用途场景 < 本次调用）
+            overrides={"max_tokens": max_tokens} if max_tokens else None,
             config=llm_config(RUN_GENERATE, mode=MODE_STREAM, evidence_count=len(evidences)),
         )
         seq = 0
@@ -605,6 +613,7 @@ class KbChatService:
         history: Sequence[tuple[str, str]],
         max_tokens: int | None,
         meter: TurnMeter,
+        profile: ModelProfile,
     ) -> str:
         """调用模型并清理越界引用编号（编号与证据一一对应，只摘除不重排）。"""
         started = perf_counter()
@@ -617,8 +626,8 @@ class KbChatService:
         )
         answer = await get_llm_client().chat(
             messages,
-            temperature=settings.KB_ANSWER_TEMPERATURE,
-            max_tokens=max_tokens or settings.KB_ANSWER_MAX_TOKENS,
+            profile=profile,
+            overrides={"max_tokens": max_tokens} if max_tokens else None,
             config=llm_config(RUN_GENERATE, mode=MODE_SYNC, evidence_count=len(evidences)),
         )
         meter.generate_ms = _elapsed_ms(started)

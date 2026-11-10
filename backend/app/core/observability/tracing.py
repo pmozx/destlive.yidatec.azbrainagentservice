@@ -11,10 +11,11 @@
    的正文（``LANGSMITH_HIDE_*``），只留 run 树、耗时、token 用量与数值口径；关闭脱敏意味着
    问题、检索切片、模型回答会原样进入 LangSmith（合规由环境负责人确认）。
 
-为什么用 ``traceable`` 而不是 ``create_agent`` / ``StateGraph``：单轮 RAG 是「一次检索 →
-一次生成」的直出，没有分支决策，套 agent 循环只会多一层消息协议与一批必须丢弃的中间帧
-（规范 L24）。追踪只需要一个包住整轮的父节点，``traceable`` 同时支持协程与异步生成器，
-SSE 帧序一行都不用改。需要多步决策时再换 ``StateGraph``，节点名与本文件的 ``RUN_*`` 对齐。
+为什么直出档用 ``traceable`` 而不是套 ``create_agent``：单轮 RAG 是「一次检索 → 一次生成」的
+直出，没有分支决策，套 agent 循环只会多一层消息协议与一批必须丢弃的中间帧（规范 L24 直出档）。
+追踪只需要一个包住整轮的父节点，``traceable`` 同时支持协程与异步生成器，SSE 帧序一行都不用改。
+需要工具决策时（L24 决策档）改走 ``core.agents.build_agent``：图节点由框架自动建 run，
+节点名仍与本文件的 ``RUN_*`` 对齐。
 """
 
 import functools
@@ -29,7 +30,7 @@ from app.core.logger import logger
 
 F = TypeVar("F", bound=Callable[..., Any])
 
-#: run 名：LangSmith 里按它筛选整轮问答 / 检索 / 生成（后续换 StateGraph 时节点沿用同名）
+#: run 名：LangSmith 里按它筛选整轮问答 / 检索 / 生成（决策档换 agent 图时节点沿用同名）
 RUN_TURN = "kb.qa.turn"
 RUN_RETRIEVE = "kb.qa.retrieve"
 RUN_GENERATE = "kb.qa.generate"

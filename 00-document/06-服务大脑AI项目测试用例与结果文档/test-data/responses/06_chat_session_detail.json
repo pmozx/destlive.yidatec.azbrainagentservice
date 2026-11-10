@@ -1,0 +1,24 @@
+{
+  "request_file": "06_chat_session_detail.json",
+  "request_path": "POST /v1/chat/sessions/4140d1fc-8fe3-41c9-82d9-c920f46d32cd/query",
+  "request": {
+    "request_id": "req-chat-session-detail-001",
+    "tenant_id": "gsi-default",
+    "user_id": "1",
+    "include_messages": false,
+    "authorization": {
+      "scope_id": "scope-chat-detail-001",
+      "issued_at": 1794297531814,
+      "expires_at": 1794297651814
+    }
+  },
+  "response_status": 200,
+  "response_body": {
+    "request_id": "req-chat-session-detail-001",
+    "session_id": "4140d1fc-8fe3-41c9-82d9-c920f46d32cd",
+    "title": "造林与流量历时曲线（已改名）",
+    "created_at": "2026-11-10T07:03:03Z",
+    "updated_at": "2026-11-10T07:56:25Z"
+  },
+  "purpose": "条件必返字段：不要求历史时必须整体省略 messages / next_cursor，而不是回空数组"
+}

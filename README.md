@@ -187,7 +187,7 @@ LLM_BASE_URL=
 LLM_API_KEY=
 LLM_MODEL=
 
-# 向量化：protocol=openai 走 /v1/embeddings，protocol=ollama 走 /api/embed
+# 向量化：模型实例由 init_embeddings(provider=...) 构造——openai 走 /v1/embeddings，ollama 走 /api/embed
 EMBEDDING_PROTOCOL=openai
 EMBEDDING_BASE_URL=
 EMBEDDING_MODEL=bge-m3
@@ -195,7 +195,7 @@ EMBEDDING_BATCH_SIZE=16
 EMBEDDING_CONCURRENCY=3       # 分批并发数：300 分片 × batch16 = 19 批，串行要等 19 次往返
 EMBEDDING_MAX_RETRIES=2       # 单批失败重试次数（指数退避 0.5s/1s/2s…），耗尽才判整单失败
 
-# 重排序：llama.cpp --rerank（Jina / Cohere 同构报文）
+# 重排序：llama.cpp --rerank（Jina / Cohere 同构报文），走自研 HTTP 客户端，不经 LangChain 集成包
 RERANK_BASE_URL=
 RERANK_PATH=/v1/rerank
 RERANK_MODEL=bge-reranker-v2-m3

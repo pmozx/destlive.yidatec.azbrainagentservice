@@ -6,9 +6,10 @@
 - ``access_trace``：契约调用只读追踪视图
 - ``payload_filter``：审计报文（JSONB）关键字过滤口径，日志审计 F1 与调用明细 F6 共用
 - ``storage``：对象存储目录浏览 / 上传 / 删除视图（无数据表，直接编排 ``core.clients.s3``）
+- ``model_config``：AI 模型配置（``sbp_ai_system_model_config``，基座自维护：连接方式 + 默认调优参数，页面可改）
 - ``models``：模型聚合入口，供启动期建表与测试统一引用
 
-导入 ``models`` 即把 5 张表注册进 ``MappedBase.metadata``：启动期建表与测试都依赖这一点，
+导入 ``models`` 即把 6 张表注册进 ``MappedBase.metadata``：启动期建表与测试都依赖这一点，
 少了这行，建表会"看不到表"却没有任何报错。
 """
 

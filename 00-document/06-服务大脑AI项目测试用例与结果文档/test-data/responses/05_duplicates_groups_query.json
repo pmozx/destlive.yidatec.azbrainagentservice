@@ -1,0 +1,205 @@
+{
+  "request_file": "05_duplicates_groups_query.json",
+  "request_path": "POST /v1/knowledge/duplicates/groups/query",
+  "request": {
+    "request_id": "req-dup-groups-001",
+    "tenant_id": "gsi-default",
+    "user_id": "1",
+    "score_profile": "gsi-duplicate-v1",
+    "kinds": [],
+    "limit": 20,
+    "scope": {
+      "scope_id": "scope-dup-groups-001",
+      "issued_at": 1794294519725,
+      "expires_at": 1794294639725,
+      "resources": [
+        {
+          "resource_type": "document",
+          "resource_id": "63858256ba974ede",
+          "record_id": "9412b3a0-c617-4562-838a-ff2e6bc0bd34",
+          "content_hash": "sha256:d344ccc4472370e7b8622daa961561f998c777079c6515c4bed7fda07031f242",
+          "publication_ids": [
+            "0876a2b0-2788-4816-a1fd-7f26a2bfd061"
+          ],
+          "entry_mode": "manual"
+        },
+        {
+          "resource_type": "document",
+          "resource_id": "63858256ba974edd",
+          "record_id": "rec-dup-twin-v1",
+          "content_hash": "sha256:30090ce8ce7eab58d7f448df5584f619a46eea3809c3bde497b94d46c14ae0bd",
+          "publication_ids": [
+            "pub-test-dup-twin-001"
+          ],
+          "entry_mode": "manual"
+        }
+      ],
+      "drafts": []
+    }
+  },
+  "response_status": 200,
+  "response_body": {
+    "request_id": "req-dup-groups-001",
+    "result_id": "dup-result-0b4f9c01-7d24-4b60-990f-dfb7a40dbab3",
+    "expires_at": "2026-11-10T07:38:46.532852+00:00",
+    "score_profile": "gsi-duplicate-v1",
+    "groups": [
+      {
+        "group_id": "dup-group-533a25ae2966c152",
+        "kind": "chunk",
+        "title": "1. Introduction",
+        "similarity": 1.0,
+        "score_method": "chunk_exact_v1",
+        "reason": "切片正文完全一致，建议移除重复切片。",
+        "items": [
+          {
+            "hit_id": "hit-3f6f546966da",
+            "hit_kind": "chunk",
+            "resource": {
+              "resource_type": "document",
+              "resource_id": "63858256ba974ede",
+              "record_id": "9412b3a0-c617-4562-838a-ff2e6bc0bd34",
+              "content_hash": "sha256:d344ccc4472370e7b8622daa961561f998c777079c6515c4bed7fda07031f242",
+              "publication_ids": [
+                "0876a2b0-2788-4816-a1fd-7f26a2bfd061"
+              ],
+              "entry_mode": "manual"
+            },
+            "title": "1. Introduction",
+            "subtitle": "正式知识 · App L3",
+            "snippet": "Widespread afforestation through plantation establishment on non-forested land represents a potentially significant alte…",
+            "similarity": 1.0,
+            "reason": "作为建议保留项（切片最早出现）。",
+            "chunk_id": "9412b3a0-c617-4562-838a-ff2e6bc0bd34:2"
+          },
+          {
+            "hit_id": "hit-20a2321a72b8",
+            "hit_kind": "chunk",
+            "resource": {
+              "resource_type": "document",
+              "resource_id": "63858256ba974edd",
+              "record_id": "rec-dup-twin-v1",
+              "content_hash": "sha256:30090ce8ce7eab58d7f448df5584f619a46eea3809c3bde497b94d46c14ae0bd",
+              "publication_ids": [
+                "pub-test-dup-twin-001"
+              ],
+              "entry_mode": "manual"
+            },
+            "title": "1. Introduction",
+            "snippet": "Widespread afforestation through plantation establishment on non-forested land represents a potentially significant alte…",
+            "similarity": 1.0,
+            "reason": "切片正文完全一致，可只保留一份。",
+            "chunk_id": "rec-dup-twin-v1:2"
+          }
+        ],
+        "suggested_keep_id": "hit-3f6f546966da"
+      },
+      {
+        "group_id": "dup-group-8b0f50f525d9b92f",
+        "kind": "chunk",
+        "title": "Abstract",
+        "similarity": 1.0,
+        "score_method": "chunk_exact_v1",
+        "reason": "切片正文完全一致，建议移除重复切片。",
+        "items": [
+          {
+            "hit_id": "hit-4f4b9f32d270",
+            "hit_kind": "chunk",
+            "resource": {
+              "resource_type": "document",
+              "resource_id": "63858256ba974ede",
+              "record_id": "9412b3a0-c617-4562-838a-ff2e6bc0bd34",
+              "content_hash": "sha256:d344ccc4472370e7b8622daa961561f998c777079c6515c4bed7fda07031f242",
+              "publication_ids": [
+                "0876a2b0-2788-4816-a1fd-7f26a2bfd061"
+              ],
+              "entry_mode": "manual"
+            },
+            "title": "Abstract",
+            "subtitle": "正式知识 · App L3",
+            "snippet": "The hydrologic effect of replacing pasture or other short crops with trees is reasonably well understood on a mean annua…",
+            "similarity": 1.0,
+            "reason": "作为建议保留项（切片最早出现）。",
+            "chunk_id": "9412b3a0-c617-4562-838a-ff2e6bc0bd34:1"
+          },
+          {
+            "hit_id": "hit-a48f00ca5474",
+            "hit_kind": "chunk",
+            "resource": {
+              "resource_type": "document",
+              "resource_id": "63858256ba974edd",
+              "record_id": "rec-dup-twin-v1",
+              "content_hash": "sha256:30090ce8ce7eab58d7f448df5584f619a46eea3809c3bde497b94d46c14ae0bd",
+              "publication_ids": [
+                "pub-test-dup-twin-001"
+              ],
+              "entry_mode": "manual"
+            },
+            "title": "Abstract",
+            "snippet": "The hydrologic effect of replacing pasture or other short crops with trees is reasonably well understood on a mean annua…",
+            "similarity": 1.0,
+            "reason": "切片正文完全一致，可只保留一份。",
+            "chunk_id": "rec-dup-twin-v1:1"
+          }
+        ],
+        "suggested_keep_id": "hit-4f4b9f32d270"
+      },
+      {
+        "group_id": "dup-group-4c633dd5436c4df0",
+        "kind": "doc_exact",
+        "title": "流量历时曲线对造林的响应",
+        "similarity": 1.0,
+        "score_method": "title_exact_v1",
+        "reason": "规范化标题相同（非全文相同），建议合并或补充区分信息。",
+        "items": [
+          {
+            "hit_id": "hit-e4fadb594290",
+            "hit_kind": "doc",
+            "resource": {
+              "resource_type": "document",
+              "resource_id": "63858256ba974ede",
+              "record_id": "9412b3a0-c617-4562-838a-ff2e6bc0bd34",
+              "content_hash": "sha256:d344ccc4472370e7b8622daa961561f998c777079c6515c4bed7fda07031f242",
+              "publication_ids": [
+                "0876a2b0-2788-4816-a1fd-7f26a2bfd061"
+              ],
+              "entry_mode": "manual"
+            },
+            "title": "流量历时曲线对造林的响应",
+            "subtitle": "正式知识 · App L3",
+            "snippet": "The hydrologic effect of replacing pasture or other short crops with trees is reasonably well understood on a mean annua…",
+            "similarity": 1.0,
+            "reason": "作为建议保留项（标题最早出现）。"
+          },
+          {
+            "hit_id": "hit-14b5d70804d5",
+            "hit_kind": "doc",
+            "resource": {
+              "resource_type": "document",
+              "resource_id": "63858256ba974edd",
+              "record_id": "rec-dup-twin-v1",
+              "content_hash": "sha256:30090ce8ce7eab58d7f448df5584f619a46eea3809c3bde497b94d46c14ae0bd",
+              "publication_ids": [
+                "pub-test-dup-twin-001"
+              ],
+              "entry_mode": "manual"
+            },
+            "title": "流量历时曲线对造林的响应",
+            "snippet": "The hydrologic effect of replacing pasture or other short crops with trees is reasonably well understood on a mean annua…",
+            "similarity": 1.0,
+            "reason": "规范化标题完全相同，需人工确认是否为同一知识。"
+          }
+        ],
+        "suggested_keep_id": "hit-e4fadb594290"
+      }
+    ],
+    "next_cursor": null,
+    "total_groups": 3,
+    "coverage": {
+      "requested_resources": 2,
+      "evaluated_resources": 2,
+      "complete": true
+    }
+  },
+  "purpose": "首查做全量检测并落快照：coverage.requested_resources 必须等于 evaluated_resources（2）"
+}

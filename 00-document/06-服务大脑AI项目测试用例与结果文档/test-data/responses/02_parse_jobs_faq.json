@@ -9,161 +9,171 @@
     "result": {
       "pages": [
         {
-          "width": 1088,
-          "height": 1486,
+          "width": 1190,
+          "height": 1684,
           "page_no": 1,
-          "image_url": "https://service-brain-dev.obs.cn-north-4.myhuaweicloud.com/gsi/dev/agent/parse-previews/parse-faq-200001/page-1.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=EORO303I4QWO1A481FZ9%2F20261104%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20261104T094757Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=37505c84ced8eafc7c90b6d964516448242d5b42774ac9d64b12d6c47cab4d3d"
+          "image_url": "https://service-brain-dev.obs.cn-north-4.myhuaweicloud.com/gsi/dev/agent/parse-previews/parse-faq-200001/page-1.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=EORO303I4QWO1A481FZ9%2F20261110%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20261110T064850Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=916d5258dc2eeca3eedd83b3912466ee717efa5f2d9c82ab67151e2a9da9588c"
         },
         {
-          "width": 1088,
-          "height": 1486,
+          "width": 1190,
+          "height": 1684,
           "page_no": 2,
-          "image_url": "https://service-brain-dev.obs.cn-north-4.myhuaweicloud.com/gsi/dev/agent/parse-previews/parse-faq-200001/page-2.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=EORO303I4QWO1A481FZ9%2F20261104%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20261104T094757Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=b1968342814cb1250de9e80e49fdbcee2d5114b957665fb704f4a34cb544a7ab"
+          "image_url": "https://service-brain-dev.obs.cn-north-4.myhuaweicloud.com/gsi/dev/agent/parse-previews/parse-faq-200001/page-2.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=EORO303I4QWO1A481FZ9%2F20261110%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20261110T064850Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=84c59783e8f2a0a99abd10ffd4b81fd94bcd0397875cab347f6012baa4ec59a9"
         },
         {
-          "width": 1088,
-          "height": 1486,
+          "width": 1190,
+          "height": 1684,
           "page_no": 3,
-          "image_url": "https://service-brain-dev.obs.cn-north-4.myhuaweicloud.com/gsi/dev/agent/parse-previews/parse-faq-200001/page-3.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=EORO303I4QWO1A481FZ9%2F20261104%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20261104T094757Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=8fe5fc3d11405e6b203538cf9a18cf927e52de809ee133077f4f5725f3020c28"
+          "image_url": "https://service-brain-dev.obs.cn-north-4.myhuaweicloud.com/gsi/dev/agent/parse-previews/parse-faq-200001/page-3.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=EORO303I4QWO1A481FZ9%2F20261110%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20261110T064850Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=f71900c0684bcc917080a9c949bffa4c567e8cc3d04837bcc41e4886cb183e28"
         },
         {
-          "width": 1088,
-          "height": 1486,
+          "width": 1190,
+          "height": 1684,
           "page_no": 4,
-          "image_url": "https://service-brain-dev.obs.cn-north-4.myhuaweicloud.com/gsi/dev/agent/parse-previews/parse-faq-200001/page-4.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=EORO303I4QWO1A481FZ9%2F20261104%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20261104T094757Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=5c8c4baa9d708b2a40f3eb26fadca18ffeaebc80b6db39d602bb77559a2d71e1"
+          "image_url": "https://service-brain-dev.obs.cn-north-4.myhuaweicloud.com/gsi/dev/agent/parse-previews/parse-faq-200001/page-4.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=EORO303I4QWO1A481FZ9%2F20261110%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20261110T064850Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=627d513879d2e9fbf990c93a991af1727aebb082bfbdd74bbd4634cf8aa87f93"
         },
         {
-          "width": 1088,
-          "height": 1486,
+          "width": 1190,
+          "height": 1684,
           "page_no": 5,
-          "image_url": "https://service-brain-dev.obs.cn-north-4.myhuaweicloud.com/gsi/dev/agent/parse-previews/parse-faq-200001/page-5.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=EORO303I4QWO1A481FZ9%2F20261104%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20261104T094757Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=cf87c95e48fbcf2a191bf0cc89847068e10d6b564e0a09009caa2e593157d2c4"
+          "image_url": "https://service-brain-dev.obs.cn-north-4.myhuaweicloud.com/gsi/dev/agent/parse-previews/parse-faq-200001/page-5.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=EORO303I4QWO1A481FZ9%2F20261110%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20261110T064850Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=f66979d4845fdc1e9ae80f15d1b53edd2546b6fb39776c78aac77a60cf494a3f"
         },
         {
-          "width": 1088,
-          "height": 1486,
+          "width": 1190,
+          "height": 1684,
           "page_no": 6,
-          "image_url": "https://service-brain-dev.obs.cn-north-4.myhuaweicloud.com/gsi/dev/agent/parse-previews/parse-faq-200001/page-6.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=EORO303I4QWO1A481FZ9%2F20261104%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20261104T094757Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=4b7d80502e93750d733aaafe2d892210ef7cce2bb56975912083ce72a3721c97"
+          "image_url": "https://service-brain-dev.obs.cn-north-4.myhuaweicloud.com/gsi/dev/agent/parse-previews/parse-faq-200001/page-6.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=EORO303I4QWO1A481FZ9%2F20261110%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20261110T064850Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=028e3ff5d54d10b424f98165d051321a57a16d88050f151bc1ae9e0658e9fe33"
         },
         {
-          "width": 1088,
-          "height": 1486,
+          "width": 1190,
+          "height": 1684,
           "page_no": 7,
-          "image_url": "https://service-brain-dev.obs.cn-north-4.myhuaweicloud.com/gsi/dev/agent/parse-previews/parse-faq-200001/page-7.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=EORO303I4QWO1A481FZ9%2F20261104%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20261104T094757Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=0e87a274bcbaa1cbce59b32276c43b1553c7527ef8acefdc52780d2632f11159"
+          "image_url": "https://service-brain-dev.obs.cn-north-4.myhuaweicloud.com/gsi/dev/agent/parse-previews/parse-faq-200001/page-7.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=EORO303I4QWO1A481FZ9%2F20261110%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20261110T064850Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=34812c2ea047daf5103aa61bbe27622e613ee7398f172e150b3c5c2120e404a5"
         },
         {
-          "width": 1088,
-          "height": 1486,
+          "width": 1190,
+          "height": 1684,
           "page_no": 8,
-          "image_url": "https://service-brain-dev.obs.cn-north-4.myhuaweicloud.com/gsi/dev/agent/parse-previews/parse-faq-200001/page-8.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=EORO303I4QWO1A481FZ9%2F20261104%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20261104T094757Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=e7fea37ca0e0104f9607f3d26d0fbf1ce8e36fc82efd8f8c5dc416dd4427d29a"
+          "image_url": "https://service-brain-dev.obs.cn-north-4.myhuaweicloud.com/gsi/dev/agent/parse-previews/parse-faq-200001/page-8.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=EORO303I4QWO1A481FZ9%2F20261110%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20261110T064850Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=3d3431c09ab4e2fa1e43e5a292230f15bb12c9fa3036b847420f978c9c3e0c6b"
         },
         {
-          "width": 1088,
-          "height": 1486,
+          "width": 1190,
+          "height": 1684,
           "page_no": 9,
-          "image_url": "https://service-brain-dev.obs.cn-north-4.myhuaweicloud.com/gsi/dev/agent/parse-previews/parse-faq-200001/page-9.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=EORO303I4QWO1A481FZ9%2F20261104%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20261104T094757Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=c6873b5dfca61a008b9a8d110765f49ee2bea0b35099a62603145b00bd885c51"
+          "image_url": "https://service-brain-dev.obs.cn-north-4.myhuaweicloud.com/gsi/dev/agent/parse-previews/parse-faq-200001/page-9.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=EORO303I4QWO1A481FZ9%2F20261110%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20261110T064850Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=38628b57661a023d667b2828685cf46dc148814b283b7b7811ade0ce67f8dc49"
         },
         {
-          "width": 1088,
-          "height": 1486,
+          "width": 1190,
+          "height": 1684,
           "page_no": 10,
-          "image_url": "https://service-brain-dev.obs.cn-north-4.myhuaweicloud.com/gsi/dev/agent/parse-previews/parse-faq-200001/page-10.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=EORO303I4QWO1A481FZ9%2F20261104%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20261104T094757Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=cbd365c1dd49cdc4ea0ca83267e204e6301ab116a1bd578739cb513b9791bf04"
+          "image_url": "https://service-brain-dev.obs.cn-north-4.myhuaweicloud.com/gsi/dev/agent/parse-previews/parse-faq-200001/page-10.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=EORO303I4QWO1A481FZ9%2F20261110%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20261110T064850Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=afca630137997c9466cdbde486ef58ccd2bd710dffa3b8402d3bb009a8b1f507"
         },
         {
-          "width": 1088,
-          "height": 1486,
+          "width": 1190,
+          "height": 1684,
           "page_no": 11,
-          "image_url": "https://service-brain-dev.obs.cn-north-4.myhuaweicloud.com/gsi/dev/agent/parse-previews/parse-faq-200001/page-11.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=EORO303I4QWO1A481FZ9%2F20261104%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20261104T094757Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=db1f3039dc809923c3c69a799f0bf528a442982dc393496fa93a534b78ab7827"
+          "image_url": "https://service-brain-dev.obs.cn-north-4.myhuaweicloud.com/gsi/dev/agent/parse-previews/parse-faq-200001/page-11.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=EORO303I4QWO1A481FZ9%2F20261110%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20261110T064850Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=3cbe4a76901a23985d138a69858db45c436a9b567b6a42f42bb217b252bb4570"
         },
         {
-          "width": 1088,
-          "height": 1486,
+          "width": 1190,
+          "height": 1684,
           "page_no": 12,
-          "image_url": "https://service-brain-dev.obs.cn-north-4.myhuaweicloud.com/gsi/dev/agent/parse-previews/parse-faq-200001/page-12.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=EORO303I4QWO1A481FZ9%2F20261104%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20261104T094757Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=7dd56ddc1e61de2f3c92fe427e84e1787aad567986bb8703334a4976ad3e1b90"
-        },
-        {
-          "width": 1088,
-          "height": 1486,
-          "page_no": 13,
-          "image_url": "https://service-brain-dev.obs.cn-north-4.myhuaweicloud.com/gsi/dev/agent/parse-previews/parse-faq-200001/page-13.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=EORO303I4QWO1A481FZ9%2F20261104%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20261104T094758Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=14217b099f8f975db1ec121ded93e499c2e2cd2635e8b0e6bf665315b9ec4a67"
+          "image_url": "https://service-brain-dev.obs.cn-north-4.myhuaweicloud.com/gsi/dev/agent/parse-previews/parse-faq-200001/page-12.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=EORO303I4QWO1A481FZ9%2F20261110%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20261110T064850Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=4ebd4a2ae2cae3bbeb082f97ea8cbc75bcbd14a3e92fdd8c24dee09e88300f69"
         }
       ],
       "chunks": [
         {
           "seq": 1,
-          "content": "该研究旨在量化造林后流域年流量过程线（FDC）的变化。研究假设降雨和林龄是蒸散发的主要驱动因素，目标是去除降雨信号的变异性，使流量变化仅归因于人工林的蒸散发。具体目标包括：(1) 以年降雨量和林龄为参数，拟合观测到的年FDC百分位数时间序列模型；(2) 用长期平均降雨量替代年降雨量变化，获得气候调整后的FDC；(3) 量化随林龄增长的FDC百分位数变化。",
-          "heading": "这项研究的目的是什么？",
+          "content": "该研究的目标是：(1)拟合观测的流量历时曲线（FDC）百分位数年序列模型，即以年降雨量和人工林年龄为参数来模拟每年记录的第10百分位数；(2)用长期平均降雨量替代年降雨量变化以获得气候调整后的FDC；(3)量化人工林老化过程中FDC百分位数的变化。如果以降雨为代表的气候信号能被成功消除，那么FDC的变化将完全归因于植被（人工林蒸散发）。",
+          "heading": "这篇题为《流量历时曲线对造林的响应》的研究目标是什么？",
           "source_type": "text"
         },
         {
           "seq": 2,
-          "content": "模型形式为：Q_% = a + b(ΔP) + Y / [1 + exp((T - T_half)/S)]，其中Q_%是百分位数流量（如Q_50为第50百分位流量），Y和S是S形项系数，ΔP是年降雨量与记录期平均值的偏差，T_half是造林导致Q_%减少一半所需的时间（年）。对于平均气候条件ΔP=0，a是造林达到新平衡时的Q_%值，Y是造林引起的流量变化幅度，S描述响应形状。",
-          "heading": "FDC百分位数回归模型的基本形式是什么？",
+          "content": "该方法包含三个步骤：(1)拟合观测的FDC百分位数年序列模型，即每年记录的第10百分位数，以年降雨量和人工林年龄为参数；(2)用长期平均降雨量替代年降雨量变化以获得气候调整后的FDC；(3)量化人工林老化过程中FDC百分位数的变化。",
+          "heading": "文中开发的评估人工林建立对FDC影响的方法包含哪三个步骤？",
           "source_type": "text"
         },
         {
           "seq": 3,
-          "content": "研究使用了来自澳大利亚东南部、新西兰和南非的10个流域数据。所有流域均种植松树（主要为辐射松，两个Cathedral Peak流域种植P. patula），Traralgon Creek除外（仅6%松树，其余为桉树，主要是王桉）。流域面积从18公顷（Stewarts Ck 5）到8700公顷（Traralgon Ck）不等，平均年降雨量从775毫米（Pine Ck）到1504毫米（Cathedral Peak 3）。数据包括预处理期（0-30年）和森林年龄（9-20年）。",
-          "heading": "研究使用了哪些流域数据？",
+          "content": "方程(2)的形式为：Q% = a + b(ΔP) + Y / (1 + exp((T - Thalf)/S))，其中Q%是百分位数流量（如Q50是第50百分位数流量），Y和S是S型项的系数，ΔP是年降雨量与记录期平均值的偏差，Thalf是造林导致的Q%减少一半所需的时间（年），a是平均气候条件下达到造林下新平衡人工林耗水量时的Q%值，Y给出造林导致的变化幅度，S描述响应形状。对于处理前平均条件ΔP=0且T=0时，Q%约等于a+Y。",
+          "heading": "文中提出的FDC百分位数模型（方程2）的具体形式是什么？",
           "source_type": "text"
         },
         {
           "seq": 4,
-          "content": "通过将模型中的ΔP设为零（代表长期平均年降雨量），得到气候调整后的FDC。这样消除了年降雨量变化的影响，使FDC的变化仅归因于造林引起的蒸散发变化。当达到最大水分利用的新平衡时（约T=2T_half），调整后的FDC在各年应相同，如果降雨变异性已被成功去除。",
-          "heading": "如何处理降雨变异以得到气候调整后的FDC？",
+          "content": "方程(3)是专门用于零流量天数N_zero分析的模型，形式为N_zero = a + b(ΔP) + Y / (1 + exp((T - Thalf)/S))，与方程(2)不同的是，左边被N_zero替代，并且b和S被限制为负值，因为N_zero随降雨量增加而减少，随人工林生长而增加。对于处理前平均条件ΔP=0和T=0，N_zero约等于a；Y给出造林导致的零流量天数变化幅度，S描述响应形状；平均气候条件下a+Y是达到新平衡时的零流量天数。",
+          "heading": "文中用于零流量天数分析的模型（方程3）与方程2有何不同？",
           "source_type": "text"
         },
         {
           "seq": 5,
-          "content": "模型对观测数据的拟合总体良好。77%的拟合系数E>0.7，60%的E≥0.8。模型对较高流量（较低百分位数）拟合更好，大多数较差拟合出现在80-100百分位范围。Lambrechtsbos A和B的E值最差。降雨项b在75%的十分位数（0.05水平）显著，另有9%在0.10水平显著；时间项Y在80%的十分位数（0.05水平）显著，另有9%在0.10水平显著。",
-          "heading": "模型拟合效果如何？",
+          "content": "该研究使用了来自澳大利亚东南部、新西兰和南非的10个流域的每日径流数据。除Traralgon Creek外，所有流域都种植了松树，主要是辐射松（Pinus radiata），在Cathedral Peak的两个流域种植了扭叶松（P. patula）。Traralgon Creek只有6%的松树，其余是桉树物种，其中大部分是巨桉（Eucalyptus regnans）。",
+          "heading": "该研究使用了来自哪些国家和地区的多少个流域数据？主要树种有哪些？",
           "source_type": "text"
         },
         {
           "seq": 6,
-          "content": "研究识别出两类响应：第1组流域（Stewarts Creek、Pine Creek和Redhill）显示零流量天数显著增加，低流量比高流量受影响更大；第2组流域（Cathedral Peak 2和3、Lambrechtsbos A和B、Glendhu 2、Biesievlei和Traralgon Creek）显示所有百分位数的流量更均匀地减少。差异可能部分由蓄水特征解释。",
-          "heading": "研究识别出哪两类造林响应类型？",
+          "content": "完整模型方程(2)对观测数据的拟合总体良好，大多数拟合（77%）返回E>0.7，60%达到0.8或更好。模型能够代表10个流域中8个的大多数百分位数的流量变化，特别是10-50百分位数。最差的E值来自Lambrechtsbos A和B，通常模型对较高流量（较低十分位数）的拟合更好，大多数较差的拟合在80-100百分位数范围内。",
+          "heading": "模型拟合效果如何？效率系数E达到0.7以上的比例是多少？",
           "source_type": "text"
         },
         {
           "seq": 7,
-          "content": "采用逆S形函数（与式(2)类似）评估造林对每年零流量天数（N_zero）的影响：N_zero = a + b(ΔP) + Y / [1 + exp((T - T_half)/S)]，其中b和S约束为负值（N_zero随降雨增加而减少，随林龄增长而增加）。该模型表现特别好，气候调整后显示第1组流域的N_zero显著增加。该方法可用于确定任何给定流量发生频率随造林的变化。",
-          "heading": "零流量天数分析的方法和结果是什么？",
+          "content": "识别出两种类型（组别）：第1组流域显示零流量天数大幅增加，低流量的比例减少大于高流量，包括Stewarts Creek、Pine Creek和Redhill；第2组流域显示所有百分位数的流量比例减少更为均匀，包括Cathedral Peak 2和3、Lambrechtsbos A、Lambrechtsbos B、Glendhu 2、Biesievlei和Traralgon Creek。第1组既表现出总体最高的流量减少，又显示出低流量最大的比例减少，导致流量完全停止。",
+          "heading": "根据模型结果，造林导致的流量减少识别出哪两种响应类型（组别）？各组包含哪些流域？",
           "source_type": "text"
         },
         {
           "seq": 8,
-          "content": "将完整模型(2)拆分为简化形式：仅含时间项（设b=0）的式(5)和仅含降雨项（设Y=0）的式(6)。对FDC分析和零流量天数分析，进行t检验比较简化模型与完整模型。由于降雨和时间项必须为正，采用单尾t检验。t值计算为F^0.5，与0.05显著性水平的临界值比较。F统计量按式(7)计算：F = [(SSE_s - SSE_c)/(df_c - df_s)] / (SSE_c/df_c)，其中SSE为残差平方和，df为自由度，下标s和c分别指简化模型和完整模型。",
-          "heading": "模型参数显著性如何检验？",
+          "content": "零流量天数分析仅适用于溪流持续干涸的流域，因此仅限于Stewarts Creek、Pine Creek和Redhill流域。该模型返回的E值分别为0.95、0.99和0.99。对所有三个流域的b和ΔN_zero的t检验返回两个参数在0.05水平下的显著结果。气候调整后零流量天数显著增加，到Stewarts Ck和Pine Ck的第8年以及Redhill的第11年，流量限制在不到50%的时间内。",
+          "heading": "零流量天数分析针对哪几个流域？模型拟合的E值分别是多少？",
           "source_type": "text"
         },
         {
           "seq": 9,
-          "content": "研究成功去除了降雨变异性，揭示了造林对FDC的影响。模型能代表10个流域中8个的大多数百分位数流量变化，特别是10-50百分位。识别出两类响应：第1组低流量受影响更大且零流量天数显著增加，第2组流量均匀减少。模拟的流量减少与已发表的配对流域实验结果一致。零流量天数方法表现良好，可用于确定任何给定流量随造林的变化。该方法为缺乏配对流域数据时理解流域对造林的响应提供了方法论。",
-          "heading": "研究的主要结论是什么？",
+          "content": "在成功将方程(2)拟合到观测百分位数后，通过将ΔP设为零（代表长期平均年降雨量）对FDC进行气候调整。气候调整后的FDC产生了每个流域由于造林导致的流量百分位数随时间变化的估计，可以以新的经气候调整的FDC（如图3）以及所有流域每个流量百分位数从基准流量（由a+Y给出）的最大变化（由Y给出）之间的比较（如图4）两种形式查看。",
+          "heading": "文中如何通过气候调整来消除降雨变异性？",
           "source_type": "text"
         },
         {
           "seq": 10,
-          "content": "局限性包括：(1) 土壤特征数据不统一，特别是孔隙度，仅报告平均深度，只能粗略指示蓄水能力；(2) 并非所有流域都有预处理数据，为一致性分析从处理年份开始；(3) 部分百分位数因零流量期过长而无法拟合模型（5个实例）；(4) 流量减少的比较受造林面积比例影响（从67%到100%），未按100%造林线性缩放，因为无证据支持线性关系；(5) 敏感性分析表明Glendhu 2和Cathedral Peak 3的10-20百分位E值可能夸大了拟合优度。",
-          "heading": "研究有哪些局限性？",
+          "content": "主要局限性包括：10个流域中有9个是松树物种，需要更多数据来比较硬木物种特别是桉树对FDC的影响；数据中缺乏准确的蓄水测量值，只有土壤深度和基流指数等指示；模型假设达到林分耗水量的新平衡（渐近曲线），但某些流域如Lambrechtsbos A在12年后观测到林分耗水量年减少，不符合S型形式；此外，文中提到响应组1中的流域可能代表最大响应，因为它们都来自蓄水能力小且造林面积比例大的小型流域，结果可能不具普遍性。",
+          "heading": "该研究的主要局限性是什么？",
           "source_type": "text"
         },
         {
           "seq": 11,
-          "content": "T_half值（造林导致流量减少一半所需时间）在百分位数和流域间有显著变化。大多数响应的T_half在5-10年之间。Pine Creek、Stewarts Creek、Redhill和Lambrechtsbos A响应最快，Biesievlei响应最慢且最均匀。南非流域的T_half与已发表的年变化（Scott et al., 2000; Van Wyk, 1987）吻合良好，但Cathedral Peak两个流域的10-20百分位和Lambrechtsbos B的低百分位除外。Glendhu 2的T_half似乎明显低于其他流域。",
-          "heading": "流量减少的时间响应（T_half）有何特征？",
+          "content": "评估方法是将完整模型(2)拆分为简化形式：只包含时间项（设b=0）的方程(5)，或只包含降雨项（设Y=0）的方程(6)，然后对简化模型与完整模型进行t检验。t值计算为F^0.5，并与0.05水平下的显著性临界值比较，F统计量按方程(7)计算。由于降雨和时间项必须为正的约束，应用了单尾t检验。结果表明降雨项在75%的十分位数在0.05水平显著，另有9%在0.10水平显著；时间项在80%的十分位数在0.05水平显著，另有9%在0.10水平显著。",
+          "heading": "文中如何评估模型参数（降雨项和时间项）的显著性？",
           "source_type": "text"
         },
         {
           "seq": 12,
-          "content": "基流指数（BFI）是基流与总流量的比值，通过对干扰后前3年的日流量进行基流分离计算，采用Lyne和Hollick (1979)的数字滤波方法，滤波系数0.925，三次通过。BFI用于了解造林前的水文特征。澳大利亚流域的BFI（0.26-0.39）明显低于南非和新西兰流域（0.64-0.87），且与浅层土壤相匹配。BFI差异可能部分解释了两类响应组的差异。",
-          "heading": "基流指数（BFI）如何计算及其作用？",
+          "content": "大多数响应的Thalf值在5到10年之间。Pine Creek和Stewarts Creek、Redhill以及Lambrechtsbos A表现出最快的响应（如Redhill的Thalf在6年左右，Stewarts Ck 5在2.31-6.49年之间），而Biesievlei显示出最均匀的缓慢响应（Thalf约9-10年）。南非流域的Thalf与已发表的年度变化很好地对应，但Glendhu 2的Thalf似乎明显低于其他已发表的数据（如第20百分位为2.67年）。具体值见表4。",
+          "heading": "文中报告的各流域的Thalf（流量减少一半所需时间）范围是多少？",
+          "source_type": "text"
+        },
+        {
+          "seq": 13,
+          "content": "模拟的流量减少与配对流域实验的已发表结果一致。表5显示本研究估计的总流量和低流量减少与配对流域研究的结果相当，例如Cathedral Peak 2的总流量减少估计为57%（配对研究为50%），低流量减少估计为54%（配对为48%）；Lambrechtsbos A总流量减少41%（配对为41%），低流量减少38%（配对为34%）；Redhill总流量减少75%（配对为66%），低流量减少100%（配对为100%）。总体而言，与已发表的配对流域分析没有显著差异。",
+          "heading": "文中模拟的流量减少与配对流域实验的已发表结果比较如何？",
+          "source_type": "text"
+        },
+        {
+          "seq": 14,
+          "content": "最差的E值来自Lambrechtsbos A和B。Lambrechtsbos A的可能原因是在12年后观测到林分耗水量年减少，不符合模型在整个19年记录期内的S型形式；Lambrechtsbos B低流量拟合失败的原因不太容易解释，但在该流域观察到随着人工林老化林分耗水量减少，但在处理后前20年内没有发生。另外，Glendhu 2的某些百分位数（如第50）无法找到解，但整体拟合尚可。",
+          "heading": "文中提到模型在10个流域中8个的大多数百分位数上适用，具体是哪两个流域拟合较差？",
+          "source_type": "text"
+        },
+        {
+          "seq": 15,
+          "content": "第1组流域（Stewarts Creek、Pine Creek和Redhill）具有相似的浅层土壤、潜在蒸散发和相对均匀的降雨分布，尽管Stewarts Creek更湿润。小流域面积和增加的蒸腾需求超过夏季和秋季降雨及蓄水的组合导致了与高流量相比对低流量的巨大影响。第2组内的响应幅度差异很大，两个Cathedral Peak流域和Lambrechtsbos B的流量减少更大，Cathedral Peak站点潜在蒸发与降雨同步，且在夏季接收85%（平均1260毫米）的降雨量，峰值需求和植物水分可用性结合导致高减少。差异可能部分由蓄水特征解释：三个澳大利亚东南部流域可能具有最低的蓄水能力（土壤深度和基流指数低）。",
+          "heading": "文中如何解释第1组（澳大利亚东南部小型流域）响应与第2组的差异？",
           "source_type": "text"
         }
       ],
-      "warnings": [
-        "文档正文超过 30000 字符，FAQ 提取仅使用前 30000 字符。"
-      ],
+      "warnings": [],
       "file_name": "Lane_2005_造林与流量历时曲线.pdf",
       "suggested_doc_type": "FAQ",
       "suggested": {

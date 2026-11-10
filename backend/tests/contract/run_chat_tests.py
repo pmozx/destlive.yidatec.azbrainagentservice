@@ -25,6 +25,7 @@ cd backend && .venv\\Scripts\\python.exe -m tests.contract.run_chat_tests detail
 """
 
 import json
+import re
 import sys
 from typing import Any
 
@@ -47,6 +48,9 @@ COMPLETION_REQUEST_ID = "req-chat-completion-001"
 #: #08 响应里取出的会话 ID，供后续用例的路径与正文复用
 RUNTIME: dict[str, str] = {}
 
+#: 占位符形如 `__SESSION_ID__`；既可能独占一个字段值，也可能嵌在路径里（`/sessions/__SESSION_ID__/query`）
+PLACEHOLDER = re.compile(r"__[A-Z][A-Z0-9_]*__")
+
 
 def section(title: str) -> None:
     print("\n" + "=" * 70)
@@ -60,9 +64,11 @@ def save(response_file: str, data: dict) -> None:
 
 
 def _resolve(value: Any, values: dict[str, str]) -> Any:
-    """递归替换会话 ID 占位符：只替换「整个字符串就是一个占位符」的位置，不碰正文。"""
+    """递归替换会话 ID 占位符：整串命中直接取映射值，嵌在路径里也按名替换。"""
     if isinstance(value, str):
-        return values.get(value, value)
+        if value in values:
+            return values[value]
+        return PLACEHOLDER.sub(lambda match: values.get(match.group(0), match.group(0)), value)
     if isinstance(value, list):
         return [_resolve(item, values) for item in value]
     if isinstance(value, dict):
@@ -73,7 +79,7 @@ def _resolve(value: Any, values: dict[str, str]) -> Any:
 def _unresolved(value: Any, values: dict[str, str]) -> list[str]:
     """还剩下哪些占位符没值：缺值就用例跳过，绝不把 `__X__` 原样发出去换 400。"""
     if isinstance(value, str):
-        return [value] if value in {"__SESSION_ID__", "__TEMP_SESSION_ID__"} and value not in values else []
+        return [name for name in PLACEHOLDER.findall(value) if name not in values]
     if isinstance(value, list):
         return [name for item in value for name in _unresolved(item, values)]
     if isinstance(value, dict):
@@ -87,8 +93,13 @@ def run_case(
     path: str,
     file_name: str,
     purpose: str | None = None,
+    save_as: str | None = None,
 ) -> dict:
-    """执行一个用例：解析授权时效与会话 ID → 打印入参 → 发出请求 → 打印出参并记录结果。"""
+    """执行一个用例：解析授权时效与会话 ID → 打印入参 → 发出请求 → 打印出参并记录结果。
+
+    ``save_as`` 用于「同一份请求发两次」的幂等用例：第二次回执另存一个文件名，
+    不覆盖首次记录（否则无法比对两次的 ``assistant_message_id``）。
+    """
     if ONLY and ONLY not in case_label and ONLY not in file_name:
         print(f"[跳过] {case_label}（用例标签与 {file_name} 均未匹配 ONLY={ONLY}）")
         return {}
@@ -115,7 +126,14 @@ def run_case(
     }
     if purpose:
         record["purpose"] = purpose
-    save(file_name, record)
+    # 回放标记：命中幂等台账时服务端回 X-Idempotent-Replay: true，只有真回放才记
+    replayed = any(
+        key.lower() == "x-idempotent-replay" and str(value).lower() == "true"
+        for key, value in (result.get("headers") or {}).items()
+    )
+    if replayed:
+        record["idempotent_replay"] = True
+    save(save_as or file_name, record)
     return result
 
 
@@ -198,7 +216,30 @@ run_case(
     ),
 )
 
-section("用例 #7：#10 会话详情含历史（预期 200，user / assistant 各一条）")
+# 幂等重放：两份请求文件除 `authorization` 的运行时时间戳外逐字相同，
+# 第二次必须拿回首次回执（X-Idempotent-Replay: true），而不是 409 或重新生成。
+section("用例 #6-1：#14 幂等首调（专用 request_id = req-chat-replay-001）")
+run_case(
+    "06_completion_replay_first",
+    "POST",
+    f"{CHAT_PATH}/completions",
+    "06_chat_completion_replay_first.json",
+    purpose="首次受理：铺场给下一条重放用例；脚本跑第二遍时本用例本身就是回放",
+)
+
+section("用例 #6-2：#14 幂等重放（同 request_id、仅授权时间戳刷新 → 200 回放首次回执）")
+run_case(
+    "06_completion_replay_again",
+    "POST",
+    f"{CHAT_PATH}/completions",
+    "06_chat_completion_replay_again.json",
+    purpose=(
+        "authorization.issued_at / expires_at 是调用时刻，不计入幂等正文摘要；"
+        "必须回放同一 assistant_message_id（重新生成或 409 都算契约缺陷）"
+    ),
+)
+
+section("用例 #7：#10 会话详情含历史（预期 200，user / assistant 逐条成对）")
 run_case(
     "07_session_detail_history",
     "POST",
@@ -324,6 +365,13 @@ def consistency(file_name: str, data: dict) -> str:
             and body.get("no_evidence") is not None
         )
         return "ok" if ok else "FAIL"
+    if file_name == "06_chat_completion_replay_again.json":
+        # 回放必须命中：message_id 与首次一致，且服务端确实回了 X-Idempotent-Replay
+        first = (RESULTS.get("06_chat_completion_replay_first.json") or {}).get("response_body") or {}
+        same_message = bool(body.get("assistant_message_id")) and (
+            body.get("assistant_message_id") == first.get("assistant_message_id")
+        )
+        return "ok" if same_message and data.get("idempotent_replay") else "FAIL"
     if file_name == "06_chat_request_result.json":
         ok = body.get("operation") == "completion" and body.get("status") in {"completed", "failed", "pending", "cancelled"}
         return "ok" if ok else "FAIL"

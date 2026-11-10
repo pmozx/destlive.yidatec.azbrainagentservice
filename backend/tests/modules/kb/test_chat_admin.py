@@ -85,9 +85,7 @@ def _stub_llm(monkeypatch: pytest.MonkeyPatch, answer: str) -> None:
     """模型打桩：只验编排与落库，不把用例绑在真实 LLM 上。"""
 
     class _FakeLlm:
-        # 编排层把模型名记进指标表：桩对象必须具备与 LlmClient 相同的接口面
-        model = "stub-model"
-
+        # 只模拟调用面：指标里的模型名来自 ModelProfile（规范 14.1.2），不再读桩对象的属性
         async def chat(self, messages, **kwargs):  # noqa: ANN001, ANN003, ANN202 - 同上
             return answer
 

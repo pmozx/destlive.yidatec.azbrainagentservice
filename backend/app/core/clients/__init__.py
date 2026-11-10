@@ -14,10 +14,13 @@ HTTP 类客户端统一的超时/重试/错误归一链见 ``base.BaseHttpClient
 调用方用 ``asyncio.to_thread`` 包住上传/下载这类会走网络的调用。
 """
 
+from collections.abc import Callable
 from typing import Any
 
+from app.core.logger import logger
+
 from .base import BaseHttpClient
-from .embedding import EmbeddingClient
+from .embedding import EmbeddingClient, embedding_provider
 from .llm import ChatStreamChunk, LlmClient
 from .mineru import MineruClient, MineruDocument, MineruImage
 from .rerank import RerankClient, RerankHit
@@ -40,6 +43,7 @@ __all__ = [
     "get_llm_client",
     "get_rerank_client",
     "get_s3_client",
+    "reset_model_clients",
     "reset_s3_client",
 ]
 
@@ -48,7 +52,7 @@ __all__ = [
 _registry: dict[str, Any] = {}
 
 
-def _get_or_create(name: str, factory: type) -> Any:
+def _get_or_create(name: str, factory: Callable[[], Any]) -> Any:
     """取单例，没有就构造一个（同一次事件循环内先到先得，无需加锁）。"""
     client = _registry.get(name)
     if client is None:
@@ -57,9 +61,83 @@ def _get_or_create(name: str, factory: type) -> Any:
     return client
 
 
+def _model_config_row(model_type: str) -> Any:
+    """取该类型的默认配置行（进程内快照，同步读）；表不可用或没配默认行时返回 None。
+
+    惰性导入：registry 首次刷新时会反过来导入 modules 的 CRUD，顶层导入会把
+    「core.clients → core.agents.registry → modules → core」串成包级环。
+    """
+    from app.core.agents.registry import get_model_config_registry
+
+    return get_model_config_registry().default_row(model_type)
+
+
+def _positive_int(value: Any) -> int | None:
+    """配置表里的正整数项：类型不对就当没配（jsonb 里的数字是 int / float）。"""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return int(value)
+
+
+def _float_or_none(value: Any) -> float | None:
+    """配置表里的浮点项：类型不对就当没配，交给客户端沿用 env。"""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
+
+
+def _create_embedding_client() -> EmbeddingClient:
+    """嵌入客户端：配置表里的默认行优先，没有就完全沿用 env（行为不变）。"""
+    from app.modules.system.model_config.model import MODEL_TYPE_EMBEDDING
+
+    row = _model_config_row(MODEL_TYPE_EMBEDDING)
+    if row is None:
+        return EmbeddingClient()
+    defaults = row.defaults
+    client = EmbeddingClient(
+        row.base_url or None,
+        provider=embedding_provider(row.provider),
+        api_key=row.api_key or None,
+        model=row.model_name or row.key,
+        timeout=_float_or_none(defaults.get("timeout")),
+        batch_size=_positive_int(defaults.get("batch_size")),
+        concurrency=_positive_int(defaults.get("concurrency")),
+        max_retries=_positive_int(defaults.get("max_retries")),
+    )
+    logger.info(
+        "嵌入客户端使用配置表默认行：key={} model={} base_url={}",
+        row.key,
+        row.model_name or row.key,
+        row.base_url or "env",
+    )
+    return client
+
+
+def _create_rerank_client() -> RerankClient:
+    """重排序客户端：同样以配置表默认行为先，没有则沿用 env。"""
+    from app.modules.system.model_config.model import MODEL_TYPE_RERANK
+
+    row = _model_config_row(MODEL_TYPE_RERANK)
+    if row is None:
+        return RerankClient()
+    client = RerankClient(
+        base_url=row.base_url or None,
+        api_key=row.api_key or None,
+        model=row.model_name or row.key,
+        timeout=_float_or_none(row.defaults.get("timeout")),
+    )
+    logger.info(
+        "重排序客户端使用配置表默认行：key={} model={} base_url={}",
+        row.key,
+        row.model_name or row.key,
+        row.base_url or "env",
+    )
+    return client
+
+
 def get_embedding_client() -> EmbeddingClient:
-    """进程级向量化客户端（复用 httpx 连接池；配置变更需重启进程）。"""
-    return _get_or_create("embedding", EmbeddingClient)
+    """进程级向量化客户端（复用 httpx 连接池；配置表变更后由写路径重置单例）。"""
+    return _get_or_create("embedding", _create_embedding_client)
 
 
 def get_llm_client() -> LlmClient:
@@ -69,7 +147,26 @@ def get_llm_client() -> LlmClient:
 
 def get_rerank_client() -> RerankClient:
     """进程级重排序客户端。"""
-    return _get_or_create("rerank", RerankClient)
+    return _get_or_create("rerank", _create_rerank_client)
+
+
+async def reset_model_clients() -> None:
+    """写配置后重建嵌入 / 重排序单例（连接方式存在实例上，不重建等于改了地址没生效）。
+
+    对话客户端不在重置范围：``LlmClient`` 无状态，连接参数每次由 ``profile`` 带进来，
+    配置快照过期后下一个请求自然用到新配置。
+    """
+    for name in ("embedding", "rerank"):
+        client = _registry.pop(name, None)
+        if client is None:
+            continue
+        aclose = getattr(client, "aclose", None)
+        if aclose is None:
+            continue
+        try:
+            await aclose()
+        except Exception as e:  # noqa: BLE001 旧连接池关不掉不该让页面的保存失败
+            logger.warning("重建模型客户端前关闭旧实例失败 name={}: {}", name, e)
 
 
 async def close_clients() -> int:

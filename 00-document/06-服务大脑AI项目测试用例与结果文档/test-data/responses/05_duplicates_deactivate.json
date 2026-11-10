@@ -1,0 +1,23 @@
+{
+  "request_file": "05_duplicates_deactivate.json",
+  "request_path": "POST /v1/knowledge/entries/pub-test-deact-001/deactivate",
+  "request": {
+    "request_id": "req-dup-deactivate-001",
+    "tenant_id": "gsi-default",
+    "user_id": "1",
+    "publication_id": "pub-test-deact-001",
+    "record_id": "rec-deact-v1",
+    "revision": 2,
+    "reason": "契约用例：验证 #20 停用后不再参与检索与引用，正文与向量保留供审计。"
+  },
+  "response_status": 200,
+  "response_body": {
+    "revision": 2,
+    "record_id": "rec-deact-v1",
+    "request_id": "req-dup-deactivate-001",
+    "searchable": false,
+    "deactivated": true,
+    "publication_id": "pub-test-deact-001"
+  },
+  "purpose": "停用后不参与检索与引用但保留正文供审计；重复调用按幂等台账回放同一份回执"
+}
