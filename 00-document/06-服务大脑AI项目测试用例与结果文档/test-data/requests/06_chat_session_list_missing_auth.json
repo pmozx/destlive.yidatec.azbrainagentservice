@@ -1,0 +1,6 @@
+{
+  "request_id": "req-chat-session-list-no-auth-001",
+  "tenant_id": "gsi-default",
+  "user_id": "1",
+  "limit": 20
+}

@@ -1,0 +1,9 @@
+{
+  "request_id": "req-dup-deactivate-001",
+  "tenant_id": "gsi-default",
+  "user_id": "1",
+  "publication_id": "pub-test-deact-001",
+  "record_id": "rec-deact-v1",
+  "revision": 2,
+  "reason": "契约用例：验证 #20 停用后不再参与检索与引用，正文与向量保留供审计。"
+}

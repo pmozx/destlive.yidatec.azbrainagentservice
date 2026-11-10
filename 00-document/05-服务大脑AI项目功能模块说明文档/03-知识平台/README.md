@@ -2,7 +2,7 @@
 
 > **一句话定位**：GSI 交付的文档与 FAQ 在这里解析成切片、落成发布单元，再被检索、问答与重复治理复用。
 > **上游业务系统**：GSI（`service_brain` 库同 schema 的 12 张共享表，本侧只读）——谁写、怎么关联、哪几步还没落地，见 [`02-数据模型与表关系.md`](02-数据模型与表关系.md) §九。
-> 归属域 `kb`（一表一目录的子模块）· 数据表 11 张（+ GSI 只读 12 张）· 接口 62 个（契约 `/v1` 20 + 管理端 `/api/v1/kb` 42）· 前端页面 6 个 · 核对入口「GSI 业务数据」菜单 `/gsi/*`（3 个页面）· 版本 v1.9（2026-11-06）
+> 归属域 `kb`（一表一目录的子模块）· 数据表 11 张（+ GSI 只读 12 张）· 接口 63 个（契约 `/v1` 21 + 管理端 `/api/v1/kb` 42）· 前端页面 6 个 · 核对入口「GSI 业务数据」菜单 `/gsi/*`（3 个页面）· 版本 v2.0（2026-11-10）
 
 ---
 
@@ -16,14 +16,13 @@
 - 问答：检索 → 拼上下文 → 调 Chat 模型 → 落会话与消息（含引用九字段与来源六元组），支持非流式（契约）与 SSE 流式（管理端）两种出口。
 - 重复治理：保存前查重（只看不写）、重复分组查询/详情、合并预览（只产草稿态），并把治理结论物化成 `dup_group` 行供管理台跟踪。
 - 管理台维护：发布单元/版本/切片的 CRUD、**正文写入与修订（03.1/03.3 等价）**、**停用归档（#20 等价）**、**来源与关联溯源**（写入渠道 + 按 `file_meta.doc_id` 反查解析任务）、解析任务查询与**产物直接写成知识（03.1 等价，切片不重切）**、**解析步骤跟踪与从失败步重跑**、**MinerU 产物（md / 版面 JSON / 图片）下载**、重复分组状态标记、检索调试台与通道配置、会话与消息浏览、**问答单轮指标查看**（列表页概览卡 + 抽屉逐轮，含失败轮占位行）。
-- 管理台自助作业：自己上传文件发起解析（不必先落到 GSI 的桶），自己写正文入库；并把「保存前查重 / 全量检测 / 合并预览」搬到页面上——范围用 `publication_ids` 表达，后端反查生成正式 `scope`，检测与预览与契约 #16/#17/#19 共用同一条链路；查重台还可以从发布单元**载入已批准切片**逐条比对（D06 等价）。
+- 管理台自助作业：自己上传文件发起解析（不必先落到 GSI 的桶），自己写正文入库；并把「保存前查重 / 全量检测 / 合并预览」搬到页面上——范围用 `publication_ids` 表达，后端反查生成正式 `scope`，检测与预览与契约 #16/#17/#19 共用同一条链路；查重台还可以从发布单元**载入已批准切片**逐条比对（与契约 D06 共用切片级检测，区别是候选不必已在范围内）。
 
 **这个模块不做**
 
 - 不做审批流与草稿知识表：契约侧仍只收 GSI 审批通过的切片，本侧没有「草稿知识」表（`dup_result` 里的草稿只是检测时随请求带进来的内存快照）；管理台写正文是运维补录/纠错入口，不代替 GSI 的审批。
 - 不解析 Office/图片的页图：页图预览只对 PDF 生效，其余类型返回 `pages=[]`，不伪造图片 URL。
 - 不做流式契约：`/v1/chat/completions` 收到 `stream=true` 直接 400 `UNSUPPORTED_STREAM`，SSE 只在管理端 `/kb/chat/ask/stream` 提供。
-- 不对齐 v3 手册的 **D06 单篇知识切片查重** 独立路由（`chunk-check`）：契约侧无此路径，能力由管理端 `POST /kb/dup-groups/check` 的 `candidate.chunks[]` 承接（见 `04-实现与运维说明.md` §八 K1）。
 - 不做多租户隔离的库级约束：`tenant_id` 是业务列，隔离靠每次查询显式带条件，没有 RLS。
 - **不维护 GSI 业务数据**：契约 §四 的 12 张共享表由 GSI 侧建表与写入（Flyway 在 `public` schema），本侧只读、不建表、不写入、不清理；`app/modules_gsi/` 用独立 `SbpBase.metadata`，启动建表只遍历 `kb` / `system` / `voice` 三个域。
 
@@ -48,6 +47,7 @@
 | 问答单轮指标浏览（质量 / 耗时 / 成本） | 运维、算法（管理台只读） | `/kb/chat-metric/summary`（列表页概览）、`/kb/chat-metric/list`（抽屉逐轮） | `chat_turn_metric`（与消息按 `assistant_message_id` 在前端对齐） |
 | 超时请求的结果查询 | GSI 座席（契约） | `/v1/chat/requests/{id}/query` | `sbp_ai_system_request_log`（跨模块） |
 | 保存前查重 | GSI 编辑人员（契约） | `/v1/knowledge/duplicates/check` | 读 `chunk` / `publication`，不写表 |
+| 单篇知识切片查重（D06） | GSI 编辑人员（契约） | `/v1/knowledge/duplicates/chunk-check` | 读 `chunk` / `publication`，不写表 |
 | 重复分组清单与详情 | GSI 编辑人员（契约） | `/v1/knowledge/duplicates/groups*` | `dup_result` / `dup_group` |
 | 合并预览 | GSI 编辑人员（契约） | `/v1/knowledge/duplicates/merge-preview` | `dup_result` / `dup_group` |
 | 治理结论跟踪与状态标记 | 管理台 | `/kb/dup-groups/{list,detail,status}` | `dup_group` |
@@ -101,7 +101,7 @@
 
 两组前缀，鉴权方式完全不同（详细约定见 [`03-接口清单.md`](03-接口清单.md) §一）：
 
-- 契约侧 `/v1`：HMAC 五头 + 裸 JSON（不套 `code/msg/data`），20 个端点，写操作走幂等台账；
+- 契约侧 `/v1`：HMAC 五头 + 裸 JSON（不套 `code/msg/data`），21 个端点，写操作走幂等台账；
 - 管理端 `/api/v1/kb`：管理台 JWT + 统一 `ResponseSchema`，42 个端点。
 
 | 组 | 方法 | 路径 | 用途 | 数量 |
@@ -111,7 +111,7 @@
 | 检索 | POST | `/v1/knowledge/search` | #07 关键词 / 自然语言检索 | 1 |
 | 会话 | POST / PATCH / DELETE | `/v1/chat/sessions`、`/sessions/query`、`/sessions/{id}/query`、`/sessions/{id}`、`/sessions/{id}/messages` | #08–#13 六操作 | 6 |
 | 生成 | POST | `/v1/chat/completions`、`/chat/requests/{target_request_id}/query` | #14 生成、#15 超时结果查询 | 2 |
-| 重复治理 | POST | `/v1/knowledge/duplicates/check`、`/knowledge/duplicates/groups/query`、`/knowledge/duplicates/groups/{group_id}/query`、`/knowledge/duplicates/merge-preview` | #16–#19 | 4 |
+| 重复治理 | POST | `/v1/knowledge/duplicates/check`、`/knowledge/duplicates/chunk-check`、`/knowledge/duplicates/groups/query`、`/knowledge/duplicates/groups/{group_id}/query`、`/knowledge/duplicates/merge-preview` | #16–#19 + D06 单篇切片查重 | 5 |
 | 发布单元 | GET/POST/PUT/PATCH/DELETE | `/api/v1/kb/publication/*` | 列表/详情/增改/状态/删除/版本/切片/基线/删快照 + **正文写入/修订/停用归档** + 来源溯源（`/source/{id}`） | 16 |
 | 解析任务 | GET / PUT / POST | `/api/v1/kb/parse-jobs/list`、`/detail/{job_id}`、`/steps/{job_id}`、`/retry/{job_id}`、`/upload`、`/update-chunk/{job_id}`、`/publish/{job_id}` | 任务列表与详情（含产物与 `steps[]`）+ 步骤台账 + 从失败步重跑 + 自助上传提交 + 产物切片人工编辑 + **产物写成正式知识（03.1 等价）** | 7 |
 | 重复分组 | GET / PATCH / POST | `/api/v1/kb/dup-groups/list`、`/detail/{group_id}`、`/status/{group_id}`、`/detect`、`/check`、`/preview/{group_id}` | 治理结论浏览与状态标记 + 主动检测/查重/合并预览 | 6 |
@@ -123,8 +123,8 @@
 
 两条口径要先记住：
 
-- 重复治理四个端点的真实前缀**带 `/knowledge`**（`DuplicateRouter` 声明为 `prefix="/knowledge"`，见 `app/modules_api/kb/duplicate/controller.py`）。写作 `/v1/duplicates/*` 的描述不可用于对接或测试断言。
-- `/gsi` 域另有 **23 个管理端只读接口**（JWT + `ResponseSchema`），与本表的 62 个分属不同域、不计入 62；台账见 [`03-接口清单.md`](03-接口清单.md) §六。
+- 重复治理五个端点的真实前缀**带 `/knowledge`**（`DuplicateRouter` 声明为 `prefix="/knowledge"`，见 `app/modules_api/kb/duplicate/controller.py`）。写作 `/v1/duplicates/*` 的描述不可用于对接或测试断言。
+- `/gsi` 域另有 **26 个管理端只读接口**（JWT + `ResponseSchema`），与本表的 63 个分属不同域、不计入 63；台账见 [`03-接口清单.md`](03-接口清单.md) §六。
 
 ---
 
@@ -177,7 +177,7 @@
 | `group_key` | 重复分组的稳定标识（类型 + 排序后成员身份的摘要），也是契约里的 `group_id`；不等于行 `uuid` |
 | `group_code` | 受众团队的唯一编码，也是 `sbp_km_doc_publication.team` / `sbp_faq_publication.team` 的取值；授权只认它，`group_name` / `audience_team` 不参与判定 |
 | 生效快照 | GSI 的 `sbp_km_doc_record` / `sbp_faq_record` 行；`record_id` 指向它，修订审批期间旧发布关系仍指向旧快照 |
-| `invisibleTeams` | 生效规则里的「不可见团队」黑名单数组；本侧目前只在 `/gsi` 页面判有效性与展示，**未**纳入检索授权（见 `01` §八 L10） |
+| `invisibleTeams` | 生效规则里的「不可见团队」黑名单数组；命中用户任一团队即拒绝，`expireAt` 早于当天也拒绝，规则不可解析按拒绝处理（`01` §八 L10 已关闭） |
 | 编辑态受众表 | GSI 的 `sbp_km_doc_audience` / `sbp_km_doc_invisible_team` / `sbp_faq_audience`：只服务 GSI 编辑页，不代表已生效授权，本侧不读 |
 
 ---
@@ -188,5 +188,5 @@
 | --- | --- |
 | [`01-业务功能说明.md`](01-业务功能说明.md) | 谁在什么场景用什么功能；解析/写入/检索/问答/治理五条主流程；状态如何判定；数据留多久；现在做不到什么 |
 | [`02-数据模型与表关系.md`](02-数据模型与表关系.md) | 十一张表每列的含义；键与索引；表与表怎么对上（R1–R13）；谁写谁读；删除一条知识后行还在不在；**§九 = GSI 12 张共享表、授权链与契约六步校验的落地对照** |
-| [`03-接口清单.md`](03-接口清单.md) | 62 个端点怎么调；字段、错误码、示例；契约编号与代码编号的对应；前端函数映射；**§六 = `/gsi` 26 个只读核对接口** |
+| [`03-接口清单.md`](03-接口清单.md) | 63 个端点怎么调；字段、错误码、示例；契约编号与代码编号的对应；前端函数映射；**§六 = `/gsi` 26 个只读核对接口** |
 | [`04-实现与运维说明.md`](04-实现与运维说明.md) | 代码在哪；十八个关键实现决策；配置项（含 `AI_TRACE_*` 与灰区二判）与调错的后果；按症状排障（含「任务卡在 35%」「授权为空」「追踪无数据」「概览卡全 0」）；测试覆盖与已知限制 |

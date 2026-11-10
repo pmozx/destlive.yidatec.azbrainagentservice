@@ -1,4 +1,4 @@
-"""M1 验收脚本（P1 门禁）：Mock GSI 用五头签名打通 20 条 `/v1` 路由，并核对审计与幂等台账。
+"""M1 验收脚本（P1 门禁）：Mock GSI 用五头签名打通 21 条 `/v1` 路由，并核对审计与幂等台账。
 
 用法（在 `backend/` 目录、服务已启动后执行）：
 
@@ -13,14 +13,16 @@
 
 1. **五头签名 / 防重放 / 错误码**：缺头、签名不符、时间戳越窗、nonce 重放、`authorization`
    跨度超限与已过期、写操作缺幂等键 —— 逐条断言状态码与错误体 `code`；
-2. **20 条路由骨架可被打通**：逐条带签名调用，断言骨架期统一响应（501 + `INTERNAL_ERROR`
-   且 `retryable=false`），并核对错误体把 `request_id` 原样带回；
+2. **21 条路由都挂上了**：逐条核对 OpenAPI 里的路径与方法，漏注册的 controller 会在这里暴露。
+   **不再逐条发业务请求**——骨架期的「501 占位」早已不存在，用最小骨架正文去打写接口
+   可能真的落行（如 #08 建会话），把验收数据写脏；业务级出入参由
+   `tests/contract/run_*.py` 与 `app/scripts/contract/mock_gsi.py` 覆盖；
 3. **审计扩展生效**：本轮全部 `request_id` 都要在 `sbp_ai_system_api_log` 查到，被拒请求同样留痕，
    `security_check` 六字段齐全、签名只存摘要。
 
 另有一段**台账直连校验**：`reserve → complete → replay`、同 ID 异正文 409、墓碑 `expires_at=NULL`、
-失败释放后 ID 可重用。骨架期业务未实现，501 属失败会释放预约，所以「HTTP 层幂等回放」要等
-业务 Tx 落地（M2 起）才能演示，这里先用直连校验把口径钉住，避免 M1 门禁漏掉幂等。
+失败释放后 ID 可重用。业务 Tx 落地后 HTTP 层也能演示回放，但要求先有一条**成功的**业务请求，
+门禁不该为此产生副作用，故仍用直连校验钉口径。
 
 退出码非 0 表示有验收项不达标，可直接当回归脚本用。
 """
@@ -43,14 +45,12 @@ from app.config.setting import settings
 from app.core.security_signature import build_signed_headers, now_ms
 from app.modules_api.base.errors import (
     IDEMPOTENCY_CONFLICT,
-    INTERNAL_ERROR,
     INVALID_REQUEST,
     UNAUTHORIZED,
     ContractApiError,
 )
 from app.modules_api.base.idempotency import (
     SCOPE_EVENT,
-    SCOPE_ID_KEYS,
     SCOPE_JOB,
     SCOPE_REQUEST,
     complete,
@@ -61,31 +61,34 @@ from app.utils.common_util import canonical_json_sha256
 
 from .testing import SKELETON_STATUS, json_dict
 
-# (编号, 方法, 路径, 幂等域)。幂等域为 None 的接口不接幂等依赖；编号与手册 §五 一致
+# (编号, 方法, 路径模板, 幂等域)。路径用 OpenAPI 模板形式（`{job_id}` 而不是 `job-m1`），
+# 因为 run_routes 对照的是 `/openapi.json`，具体实例值只在发业务请求时才需要；
+# 幂等域为 None 的接口不接幂等依赖；编号与手册 §五 一致
 ROUTES: Final[tuple[tuple[str, str, str, str | None], ...]] = (
     ("#01", "POST", "/v1/parse/jobs", SCOPE_JOB),
-    ("#02", "GET", "/v1/parse/jobs/job-m1", None),
+    ("#02", "GET", "/v1/parse/jobs/{job_id}", None),
     ("#03", "POST", "/v1/knowledge/entries", SCOPE_REQUEST),
-    ("#04", "POST", "/v1/knowledge/entries/pub-m1/query", None),
-    ("#05", "PUT", "/v1/knowledge/entries/pub-m1", SCOPE_REQUEST),
-    ("#06", "DELETE", "/v1/knowledge/entries/pub-m1", SCOPE_REQUEST),
+    ("#04", "POST", "/v1/knowledge/entries/{publication_id}/query", None),
+    ("#05", "PUT", "/v1/knowledge/entries/{publication_id}", SCOPE_REQUEST),
+    ("#06", "DELETE", "/v1/knowledge/entries/{publication_id}", SCOPE_REQUEST),
     ("#07", "POST", "/v1/knowledge/search", None),
     ("#08", "POST", "/v1/chat/sessions", SCOPE_REQUEST),
     ("#09", "POST", "/v1/chat/sessions/query", None),
-    ("#10", "POST", "/v1/chat/sessions/sess-m1/query", None),
-    ("#11", "PATCH", "/v1/chat/sessions/sess-m1", SCOPE_REQUEST),
-    ("#12", "DELETE", "/v1/chat/sessions/sess-m1", SCOPE_EVENT),
-    ("#13", "DELETE", "/v1/chat/sessions/sess-m1/messages", SCOPE_EVENT),
+    ("#10", "POST", "/v1/chat/sessions/{session_id}/query", None),
+    ("#11", "PATCH", "/v1/chat/sessions/{session_id}", SCOPE_REQUEST),
+    ("#12", "DELETE", "/v1/chat/sessions/{session_id}", SCOPE_EVENT),
+    ("#13", "DELETE", "/v1/chat/sessions/{session_id}/messages", SCOPE_EVENT),
     ("#14", "POST", "/v1/chat/completions", SCOPE_REQUEST),
-    ("#15", "POST", "/v1/chat/requests/req-m1/query", None),
+    ("#15", "POST", "/v1/chat/requests/{target_request_id}/query", None),
     ("#16", "POST", "/v1/knowledge/duplicates/check", None),
     ("#17", "POST", "/v1/knowledge/duplicates/groups/query", None),
-    ("#18", "POST", "/v1/knowledge/duplicates/groups/grp-m1/query", None),
+    ("#18", "POST", "/v1/knowledge/duplicates/groups/{group_id}/query", None),
     ("#19", "POST", "/v1/knowledge/duplicates/merge-preview", None),
-    ("#20", "POST", "/v1/knowledge/entries/pub-m1/deactivate", SCOPE_REQUEST),
+    ("D06", "POST", "/v1/knowledge/duplicates/chunk-check", None),
+    ("#20", "POST", "/v1/knowledge/entries/{publication_id}/deactivate", SCOPE_REQUEST),
 )
 
-GROUP_ROUTE: Final[str] = "路由骨架（20 条）"
+GROUP_ROUTE: Final[str] = "路由可达（21 条）"
 GROUP_SECURITY: Final[str] = "签名与授权"
 GROUP_AUDIT: Final[str] = "审计留痕"
 GROUP_LEDGER: Final[str] = "幂等台账"
@@ -210,28 +213,25 @@ class Gate:
     # ── 三段验收 ────────────────────────────────────────────────────
 
     def run_routes(self) -> None:
-        """20 条路由逐条打通：签名 → 审计 → （写操作）幂等 → 501 骨架占位。"""
-        for number, method, path, scope in ROUTES:
-            request_id = self._request_id(number)
-            if method == "GET":
-                # #02 是轮询接口，不带正文；request_id 也就没有回归对象
-                payload = None
-                expect_id = None
-            else:
-                payload = {"request_id": request_id, "tenant_id": settings.CONTRACT_TENANT_ID, "user_id": "42"}
-                # request 域的幂等键就是 request_id 本身；另外两域另加一列，不能覆盖标记
-                if scope and scope != SCOPE_REQUEST:
-                    payload[SCOPE_ID_KEYS[scope]] = f"{request_id}-{SCOPE_ID_KEYS[scope]}"
-                expect_id = request_id
-            response = self.call(method, path, payload)
-            self.check(
-                GROUP_ROUTE,
-                f"{number} {method} {path}",
-                response,
-                status=SKELETON_STATUS,
-                code=INTERNAL_ERROR,
-                request_id=expect_id,
-                note="骨架期：签名/审计/幂等已生效，业务待 Tx" if response.status_code == SKELETON_STATUS else "",
+        """21 条路由逐条核对「路径 + 方法」已注册（读 `/openapi.json`，不发业务请求）。
+
+        为何不再逐条打：骨架期的统一 501 已经不存在，而用最小骨架正文打写接口会真的落行
+        （#03 写知识、#08 建会话都可能因为字段可选而成功），把验收数据写脏。路由是否挂上
+        与业务是否正确是两件事：前者在这里守，后者交给 `tests/contract/run_*.py`。
+        """
+        response = self.client.get("/openapi.json")
+        paths = json_dict(response).get("paths") or {}
+        for number, method, path, _scope in ROUTES:
+            registered = method.lower() in (paths.get(path) or {})
+            self.cases.append(
+                Case(
+                    group=GROUP_ROUTE,
+                    name=f"{number} {method} {path}",
+                    expected="已注册",
+                    actual="已注册" if registered else "缺失",
+                    passed=registered,
+                    note="" if registered else "OpenAPI 里没有该方法：检查 controller 是否被 router 引入",
+                )
             )
 
     def run_security(self) -> None:
@@ -289,9 +289,10 @@ class Gate:
             GROUP_SECURITY,
             "nonce 首用（合法）",
             self.call("POST", path, replay_payload, nonce=nonce),
-            status=SKELETON_STATUS,
-            code=INTERNAL_ERROR,
+            status=400,
+            code=INVALID_REQUEST,
             request_id=replay_id,
+            note="缺 query 被业务层拒（预期）；能走到业务校验说明验签与 nonce 首用都通过，重放才验得准",
         )
         self.check(
             GROUP_SECURITY,
@@ -462,7 +463,7 @@ async def audit_cases(gate: Gate) -> list[Case]:
 
 
 async def ledger_cases(run: str) -> list[Case]:
-    """台账直连校验（骨架期 HTTP 层演示不了回放：501 属失败必然释放预约）。"""
+    """台账直连校验（HTTP 层演示回放要先有一条成功的业务请求，门禁不该为此产生副作用）。"""
     from sqlalchemy import delete, select
 
     from app.core.database import async_session_factory
@@ -604,7 +605,7 @@ def render(cases: list[Case], *, base_url: str, client_id: str) -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="M1 验收：Mock GSI 签名打通 20 条 /v1 路由 + 审计/幂等核对")
+    parser = argparse.ArgumentParser(description="M1 验收：21 条 /v1 路由注册核对 + 签名/审计/幂等")
     parser.add_argument("--base-url", default="http://127.0.0.1:8002", help="AI 服务地址")
     parser.add_argument("--client-id", default=settings.CONTRACT_V1_CLIENT_ID, help="签名客户端标识")
     parser.add_argument("--secret", default=settings.CONTRACT_V1_SHARED_SECRET, help="HMAC 共享密钥")

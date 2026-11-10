@@ -1,4 +1,4 @@
-"""重复治理契约服务（#16–#19）：请求投影 → 领域编排 → 契约投影与错误码映射。
+"""重复治理契约服务（#16–#19 / D06）：请求投影 → 领域编排 → 契约投影与错误码映射。
 
 请求投影与容量校验已下沉到 ``app.modules.kb.dup_result``（``ScopeData.from_payload`` /
 ``GovernanceItem.from_payload``，容量取 ``settings.DUP_MAX_SCOPE_ITEMS``），检测算法与存储本来就在
@@ -21,11 +21,13 @@ from app.modules.kb.dup_result.errors import (
     DupInvalidRequestError,
     DupResultExpiredError,
     DupResultNotFoundError,
+    DupResultTooLargeError,
     DupScopeDeniedError,
     DupScopeTooLargeError,
     DupSourceChangedError,
 )
 from app.modules.kb.dup_result.schema import (
+    ChunkCheckData,
     DuplicateCheckData,
     DuplicateGroup,
     DuplicateGroupQuery,
@@ -35,6 +37,7 @@ from app.modules.kb.dup_result.schema import (
     MergeActionData,
     MergePreviewData,
     ScopeData,
+    SpotResource,
 )
 from app.modules.kb.dup_result.service import KbDupResultService
 from app.modules_gsi.km.doc_publication.schema import SbpKmDocPublicationBrief, publication_subtitle
@@ -47,10 +50,12 @@ from ...base.errors import (
     NOT_FOUND,
     PAYLOAD_TOO_LARGE,
     RESULT_EXPIRED,
+    RESULT_TOO_LARGE,
     SOURCE_CHANGED,
     ContractApiError,
 )
 from .schema import (
+    ChunkCheckRequest,
     DuplicateCheckRequest,
     DuplicateGroupQueryRequest,
     DuplicateGroupsQueryRequest,
@@ -83,6 +88,9 @@ def _map_domain_error(exc: Exception) -> ContractApiError:
         return ContractApiError(PAYLOAD_TOO_LARGE, str(exc))
     if isinstance(exc, DupScopeDeniedError):
         return ContractApiError(GOVERNANCE_SCOPE_DENIED, str(exc))
+    if isinstance(exc, DupResultTooLargeError):
+        # D06 命中证据超限：契约要求 413 RESULT_TOO_LARGE，不能用截断后的 200 冒充完整结果
+        return ContractApiError(RESULT_TOO_LARGE, str(exc))
     if isinstance(exc, DupSourceChangedError):
         return ContractApiError(SOURCE_CHANGED, str(exc))
     if isinstance(exc, DupResultExpiredError):
@@ -198,6 +206,44 @@ async def check_duplicates(payload: DuplicateCheckRequest) -> dict[str, Any]:
     }
 
 
+# ── D06 单篇知识切片查重 ──────────────────────────────────
+
+
+async def check_chunk_duplicates(payload: ChunkCheckRequest) -> dict[str, Any]:
+    """D06：当前知识 vs 授权范围内其余知识，按切片给出命中证据与重复占比。
+
+    与 D01 的差异是「比什么」：D01 看整篇是否重复、只报命中项；这里逐对切片算相似度，
+    ``duplicate_chunks`` 按 ``source_seq`` 去重（同一片命中多篇只算一片），
+    所以 GSI 能直接回答「这篇有几成片段是别处已有的内容」。
+
+    不写任何表：结果只对本次 scope 成立，scope 时限 120 秒，没有可复用的快照。
+    同样也不占幂等键：纯读计算，同 request_id + 同正文天然得到同一结果，
+    存一份大体积回执进幂等台账没有收益（与 D01 一致）。
+    """
+    try:
+        data = ChunkCheckData(
+            request_id=payload.request_id,
+            tenant_id=payload.tenant_id,
+            user_id=payload.user_id,
+            candidate=SpotResource.from_payload(payload.candidate_resource),
+            scope=ScopeData.from_payload(payload.scope),
+        )
+        outcome = await _SERVICE.chunk_check(data)
+    except Exception as exc:
+        raise _map_domain_error(exc) from exc
+    return {
+        "request_id": outcome.request_id,
+        "candidate_resource": outcome.candidate.to_payload(),
+        # complete 只有 true：失败一律报错（403/409/413），不用空数组伪装「查完了没重复」
+        "complete": True,
+        "evaluated_resources": outcome.evaluated_resources,
+        "total_chunks": outcome.total_chunks,
+        "duplicate_chunks": outcome.duplicate_chunks,
+        "duplicate_ratio": outcome.duplicate_ratio,
+        "matches": [match.to_payload() for match in outcome.matches],
+    }
+
+
 # ── #17 查询重复分组 ─────────────────────────────────────────────────
 
 
@@ -301,6 +347,7 @@ async def generate_merge_preview(payload: MergePreviewRequest) -> dict[str, Any]
 
 
 __all__ = [
+    "check_chunk_duplicates",
     "check_duplicates",
     "generate_merge_preview",
     "query_duplicate_group_detail",

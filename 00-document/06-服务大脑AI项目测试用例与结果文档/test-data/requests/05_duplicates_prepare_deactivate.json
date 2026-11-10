@@ -1,0 +1,29 @@
+{
+  "request_id": "req-dup-prepare-deact-001",
+  "tenant_id": "gsi-default",
+  "user_id": "1",
+  "resource_type": "faq",
+  "resource_id": "faq-deact-0001",
+  "publication_id": "pub-test-deact-001",
+  "record_id": "rec-deact-v1",
+  "version_id": "v1",
+  "revision": 1,
+  "knowledge_no": "KB-0000041",
+  "content_hash": "__COMPUTED_AT_RUNTIME__",
+  "metadata": {
+    "title": "停用接口专用问答（勿在其它用例引用）",
+    "doc_type": "faq",
+    "owner": "admin",
+    "language": "zh",
+    "source_parse_job_id": "parse-faq-200002"
+  },
+  "chunks": [
+    {
+      "seq": 1,
+      "heading": "这条知识为什么存在？",
+      "content": "这条问答只用于验证 #20 停用接口：停用后不应再参与检索与引用，但正文与向量必须保留供审计。除停用用例外，任何用例都不得引用 pub-test-deact-001。",
+      "page_from": null,
+      "page_to": null
+    }
+  ]
+}

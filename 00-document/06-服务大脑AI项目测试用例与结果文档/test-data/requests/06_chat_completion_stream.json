@@ -1,0 +1,19 @@
+{
+  "request_id": "req-chat-completion-stream-001",
+  "tenant_id": "gsi-default",
+  "user_id": "1",
+  "session_id": "__SESSION_ID__",
+  "question": "造林对流量历时曲线（FDC）有哪些影响？",
+  "prompt_text": "你是水利科研知识助手。只依据检索到的已授权知识回答。",
+  "model_key": "default",
+  "stream": true,
+  "options": {
+    "language": "zh-CN",
+    "max_output_tokens": 256
+  },
+  "authorization": {
+    "scope_id": "scope-chat-completion-stream-001",
+    "issued_at": "__AUTH_ISSUED_AT__",
+    "expires_at": "__AUTH_EXPIRES_120S__"
+  }
+}

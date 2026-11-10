@@ -1,0 +1,6 @@
+{
+  "request_id": "req-chat-session-create-bad-user-001",
+  "tenant_id": "gsi-default",
+  "user_id": "user-abc",
+  "title": "user_id 非数字（预期 400）"
+}

@@ -1,6 +1,6 @@
-"""`/v1` 重复治理接口（#16 保存前查重 / #17 分组查询 / #18 分组详情 / #19 合并预览）。
+"""`/v1` 重复治理接口（#16 保存前查重 / D06 切片查重 / #17 分组查询 / #18 分组详情 / #19 合并预览）。
 
-四件事都走 ``make_contract_router``：验签、授权时效、审计与错误体口径与其它接口一致；
+五件事都走 ``make_contract_router``：验签、授权时效、审计与错误体口径与其它接口一致；
 业务编排在 ``service.py``，检测与存储全部落在 ``app.modules.kb.dup_result``。
 
 **路由声明顺序**：``/duplicates/groups/query`` 必须写在 ``/duplicates/groups/{group_id}/query``
@@ -11,19 +11,21 @@ from typing import Any
 
 from ...base.common import make_contract_router
 from .schema import (
+    ChunkCheckRequest,
     DuplicateCheckRequest,
     DuplicateGroupQueryRequest,
     DuplicateGroupsQueryRequest,
     MergePreviewRequest,
 )
 from .service import (
+    check_chunk_duplicates,
     check_duplicates,
     generate_merge_preview,
     query_duplicate_group_detail,
     query_duplicate_groups,
 )
 
-DuplicateRouter = make_contract_router(prefix="/knowledge", tags=["契约 /v1 重复治理（#16–#19）"])
+DuplicateRouter = make_contract_router(prefix="/knowledge", tags=["契约 /v1 重复治理（#16–#20 / D06）"])
 
 
 @DuplicateRouter.post("/duplicates/check", summary="#16 保存前重复检查")
@@ -33,6 +35,16 @@ async def duplicate_check(payload: DuplicateCheckRequest) -> dict[str, Any]:
     失败一律显式报错（403 越权 / 409 来源变化），不返回「未发现重复」。
     """
     return await check_duplicates(payload)
+
+
+@DuplicateRouter.post("/duplicates/chunk-check", summary="D06 单篇知识切片查重")
+async def duplicate_chunk_check(payload: ChunkCheckRequest) -> dict[str, Any]:
+    """按切片比对当前知识与授权范围内的其余知识，返回命中证据与重复切片占比。
+
+    ``candidate_resource`` 必须与 ``scope.resources`` 中一项完全一致；
+    命中证据超限回 413 ``RESULT_TOO_LARGE``，不截断、不以空数组冒充完整。
+    """
+    return await check_chunk_duplicates(payload)
 
 
 @DuplicateRouter.post("/duplicates/groups/query", summary="#17 查询重复分组")

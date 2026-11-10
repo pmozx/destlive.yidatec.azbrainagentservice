@@ -2,7 +2,7 @@
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -34,6 +34,36 @@ class SbpKmDocPublicationBrief:
     def subtitle(self) -> str:
         """单个发布单元的展示副标题（口径见 :func:`publication_subtitle`）。"""
         return publication_subtitle(self.teams)
+
+
+@dataclass(frozen=True)
+class AuthorizedCandidate:
+    """一条候选发布单元：生效指针 + 生效快照的规则 JSON（契约 §四 第 3、4 步的输入）。
+
+    只带判定所需的四列：主记录状态已在 SQL 侧过滤掉了，这里不再重复携带；
+    规则 JSON 是 ``text``，所以必须以原文交给应用层解析。
+    """
+
+    publication_id: str
+    doc_id: str
+    record_id: str
+    snapshot_json: str
+
+
+@dataclass(frozen=True)
+class EffectiveRule:
+    """生效快照规则（``snapshot_json`` 里的 ``invisibleTeams`` / ``expireAt``）。
+
+    ``valid=False`` 表示「拿不到可信规则」：解析失败、不是 JSON 对象、
+    ``invisibleTeams`` 缺失或不是数组。此时该发布单元一律不能对外可见——
+    拿不到黑名单就等于无法证明没被排除，不能靠默认为空放行。
+    解析失败的具体原因放在 ``reason`` 里，仅供排障与日志，不回显给调用方。
+    """
+
+    valid: bool
+    invisible_teams: tuple[str, ...] = ()
+    expire_at: date | None = None
+    reason: str | None = None
 
 
 class SbpKmDocPublicationOutSchema(BaseModel):

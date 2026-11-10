@@ -6,7 +6,7 @@
 3. 组织树要能吞下悬挂 parent_id、自引用与互指成环三种脏数据，节点不能从视图里消失。
 """
 
-from datetime import datetime
+from datetime import date, datetime
 
 import pytest
 
@@ -14,6 +14,7 @@ from app import create_app
 from app.modules_gsi.base import format_gsi_datetime
 from app.modules_gsi.faq.faq_publication.service import resolve_access_rules
 from app.modules_gsi.km.doc_publication.schema import SbpKmDocPublicationWithTeamOutSchema
+from app.modules_gsi.km.doc_publication.service import is_rule_visible, resolve_effective_rule
 from app.modules_gsi.sys.audience_team_member.schema import (
     SbpSysAudienceTeamMemberWithTeamOutSchema,
 )
@@ -110,6 +111,73 @@ def test_resolve_access_rules_rejects_invalid(
     assert result["rules_valid"] is False
     assert result["invisible_teams"] == []
     assert reason in (result["rules_error"] or "")
+
+
+# ── 文档生效规则（消费授权第 4 步） ──────────────────────────────
+
+DOC_SNAPSHOT = '{"invisibleTeams": ["team-a", "", " team-b "], "expireAt": "2026-12-31"}'
+TODAY = date(2026, 11, 10)
+
+
+def test_resolve_effective_rule_reads_blacklist_and_expiry() -> None:
+    """黑名单空白项被清掉、首尾空格 trim：黑名单是精确匹配，带空格等于没生效。"""
+    rule = resolve_effective_rule(DOC_SNAPSHOT)
+    assert rule.valid is True
+    assert rule.invisible_teams == ("team-a", "team-b")
+    assert rule.expire_at == date(2026, 12, 31)
+
+
+def test_resolve_effective_rule_takes_date_part_of_iso_datetime() -> None:
+    """``expireAt`` 也有带时区的 ISO 8601；只比业务日期，不做时区换算。"""
+    rule = resolve_effective_rule('{"invisibleTeams": [], "expireAt": "2026-12-31T09:00:00+08:00"}')
+    assert rule.expire_at == date(2026, 12, 31)
+
+
+def test_resolve_effective_rule_without_expiry_is_open_ended() -> None:
+    """没填有效期 = 长期有效：不能自己编一个到期日把内容提前藏起来。"""
+    rule = resolve_effective_rule('{"invisibleTeams": []}')
+    assert rule.valid is True
+    assert rule.expire_at is None
+
+
+@pytest.mark.parametrize(
+    ("snapshot_json", "reason"),
+    [
+        (None, "生效快照为空"),
+        ("  ", "生效快照为空"),
+        ("{not-json", "解析失败"),
+        ("[]", "不是 JSON 对象"),
+        ('{"expireAt": "2026-12-31"}', "invisibleTeams"),
+        ('{"invisibleTeams": "team-a"}', "invisibleTeams"),
+        ('{"invisibleTeams": [], "expireAt": "明年"}', "expireAt"),
+    ],
+)
+def test_resolve_effective_rule_rejects_unusable_snapshot(snapshot_json: str | None, reason: str) -> None:
+    """拿不到可信规则就不能开：缺黑名单、不是对象、到期日认不出一律判无效。"""
+    rule = resolve_effective_rule(snapshot_json)
+    assert rule.valid is False
+    assert reason in (rule.reason or "")
+
+
+def test_rule_visibility_rejects_blacklisted_team() -> None:
+    """命中用户**任一**团队的 blacklist → 不可见（排除优先，与是否有其它团队无关）。"""
+    rule = resolve_effective_rule(DOC_SNAPSHOT)
+    assert is_rule_visible(rule, user_teams={"it", "team-b"}, today=TODAY) is False
+    assert is_rule_visible(rule, user_teams={"it", "hr"}, today=TODAY) is True
+
+
+def test_rule_visibility_rejects_expired_knowledge() -> None:
+    """``expireAt`` 早于当天拒绝，等于当天仍可用。"""
+    expired = resolve_effective_rule('{"invisibleTeams": [], "expireAt": "2026-11-09"}')
+    last_day = resolve_effective_rule('{"invisibleTeams": [], "expireAt": "2026-11-10"}')
+    assert is_rule_visible(expired, user_teams={"it"}, today=TODAY) is False
+    assert is_rule_visible(last_day, user_teams={"it"}, today=TODAY) is True
+
+
+def test_rule_visibility_rejects_invalid_rule() -> None:
+    """规则不可解析时不能按「没配置黑名单」放行。"""
+    rule = resolve_effective_rule("{not-json")
+    assert is_rule_visible(rule, user_teams={"it"}, today=TODAY) is False
 
 
 # ── 联表派生标记 ────────────────────────────────────────────────────

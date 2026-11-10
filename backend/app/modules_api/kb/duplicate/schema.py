@@ -1,6 +1,6 @@
-"""重复治理契约 Schema（#16 保存前查重 / #17 分组查询 / #18 分组详情 / #19 合并预览）。
+"""重复治理契约 Schema（#16 保存前查重 / #17 分组查询 / #18 分组详情 / #19 合并预览 / D06 切片查重）。
 
-字段与手册 D01–D04 逐条对齐（``#20`` 停用属于知识写入口，在 ``knowledge/schema.py``）。
+字段与手册 D01–D06 逐条对齐（``#20`` 停用属于知识写入口，在 ``knowledge/schema.py``）。
 两类校验刻意分开放：
 
 1. **结构校验**（枚举、必填、``seq`` 唯一、草稿必须在清单内）放在这里：失败即 400
@@ -222,6 +222,45 @@ class DuplicateCheckRequest(_KindedRequest):
     """#16 保存前查重请求正文。"""
 
     candidate: CandidateInput
+
+
+def _resource_signature(resource: GovernanceResourceInput) -> tuple[str, str, str, str, tuple[str, ...], str]:
+    """资源的全字段签名：用于「候选必须与清单中一项完全一致」的比对。
+
+    ``publication_ids`` 按排序后比较：同一内容的多个发布单元没有先后语义，
+    顺序不同不该判 400，但多/少一个发布单元就是另一份身份，必须拒绝。
+    """
+    return (
+        resource.resource_type,
+        resource.resource_id,
+        resource.record_id,
+        resource.content_hash,
+        tuple(sorted(resource.publication_ids)),
+        resource.entry_mode,
+    )
+
+
+class ChunkCheckRequest(_ScopedRequest):
+    """D06 单篇知识切片查重请求正文。"""
+
+    candidate_resource: GovernanceResourceInput = Field(
+        description="当前查重知识的完整快照身份，必须与 scope.resources 中一项完全一致"
+    )
+
+    @model_validator(mode="after")
+    def _candidate_in_scope(self) -> "ChunkCheckRequest":
+        """候选必须在范围内且逐字段一致。
+
+        只对得上 ``resource_id`` 而 ``record_id`` / ``content_hash`` 不同，等于拿另一个版本的
+        正文去和本范围比，算出来的「重复占比」不成立；而不在范围内则属于越权检测。
+        """
+        wanted = _resource_signature(self.candidate_resource)
+        if not any(_resource_signature(resource) == wanted for resource in self.scope.resources):
+            raise ValueError(
+                "candidate_resource 必须与 scope.resources 中一项完全一致"
+                "（resource_type / resource_id / record_id / content_hash / publication_ids / entry_mode 全部相同）。"
+            )
+        return self
 
 
 class DuplicateGroupsQueryRequest(_KindedRequest):

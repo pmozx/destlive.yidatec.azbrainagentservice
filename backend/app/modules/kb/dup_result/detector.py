@@ -19,7 +19,9 @@ import re
 import unicodedata
 from collections.abc import Iterable, Sequence
 
+from .errors import DupInvalidRequestError, DupResultTooLargeError
 from .schema import (
+    CHUNK_CHECK_MAX_MATCHES,
     COMPARE_TEXT_LIMIT,
     DUP_KINDS,
     FULL_TEXT_LIMIT,
@@ -39,6 +41,7 @@ from .schema import (
     RESOURCE_FAQ,
     SIMILARITY_THRESHOLD,
     SNIPPET_LIMIT,
+    ChunkMatch,
     DuplicateGroup,
     DuplicateHit,
     GovernanceItem,
@@ -500,10 +503,81 @@ def group_evidence(group: DuplicateGroup) -> tuple[GroupEvidence, ...]:
     return tuple(evidences)
 
 
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# §五  切片查重（D06）
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+def _is_blank(value: str | None) -> bool:
+    return not (value or "").strip()
+
+
+def candidate_slices(item: GovernanceItem) -> tuple[SpotChunk, ...]:
+    """候选的切片：只取正文非空白的切片；未切片时把整篇正文当作一片。
+
+    契约 ``total_chunks`` 的口径是「content 非空白的切片总数」。草稿可能还没切片，
+    这时给一个隐式切片（``seq=1``、正文=全文）：既让占比有意义，也不会把
+    「尚未切片」伪装成「0 命中、无重复」那种虚假成功。
+    """
+    chunks = tuple(chunk for chunk in item.chunks if not _is_blank(chunk.content))
+    if chunks:
+        return chunks
+    if not _is_blank(item.content):
+        return (SpotChunk(seq=1, content=item.content),)
+    return ()
+
+
+def chunk_check_matches(
+    candidate: GovernanceItem,
+    targets: Sequence[GovernanceItem],
+) -> tuple[tuple[ChunkMatch, ...], int]:
+    """D06：候选切片 vs 其它资源切片，返回 ``(命中对, 候选切片总数)``。
+
+    三条口径与契约对齐：
+
+    1. **只用 seq 定位**：草稿切片没有正式 ``chunk_id``，命中回指 ``source_seq`` / ``target_seq``；
+    2. **一对一片段证据**：每条命中回传两边完整正文，不截断、不改写（§D06 响应约束）；
+    3. **超限不截断**：命中超过 ``CHUNK_CHECK_MAX_MATCHES`` 直接报错，由调用方缩小范围。
+
+    遍历顺序固定（source_seq → target 身份 → target_seq），同一输入必然得到同一批证据。
+    """
+    sources = candidate_slices(candidate)
+    if not sources:
+        raise DupInvalidRequestError("candidate 既无切片正文也无整篇正文，无法按切片查重。")
+
+    ordered_targets = sorted(targets, key=lambda item: item.identity)
+    matches: list[ChunkMatch] = []
+    for source in sorted(sources, key=lambda chunk: chunk.seq):
+        for target in ordered_targets:
+            for chunk in sorted(target.chunks, key=lambda item: item.seq):
+                if _is_blank(chunk.content):
+                    continue
+                score = text_similarity(source.content, chunk.content)
+                if score < SIMILARITY_THRESHOLD:
+                    continue
+                matches.append(
+                    ChunkMatch(
+                        source_seq=source.seq,
+                        target=target.resource,
+                        target_seq=chunk.seq,
+                        source_content=source.content,
+                        target_content=chunk.content,
+                        similarity=score,
+                    )
+                )
+                if len(matches) > CHUNK_CHECK_MAX_MATCHES:
+                    raise DupResultTooLargeError(
+                        f"命中证据超过 {CHUNK_CHECK_MAX_MATCHES} 条，请缩小 scope.resources 后重新查重。"
+                    )
+    return tuple(matches), len(sources)
+
+
 __all__ = [
     "Member",
     "build_group_key",
+    "candidate_slices",
     "check_candidate",
+    "chunk_check_matches",
     "clip_text",
     "detect_groups",
     "group_evidence",

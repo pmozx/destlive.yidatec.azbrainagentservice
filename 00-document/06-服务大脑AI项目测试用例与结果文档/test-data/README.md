@@ -1,7 +1,7 @@
 # test-data · 测试数据
 
 > 契约测试用到的**全部 JSON 数据**都归集在本目录：`backend/tests/contract/` 下的测试代码只负责「发请求 + 断言 + 回写结果」，不再内嵌任何 JSON 数据。
-> 同级的 `01`–`03` 测试报告中的入参/出参直接引用本目录文件，避免「文档写一份、代码写一份」的漂移。
+> 同级的 `01`–`05` 测试报告中的入参/出参直接引用本目录文件，避免「文档写一份、代码写一份」的漂移。
 
 ---
 
@@ -22,6 +22,10 @@
 - `04_` 前缀 = 检索接口（#07 `POST /v1/knowledge/search`）
 - `04_*.json` 的 `authorization` 时效写占位符：`__AUTH_ISSUED_AT__` / `__AUTH_EXPIRES_120S__` / `__AUTH_EXPIRES_300S__` / `__AUTH_EXPIRED_ISSUED__` / `__AUTH_EXPIRED_EXPIRES__`，由 `resolve_authorization()` 在发送前换算成当前时刻的毫秒值。静态值一落地就过期，区分不了「跨度超限」与「已过期」。
 - `04_*.json` 的切片与 03 文档形态同源（`04_knowledge_search_prepare_entry.json` 就是上述 #1 的三条切片），但 `publication_id` 改填 GSI 发布单元 `0876a2b0-2788-4816-a1fd-7f26a2bfd061`（`team=AUD_SMOKE`，成员 `user_id=1`），检索的授权链才能成立；`resource_id` / `record_id` / `knowledge_no` / `metadata.owner` 也取该发布单元在 GSI 侧的真实值（见 1.1），命中结果里的 `record_id`、`chunk_id` 因此能与 `sbp_km_doc_record` 逐条对账。
+- `05_` 前缀 = 重复治理与停用（#16 保存前查重、D06 切片查重、#17 分组查询、#18 分组详情、#19 合并预览、#20 停用）
+- `05_*.json` 除了内容摘要（`__HASH_MAIN__` / `__HASH_TWIN__` / `__HASH_DRAFT__`）与范围时效（`__SCOPE_ISSUED_AT__` / `__SCOPE_EXPIRES_120S__`）外，还有一类由 **#17 首查响应反哺**的占位符：`__RESULT_ID__` / `__GROUP_ID__` / `__KEEP_HIT_ID__` / `__OTHER_HIT_ID__`。这些标识由内容身份确定性推导，只有服务端算得出来，写死必然对不上快照；取不到就让用例打印「跳过 + 原因」，不把 `__X__` 原样发出去换 400。
+- `06_` 前缀 = 会话与问答（#08 建会话、#09 列表、#10 详情、#11 改名、#12 删除、#13 清空、#14 问答生成、#15 查操作结果）
+- `06_*.json` 的 `session_id` 由 AI 分配，无法预写：脚本建完会话后注入 `__SESSION_ID__` / `__TEMP_SESSION_ID__`，后者只用于破坏性用例（清空 / 删除），以免重跑时主会话已被删。
 
 ### 1.1 检索用例的授权链基线（2026-11-05 取自开发库 `service_brain`）
 
@@ -55,6 +59,7 @@
 | `01_` | `metadata.invisible_teams` | `["test1"]`（user 2 所在团队），用于验证「命中即拒」的排除规则 |
 | `03_` | `user_id` / `metadata.owner` | `1` / `admin` |
 | `04_` | `user_id` | 命中与其余异常用例 `1`；越权 `2`（`test1` 成员）、无团队 `5`、非数字 `gsi-user-1`；其余 `04_*` 字段沿用本节 §1.1 口径 |
+| `05_` / `06_` | `user_id` / `tenant_id` | `1` / `gsi-default`（`06_chat_session_create_bad_user.json` 故意用非数字值） |
 
 - `03_*` 的 `publication_id` 保持 `pub-test-*` 测试专用标识，**不**绑真实发布单元：03.1–03.4 不读 GSI 授权表（controller 未挂 `enforced_authorization`），`user_id` 仅留痕；若绑真实发布单元，删除用例（`03_knowledge_entries_delete.json`）会给它写墓碑，影响 GSI 侧真实投递与检索用例。
 - 只有 `04_*` 需要真实发布单元，因为 #07 的授权在召回前生效，`publication_id` 必须是 `user_id` 可授权的团队所属发布单元（见 §1.1）。
@@ -163,7 +168,56 @@ FAQ 形态（`resource_type=faq`，源 `responses/02_parse_jobs_faq.json`，`pag
 - #1–#3、#6–#14 只差一个字段：`query` 换成 `flow` / 库外词 / 空白，`limit` 换成 1 / 101，`user_id` 换成 `2`（`test1` 成员）/ `5`（真实存在但无受众团队）/ `gsi-user-1`，`tenant_id` 换成 `gsi-other`，`mode` 换成 `natural_language` / `hybrid`，`authorization` 换跨度或去掉整块
 - 铺场可重复执行：`request_id` 与正文都不变时幂等台账回放 201；改动铺场正文必须同步换 `request_id`，否则 `409 IDEMPOTENCY_CONFLICT`，后续检索用例会全部 0 命中
 
-### 3.4 实测结果文件（与请求文件同名）
+### 3.4 会话与问答（对应 `04`）
+
+会话是写库状态，破坏性用例一旦作用在主会话上就无法重复执行，因此建两个会话：
+
+| 会话 | 创建请求 | 用于 |
+| --- | --- | --- |
+| 主会话 A | [06_chat_session_create.json](requests/06_chat_session_create.json) | #09 列表、#10 详情（含历史）、#11 改名、#14 问答、#15 查结果 |
+| 临时会话 B | [06_chat_session_create_temp.json](requests/06_chat_session_create_temp.json) | #13 清空、#12 删除、删除后的 #10（预期 404） |
+
+| 用例 | 接口 | 请求数据 |
+| --- | --- | --- |
+| #1 建会话（不带授权块） | POST `/v1/chat/sessions` | [06_chat_session_create.json](requests/06_chat_session_create.json) |
+| #2 建临时会话 | POST `/v1/chat/sessions` | [06_chat_session_create_temp.json](requests/06_chat_session_create_temp.json) |
+| #3 会话列表 | POST `/v1/chat/sessions/query` | [06_chat_session_list.json](requests/06_chat_session_list.json) |
+| #4 会话详情（不含历史） | POST `/v1/chat/sessions/{sid}/query` | [06_chat_session_detail.json](requests/06_chat_session_detail.json) |
+| #5 改标题 | PATCH `/v1/chat/sessions/{sid}` | [06_chat_session_rename.json](requests/06_chat_session_rename.json) |
+| #6 问答生成 | POST `/v1/chat/completions` | [06_chat_completion.json](requests/06_chat_completion.json) |
+| #7 详情含历史 | POST `/v1/chat/sessions/{sid}/query` | [06_chat_session_detail_history.json](requests/06_chat_session_detail_history.json) |
+| #8 查操作结果 | POST `/v1/chat/requests/{req}/query` | [06_chat_request_result.json](requests/06_chat_request_result.json) |
+| #9 `stream=true` | POST `/v1/chat/completions` | [06_chat_completion_stream.json](requests/06_chat_completion_stream.json) |
+| #10 清空临时会话 | DELETE `/v1/chat/sessions/{sid}/messages` | [06_chat_session_clear.json](requests/06_chat_session_clear.json) |
+| #11 删除临时会话 | DELETE `/v1/chat/sessions/{sid}` | [06_chat_session_delete.json](requests/06_chat_session_delete.json) |
+| #12 查已删会话 | POST `/v1/chat/sessions/{sid}/query` | [06_chat_session_detail_deleted.json](requests/06_chat_session_detail_deleted.json) |
+| #13 缺 `authorization` 块 | POST `/v1/chat/sessions/query` | [06_chat_session_list_missing_auth.json](requests/06_chat_session_list_missing_auth.json) |
+| #14 `user_id` 非数字 | POST `/v1/chat/sessions` | [06_chat_session_create_bad_user.json](requests/06_chat_session_create_bad_user.json) |
+| #15 查未知操作 ID | POST `/v1/chat/requests/{req}/query` | [06_chat_request_result_not_found.json](requests/06_chat_request_result_not_found.json) |
+
+### 3.5 重复治理与停用（对应 `05`）
+
+先铺场两篇，再依次验证「查重 → 分组 → 详情 → 预览 → 切片查重 → 停用」：
+
+| 用例 | 接口 | 请求数据 |
+| --- | --- | --- |
+| 铺场：写姊妹篇 | POST `/v1/knowledge/entries` | [05_duplicates_prepare_twin.json](requests/05_duplicates_prepare_twin.json) |
+| 铺场：写停用篇 | POST `/v1/knowledge/entries` | [05_duplicates_prepare_deactivate.json](requests/05_duplicates_prepare_deactivate.json) |
+| #1 保存前查重（候选为草稿） | POST `/v1/knowledge/duplicates/check` | [05_duplicates_check.json](requests/05_duplicates_check.json) |
+| #2 分组查询首查 | POST `/v1/knowledge/duplicates/groups/query` | [05_duplicates_groups_query.json](requests/05_duplicates_groups_query.json) |
+| #3 分组查询翻页 | POST `/v1/knowledge/duplicates/groups/query` | [05_duplicates_groups_page2.json](requests/05_duplicates_groups_page2.json) |
+| #4 非法游标 | POST `/v1/knowledge/duplicates/groups/query` | [05_duplicates_groups_bad_cursor.json](requests/05_duplicates_groups_bad_cursor.json) |
+| #5 分组详情 | POST `/v1/knowledge/duplicates/groups/{gid}/query` | [05_duplicates_group_detail.json](requests/05_duplicates_group_detail.json) |
+| #6 合并预览 | POST `/v1/knowledge/duplicates/merge-preview` | [05_duplicates_merge_preview.json](requests/05_duplicates_merge_preview.json) |
+| #7 D06 切片查重（候选=姊妹篇） | POST `/v1/knowledge/duplicates/chunk-check` | [05_duplicates_chunk_check.json](requests/05_duplicates_chunk_check.json) |
+| #8 D06 候选不在授权范围 | POST `/v1/knowledge/duplicates/chunk-check` | [05_duplicates_chunk_check_out_of_scope.json](requests/05_duplicates_chunk_check_out_of_scope.json) |
+| #9 停用 | POST `/v1/knowledge/entries/{pub}/deactivate` | [05_duplicates_deactivate.json](requests/05_duplicates_deactivate.json) |
+
+- `scope` 基线固定为「主篇 + 姊妹篇」两项、`drafts=[]`：草稿必须挂在 `resources` 的身份上且 `record_id` / `content_hash` 一致，因此**不能靠 `drafts` 提供「第二篇」**，要第二篇就得真铺一条正式内容
+- 姊妹篇切片 1、2 与主篇逐字相同、切片 3 换成参考文献，D06 的 `duplicate_chunks / total_chunks` 才恰好是 2/3；改正文前先读 [05 报告 §1.3](../05-重复治理接口出入参测试报告.md) 的相似度矩阵（`twin2 × main1 = 0.6563`，距阈值只有 0.0063）
+- 停用篇（`pub-test-deact-001`）只给 #20 使用，停用后不可检索，其它用例不得引用
+
+### 3.6 实测结果文件（与请求文件同名）
 
 `responses/` 不设汇总文件：一个请求文件对应一个同名响应文件（编号与场景后缀一致）。
 
@@ -197,11 +251,12 @@ FAQ 形态（`resource_type=faq`，源 `responses/02_parse_jobs_faq.json`，`pag
 | `requests/04_knowledge_search_empty_query.json` / `..._limit_out_of_range.json` / `..._invalid_mode.json` | 同名 | 400 `INVALID_REQUEST` |
 
 结果文件结构：`request_file`（同名请求文件）、`request`（实际发出的正文）或 `request_path`（无正文的 GET/查询路径）、
-`response_status`、`response_body`；铺场请求（`03_*_dup_1`、`03_*_conflict`、`04_*_prepare_entry`）额外带 `purpose` 字段说明用途。
+`response_status`、`response_body`；铺场请求（`03_*_dup_1`、`03_*_conflict`、`04_*_prepare_entry`、`05_*_prepare_*`）额外带 `purpose` 字段说明用途。
 
 > 知识接口（`03_*`）已按同一规则重跑，16 个请求文件对应 16 个同名响应文件，不再有汇总文件；
 > 逐用例的请求行与实测状态见 [02-知识写入接口出入参测试报告.md](../02-知识写入接口出入参测试报告.md) 第 6.1 节。
 > 检索接口（`04_*`）15 个请求文件对应 15 个同名响应文件；逐用例记录见 [03-检索接口出入参测试报告.md](../03-检索接口出入参测试报告.md) 第 7.1 节。
+> 会话（`06_*`）15 个与重复治理（`05_*`）11 个请求文件**尚未执行**，`responses/` 里暂无对应快照；执行后按同名规则自动生成，逐用例记录见 [04](../04-会话与问答接口出入参测试报告.md) / [05](../05-重复治理接口出入参测试报告.md) 报告的实测章节。
 
 ---
 
@@ -221,6 +276,12 @@ cd backend
 
 # 4. 检索接口契约测试（先铺场再检索，按同名规则回写 15 个响应）
 .venv\Scripts\python.exe -m tests.contract.run_search_tests
+
+# 5. 会话与问答接口契约测试（建两个会话，破坏性用例只作用于临时会话）
+.venv\Scripts\python.exe -m tests.contract.run_chat_tests
+
+# 6. 重复治理与停用契约测试（含两条铺场，回写 11 个响应）
+.venv\Scripts\python.exe -m tests.contract.run_duplicate_tests
 ```
 
 需先启动服务，并在 `env/.env.dev` 中配置 `CONTRACT_TEST_ENABLE=true`（签名头生成接口的开关）。

@@ -6,7 +6,8 @@
 ``DupResultExpiredError`` → 409 ``RESULT_EXPIRED``；
 ``DupResultNotFoundError`` → 404 ``NOT_FOUND``；
 ``DupInvalidRequestError`` → 400 ``INVALID_REQUEST``；
-``DupScopeTooLargeError`` → 413 ``PAYLOAD_TOO_LARGE``（过大不静默截断）。
+``DupScopeTooLargeError`` → 413 ``PAYLOAD_TOO_LARGE``（过大不静默截断）；
+``DupResultTooLargeError`` → 413 ``RESULT_TOO_LARGE``（命中证据过多，D06）。
 
 领域层不 import ``modules_api``：那会让基座依赖契约层，违反依赖方向（规范 R6）。
 """
@@ -45,4 +46,12 @@ class DupScopeTooLargeError(Exception):
     """治理范围超过容量上限（默认 1000 项）。
 
     既不截断也不降级：截断等于「少比了一部分内容却报成功」，会让调用方误以为可以保存。
+    """
+
+
+class DupResultTooLargeError(Exception):
+    """命中证据超过上限（D06 ``matches``）。
+
+    契约要求「不静默截断」：只回一部分命中去算占比，会让 GSI 低估重复情况，
+    因此超限一律显式 413，由调用方缩小范围重查。
     """

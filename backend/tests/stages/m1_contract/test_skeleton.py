@@ -3,8 +3,8 @@
 **为什么单独放 ``stages/``**：下面这些断言验的是「这一阶段的交付是否成立」，而不是某个
 模块的长期行为。它们会随阶段推进**被替换而不是被修修补补**——
 
-- 20 条路由清单：骨架期要逐条对上手册；等 #07/#14 真正实现后，清单应改为「与手册一致」
-  而不是「恰好 20 条」；
+- 契约路由清单：骨架期要逐条对上手册；等 #07/#14 真正实现后，清单应改为「与手册一致」
+  而不是「恰好 N 条」。v3 新增 D06 切片查重后，条目数为 21；
 - 501 骨架占位：占位实现被真实链路取代后，这条必须删掉，否则会挡住正常返回。
   #07 于 T4.1 上线时已按此删除，不留「改成断言 200」的变体；
 - 错误响应声明：骨架期统一指向 `ContractErrorResponse`，将来分接口细化后同样要改。
@@ -14,8 +14,9 @@
 """
 
 from app import create_app
+from app.scripts.contract.verify_m1 import ROUTES
 
-#: 手册 §五「接口总览」的 20 条：路径 / 方法锁定，任何增删改都必须显式反映到这里
+#: 手册 §五「接口总览」的 21 条（v3 含 D06）：路径 / 方法锁定，任何增删改都必须显式反映到这里
 EXPECTED_ROUTES: set[tuple[str, str]] = {
     ("POST", "/v1/parse/jobs"),
     ("GET", "/v1/parse/jobs/{job_id}"),
@@ -33,6 +34,7 @@ EXPECTED_ROUTES: set[tuple[str, str]] = {
     ("POST", "/v1/chat/completions"),
     ("POST", "/v1/chat/requests/{target_request_id}/query"),
     ("POST", "/v1/knowledge/duplicates/check"),
+    ("POST", "/v1/knowledge/duplicates/chunk-check"),
     ("POST", "/v1/knowledge/duplicates/groups/query"),
     ("POST", "/v1/knowledge/duplicates/groups/{group_id}/query"),
     ("POST", "/v1/knowledge/duplicates/merge-preview"),
@@ -40,8 +42,8 @@ EXPECTED_ROUTES: set[tuple[str, str]] = {
 }
 
 
-def test_twenty_contract_routes_are_registered() -> None:
-    """20 条路由的路径与方法与手册 §五 完全一致（POC 已被契约层接管，不再重复挂载）。"""
+def test_contract_routes_are_registered() -> None:
+    """路由的路径与方法与手册 §五 完全一致（POC 已被契约层接管，不再重复挂载）。"""
     schema = create_app().openapi()
     actual = {
         (method.upper(), path)
@@ -51,7 +53,17 @@ def test_twenty_contract_routes_are_registered() -> None:
         for method in operations
     }
     assert actual == EXPECTED_ROUTES
-    assert len(actual) == 20
+    assert len(actual) == 21
+
+
+def test_gate_routes_track_contract_surface() -> None:
+    """门禁脚本的 `ROUTES` 必须与上面的清单一致。
+
+    两处各维护一份 21 条曾经漂移过（D06 上线后 `verify_m1` 还停在 20 条），而门禁脚本
+    不在 CI 里跑，漂移没人发现。这条把「改路由只改一处」变成红灯，而不是靠人记得同步。
+    """
+    gate = {(method.upper(), path) for _number, method, path, _scope in ROUTES}
+    assert gate == EXPECTED_ROUTES
 
 
 def test_error_responses_point_to_contract_error_body() -> None:

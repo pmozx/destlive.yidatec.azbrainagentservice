@@ -1,0 +1,43 @@
+{
+  "request_id": "req-dup-prepare-twin-001",
+  "tenant_id": "gsi-default",
+  "user_id": "1",
+  "resource_type": "document",
+  "resource_id": "63858256ba974edd",
+  "publication_id": "pub-test-dup-twin-001",
+  "record_id": "rec-dup-twin-v1",
+  "version_id": "v1",
+  "revision": 1,
+  "knowledge_no": "KB-0000040",
+  "content_hash": "__COMPUTED_AT_RUNTIME__",
+  "metadata": {
+    "title": "流量历时曲线对造林的响应",
+    "doc_type": "document",
+    "owner": "admin",
+    "language": "en",
+    "source_parse_job_id": "parse-doc-100002"
+  },
+  "chunks": [
+    {
+      "seq": 1,
+      "heading": "Abstract",
+      "content": "The hydrologic effect of replacing pasture or other short crops with trees is reasonably well understood on a mean annual basis. The impact on flow regime, as described by the annual flow duration curve (FDC) is less certain. A method to assess the impact of plantation establishment on FDCs was developed. The starting point for the analyses was the assumption that rainfall and vegetation age are the principal drivers of evapotranspiration. A key objective was to remove the variability in the rainfall signal, leaving changes in streamflow solely attributable to the evapotranspiration of the plantation. A method was developed to (1) fit a model to the observed annual time series of FDC percentiles; i.e",
+      "page_from": 1,
+      "page_to": 1
+    },
+    {
+      "seq": 2,
+      "heading": "1. Introduction",
+      "content": "Widespread afforestation through plantation establishment on non-forested land represents a potentially significant alteration of catchment evapotranspiration (ET). Using data collated from multiple catchment studies, researchers have demonstrated a consistent difference in ET between forests and grass or short crops, and the relationship between ET and rainfall on a mean annual basis (Holmes and Sinclair, 1986; Vertessy and Bessard, 1999; Zhang et al., 1999, 2001). Once annual rainfall exceeds 400–500 mm, there is an increasing divergence between forest and grassland ET (Zhang et al., 2001). Research from South Africa in particular has demonstrated flow reduction following afforestation with both pine and eucalypt species (Bosch, 1979; Van Lill et al",
+      "page_from": 2,
+      "page_to": 2
+    },
+    {
+      "seq": 3,
+      "heading": "References",
+      "content": "Bosch, J.M. (1979) Treatment effects on annual and dry period streamflow at Cathedral Peak. South African Forestry Journal, 108, 29-38. Holmes, J.W. and Sinclair, J.A. (1986) Water yield from some afforested catchments in Victoria. Hydrology and Water Resources Symposium, Brisbane, 14-16. Van Lill, W.S., Kruger, F.J. and van Wyk, D.B. (1980) The effect of afforestation with Eucalyptus grandis on streamflow. South African Forestry Journal, 112, 26-31. Vertessy, R.A. and Bessard, Y. (1999) Anticipating the consequences of forest activity on water yield. Water Resources Research, 35, 2363-2370.",
+      "page_from": 4,
+      "page_to": 4
+    }
+  ]
+}

@@ -66,6 +66,9 @@ RESULT_TTL = timedelta(minutes=30)
 DEFAULT_GROUP_PAGE = 20
 MAX_GROUP_PAGE = 100
 MAX_MATCHES = 50
+# D06 切片级命中证据上限：契约要求「不静默截断，超过上限返回 RESULT_TOO_LARGE」，
+# 所以这是「超限就报错」的闸门，不是「截断到多少条」的窗口
+CHUNK_CHECK_MAX_MATCHES = 200
 
 # 比较与展示的长度上限：只影响「相似度算多长」「快照截多长」，不参与落库判定
 COMPARE_TEXT_LIMIT = 2000
@@ -143,6 +146,17 @@ class SpotResource:
     def identity(self) -> str:
         """业务知识身份：同一内容多团队发布只参与比较一次，所以不含 publication_ids。"""
         return f"{self.resource_type}:{self.resource_id}"
+
+    def to_payload(self) -> dict[str, Any]:
+        """契约投影（请求与响应同构）：字段顺序与契约示例一致，避免联调对照时错位。"""
+        return {
+            "resource_type": self.resource_type,
+            "resource_id": self.resource_id,
+            "record_id": self.record_id,
+            "content_hash": self.content_hash,
+            "publication_ids": list(self.publication_ids),
+            "entry_mode": self.entry_mode,
+        }
 
 
 @dataclass(frozen=True)
@@ -422,6 +436,71 @@ class DuplicateCheckOutcome:
 
 
 @dataclass(frozen=True)
+class ChunkMatch:
+    """D06 一对切片命中（契约 ``matches[]``）。
+
+    ``source_seq`` / ``target_seq`` 是定位键：草稿切片没有正式 ``chunk_id``，
+    只能用冻结草稿内的序号回指，GSI 据此在本地修订单元里找到对应那条。
+    """
+
+    source_seq: int
+    target: SpotResource
+    target_seq: int
+    source_content: str
+    target_content: str
+    similarity: float
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "source_seq": self.source_seq,
+            "target_resource": _resource_payload(self.target),
+            "target_seq": self.target_seq,
+            "source_content": self.source_content,
+            "target_content": self.target_content,
+            "similarity": self.similarity,
+        }
+
+
+@dataclass(frozen=True)
+class ChunkCheckData:
+    """D06 单篇切片查重入参：候选身份 + 授权范围（候选必须在范围内）。"""
+
+    request_id: str
+    tenant_id: str
+    user_id: str
+    candidate: SpotResource
+    scope: ScopeData
+
+
+@dataclass(frozen=True)
+class ChunkCheckOutcome:
+    """D06 结果：命中证据 + 按切片计的占比。"""
+
+    request_id: str
+    candidate: SpotResource
+    evaluated_resources: int
+    total_chunks: int
+    matches: tuple[ChunkMatch, ...]
+
+    @property
+    def duplicate_chunks(self) -> int:
+        """命中的**不同** source_seq 数：同一片命中多篇文档只算一片。"""
+        return len({match.source_seq for match in self.matches})
+
+    @property
+    def duplicate_ratio(self) -> float:
+        """duplicate_chunks / total_chunks（0–1）。
+
+        契约要求「至少保留 6 位小数」，示例给的是 ``0.6666666666666666``：这里不做四舍五入，
+        直接给浮点除法原值——先 round 再回传会把 2/3 变成 0.666667，与示例对不上，
+        调用方若按「等于 2/3」校验就会被误判。
+        """
+        if self.total_chunks <= 0:
+            return 0.0
+        return self.duplicate_chunks / self.total_chunks
+
+
+@dataclass(frozen=True)
 class DuplicateGroupsPage:
     """D02 结果（一页分组 + 该结果的全部分组数）。"""
 
@@ -478,14 +557,8 @@ class MergePreviewOutcome:
 
 
 def _resource_payload(resource: SpotResource) -> dict[str, Any]:
-    return {
-        "resource_type": resource.resource_type,
-        "resource_id": resource.resource_id,
-        "record_id": resource.record_id,
-        "content_hash": resource.content_hash,
-        "publication_ids": list(resource.publication_ids),
-        "entry_mode": resource.entry_mode,
-    }
+    """兼容内部调用点的薄封装；投影定义只有 ``SpotResource.to_payload`` 一处。"""
+    return resource.to_payload()
 
 
 def _hit_from_payload(payload: dict[str, Any]) -> DuplicateHit:

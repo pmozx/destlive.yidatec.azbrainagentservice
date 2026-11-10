@@ -31,7 +31,7 @@ from app.utils.common_util import canonical_json_sha256, uuid4_str
 from ..dup_group.crud import KbDupGroupCRUD
 from ..dup_group.service import KbDupGroupService, KbDupGroupSyncData
 from .crud import KbDupResultCRUD
-from .detector import check_candidate, detect_groups, group_evidence, normalize_text
+from .detector import check_candidate, chunk_check_matches, detect_groups, group_evidence, normalize_text
 from .errors import (
     DupInvalidRequestError,
     DupResultExpiredError,
@@ -48,6 +48,8 @@ from .schema import (
     KIND_FAQ_MANUAL,
     MAX_GROUP_PAGE,
     RESULT_TTL,
+    ChunkCheckData,
+    ChunkCheckOutcome,
     DuplicateCheckData,
     DuplicateCheckOutcome,
     DuplicateCoverage,
@@ -143,6 +145,44 @@ class KbDupResultService:
             is_duplicate=bool(matches),
             similarity=similarity,
             score_profile=data.score_profile,
+            matches=matches,
+        )
+
+    # ── D06 单篇切片查重 ─────────────────────────────────────────────
+
+    async def chunk_check(self, data: ChunkCheckData) -> ChunkCheckOutcome:
+        """候选知识 vs 授权范围内其余知识：按切片给命中对与重复占比，不落任何表。
+
+        与 D01 的区别是「比较粒度」：D01 先看整篇再看切片是否**完全相同**，
+        这里每一对切片都算相似度，并按 ``source_seq`` 去重得到 ``duplicate_chunks``，
+        所以能回答「这篇有几分之一的片段是别人的旧内容」。
+        """
+        async with async_session_factory() as session:
+            items = await KbDupSource(session).load(scope=data.scope, tenant_id=data.tenant_id)
+
+        candidate = items.get(data.candidate.identity)
+        if candidate is None:
+            # 契约要求 candidate_resource 必须与 scope.resources 中一项完全一致；
+            # 到这里还不一致说明请求与范围自相矛盾，不能返回「未发现重复」
+            raise DupInvalidRequestError("candidate_resource 不在本次授权范围内，无法查重。")
+
+        targets = [item for identity, item in items.items() if identity != candidate.identity]
+        matches, total_chunks = chunk_check_matches(candidate, targets)
+        logger.info(
+            "切片查重完成：request_id={} candidate={} 范围={} 切片={} 命中对={}",
+            data.request_id,
+            candidate.identity,
+            len(items),
+            total_chunks,
+            len(matches),
+        )
+        return ChunkCheckOutcome(
+            request_id=data.request_id,
+            candidate=candidate.resource,
+            # 契约要求 evaluated_resources「必须等于 scope.resources 数量」：取声明值而不是
+            # len(items)——source.load 对取不到内容的资源已经抛 409，不会静默少算一项
+            evaluated_resources=data.scope.requested_resources,
+            total_chunks=total_chunks,
             matches=matches,
         )
 

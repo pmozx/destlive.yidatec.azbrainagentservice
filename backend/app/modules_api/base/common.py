@@ -4,7 +4,7 @@
 「审计（`ContractApiRoute`）+ 验签 + 授权时效 + 错误体声明」上完全一致；
 新增接口只需在对应 controller 里加装饰器，公共口径不复制。
 
-P6 起 20 条路由均已接入业务实现，骨架期的 501 出口（``skeleton``）已移除；
+P6 起 20 条路由均已接入业务实现（v3 D06 切片查重补入后为 21 条），骨架期的 501 出口（``skeleton``）已移除；
 下面 501 的响应声明保留，仅用于让调用方按同一套错误体处理预留状态。
 """
 
@@ -39,7 +39,7 @@ COMMON_RESPONSES: dict[int | str, dict[str, Any]] = {
     429: {"model": ContractErrorResponse, "description": "触发限流（`RATE_LIMITED`，`retryable=true`，带 `Retry-After`）"},
     501: {
         "model": ContractErrorResponse,
-        "description": "预留状态：错误体与其它状态码同构，本期 20 条路由均已实现，不再返回",
+        "description": "预留状态：错误体与其它状态码同构，本期 21 条路由均已实现，不再返回",
     },
     503: {"model": ContractErrorResponse, "description": "依赖不可用，如权限数据 / 防重放台账（`AUTHORIZATION_UNAVAILABLE`）"},
 }
