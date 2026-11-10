@@ -12,6 +12,7 @@ from typing import Any
 import pytest
 
 from app.config.setting import settings
+from app.core.rag import embedding_text, split_text
 from app.core.rag.page_render import render_pdf_pages
 from app.core.security_signature import build_signed_headers
 from app.modules.kb.parse_job import pipeline
@@ -19,7 +20,6 @@ from app.modules.kb.parse_job.pipeline import ParseFileTooLargeError, fetch_file
 from app.modules.kb.parse_result import preview
 from app.modules_api.base import errors as contract_errors
 from app.scripts.contract.mock_gsi import FileServer
-from app.utils.text_splitter import split_text
 
 from tests.support import call, requires_db
 
@@ -162,7 +162,10 @@ async def test_fetch_file_stops_at_limit() -> None:
 
 
 def test_split_text_assigns_section_heading() -> None:
-    """分片按起始位置回填 Markdown 章节标题（#02 的 chunks[].heading 依赖它）。"""
+    """分片回填 Markdown 标题路径（#02 的 chunks[].heading 依赖它）。
+
+    分片处理应是「一级 > 二级」的面包屑：只存叶子标题会让同名小节无法区分。
+    """
     chunks = split_text(
         "# 一级标题\n\n" + "第一段正文内容。" * 5 + "\n\n## 申请流程\n\n" + "第二段正文内容。" * 5,
         chunk_size=40,
@@ -170,7 +173,76 @@ def test_split_text_assigns_section_heading() -> None:
     )
     headings = [chunk.meta.get("section_title") for chunk in chunks]
     assert "一级标题" in headings
-    assert "申请流程" in headings
+    assert "一级标题 > 申请流程" in headings
+
+
+def test_split_text_keeps_table_whole_and_repeats_header() -> None:
+    """表格按行切时每片重附表头：丢了表头的数据行在检索里没有主语。"""
+    header = "| 环节 | 时限 | 责任人 |\n| --- | --- | --- |\n"
+    rows = "".join(f"| 三级审批第{index}步 | {index}个工作日 | 部门负责人 |\n" for index in range(1, 60))
+    chunks = split_text(f"## 审批时限\n\n{header}{rows}", chunk_size=300, overlap=30)
+
+    assert len(chunks) > 1, "用例依赖超长表格被切成多片"
+    for chunk in chunks:
+        assert "| 环节 | 时限 | 责任人 |" in chunk.content, "每片都必须带表头"
+        assert "| --- | --- | --- |" in chunk.content
+
+
+def test_split_text_keeps_code_fence_atomic() -> None:
+    """围栏代码块是逻辑整体：不得因跨过分片长度而从中间劈开。"""
+    code = "```python\n" + "\n".join(f"result_{index} = compute({index})" for index in range(15)) + "\n```"
+    chunks = split_text(f"# 示例\n\n{code}", chunk_size=120, overlap=20)
+
+    whole = [chunk.content for chunk in chunks if "```python" in chunk.content]
+    assert len(whole) == 1, "代码块应完整落在同一个切片内"
+    assert whole[0].count("```") == 2, "起止围栏必须在同一片"
+
+
+
+def test_split_text_keeps_short_html_table_atomic() -> None:
+    """不超过分片长度的 HTML 表格整块保留：不为了凑尺寸把标签拆开。"""
+    rows = "".join(f"<tr><td>第{index}步</td><td>{index}天</td></tr>" for index in range(1, 4))
+    table = f"<table><tr><th>环节</th><th>时限</th></tr>{rows}</table>"
+    chunks = split_text(f"# 流程\n\n{table}", chunk_size=400, overlap=30)
+
+    whole = [chunk.content for chunk in chunks if "<table>" in chunk.content]
+    assert len(whole) == 1, "短表格应完整落在同一个切片内"
+    assert whole[0].count("</table>") == 1
+
+
+def test_split_text_splits_long_html_table_by_row() -> None:
+    """超长 HTML 表格按 ``<tr>`` 切：每片自带开闭标签与表头，数据行不丢。
+
+    MinerU 还原的表格常常整张没有换行，按行号切不动；切完必须让每片都能独立读懂，
+    否则丢掉表头的数据行在检索里等于没有主语。
+    """
+    rows = "".join(f"<tr><td>第{index}步</td><td>{index}天</td></tr>" for index in range(1, 40))
+    table = f"<table><thead><tr><th>环节</th><th>时限</th></tr></thead>{rows}</table>"
+    chunks = split_text(f"# 流程\n\n{table}", chunk_size=200, overlap=30)
+
+    pieces = [chunk.content for chunk in chunks if "<table" in chunk.content]
+    assert len(pieces) > 1, "超长 HTML 表格应被切开"
+    for piece in pieces:
+        assert piece.count("<table") == 1 and piece.count("</table>") == 1
+        assert "<thead>" in piece and "环节" in piece
+    joined = "".join(pieces)
+    assert "第1步" in joined and "第39步" in joined
+
+
+def test_embed_text_prepends_heading_path() -> None:
+    """向量化输入拼上标题路径：落库正文不变，只有送模型的文本带路径。"""
+    chunks = split_text("# 一级\n\n## 二级\n\n这一段正文用于验证拼接口径。", chunk_size=800, overlap=0)
+    body = next(chunk for chunk in chunks if "这一段正文" in chunk.content)
+
+    assert body.meta["section_title"] == "一级 > 二级"
+    assert body.content.startswith("# 一级")
+    assert body.embed_text == f"一级 > 二级\n{body.content}"
+
+
+def test_embed_text_falls_back_to_content_without_heading() -> None:
+    """没有标题路径时原样返回，不留下空行前缀。"""
+    assert embedding_text("正文", None) == "正文"
+    assert embedding_text("正文", "   ") == "正文"
 
 
 def test_render_pdf_pages_returns_png() -> None:

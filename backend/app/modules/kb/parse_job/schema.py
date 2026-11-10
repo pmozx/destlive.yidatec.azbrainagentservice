@@ -68,7 +68,10 @@ class KbParseRetrySchema(BaseModel):
 
     from_step: Literal["extract", "artifacts", "faq", "chunk", "pages", "suggest", "persist"] | None = Field(
         default=None,
-        description="从哪一步重跑；缺省取上一轮第一处失败的步骤，再往前自动回退到有快照的位置",
+        description=(
+            "从哪一步重跑；缺省取上一轮第一处失败的步骤，再往前自动回退到有快照的位置。"
+            "已成功的任务仅支持 chunk：按解析快照重新切块，不再重跑解析；产物里有人工修订过的切片时拒绝"
+        ),
     )
 
 

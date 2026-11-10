@@ -22,8 +22,8 @@ from fastapi import status
 from app.core.clients import EmbeddingClient, get_embedding_client
 from app.core.exceptions import CustomException
 from app.utils.page_locator import PageLocator
-from app.utils.text_splitter import TextChunk, split_text
 
+from .chunker import TextChunk, split_text
 from .parsers import ParsedDocument, parse_document
 
 # 节点事件回调（可选）：携带节点名、阶段（started/succeeded）与该阶段产出信息
@@ -150,11 +150,15 @@ async def embed_chunks(
     *,
     embedding_client: EmbeddingClient | None = None,
 ) -> list[list[float]]:
-    """批量向量化分片正文，返回与分片一一对应的向量列表（缺省用进程级单例，见 F5/L1）。"""
+    """批量向量化分片，返回与分片一一对应的向量列表（缺省用进程级单例，见 F5/L1）。
+
+    送入模型的是 ``chunk.embed_text``（标题路径 + 正文）：只嵌正文会让「某一节讲了
+    什么」这类靠标题才能命中的问题召不回片段；落库的 ``content`` 仍是原文。
+    """
     if not chunks:
         return []
     client = embedding_client or get_embedding_client()
-    return await client.embed_texts([chunk.content for chunk in chunks])
+    return await client.embed_texts([chunk.embed_text for chunk in chunks])
 
 
 async def process_document(

@@ -26,7 +26,7 @@ import asyncio
 import hashlib
 import json
 import re
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -41,7 +41,7 @@ from app.core.clients.download import DOWNLOAD_TIMEOUT_SECONDS, DownloadError, d
 from app.core.clients.s3 import get_s3_client
 from app.core.exceptions import CustomException
 from app.core.logger import logger
-from app.core.rag import ChunkedDocument, parse_and_chunk, supported_suffixes
+from app.core.rag import ChunkedDocument, TextChunk, parse_and_chunk, split_text, supported_suffixes
 from app.core.rag.page_render import render_pdf_pages
 from app.core.rag.parsers import ParsedDocument
 from app.utils.page_locator import PageLocator
@@ -129,13 +129,22 @@ async def fetch_file(url: str, *, max_bytes: int | None = None) -> bytes:
         raise ParseInvalidRequestError(str(exc)) from exc
 
 
-def build_result_chunks(chunked: ChunkedDocument, *, enabled: bool) -> list[dict[str, Any]]:
-    """把分片投影成产物结构：``seq`` 从 1 起，页码/小标题有信息才回填（无则省略）。"""
+def build_result_chunks(
+    pieces: Sequence[TextChunk],
+    page_map: Sequence[tuple[str, int]],
+    *,
+    enabled: bool,
+) -> list[dict[str, Any]]:
+    """把分片投影成产物结构：``seq`` 从 1 起，页码/小标题有信息才回填（无则省略）。
+
+    ``pieces`` 由调用方给，本函数只做投影、不承担切片策略：首次解析直接用 extract
+    步切好的分片（保住原有顺序），换切块口径重跑 chunk 步时用 ``split_text`` 现切。
+    """
     if not enabled:
         return []
-    locator = PageLocator(chunked.document.page_map)
+    locator = PageLocator(list(page_map))
     rows: list[dict[str, Any]] = []
-    for chunk in chunked.chunks:
+    for chunk in pieces:
         item: dict[str, Any] = {
             "seq": chunk.index + 1,
             "content": chunk.content,
@@ -400,9 +409,10 @@ async def _resume_point(
     if step not in steps:
         return 0, {}
     index = steps.index(step)
-    if steps[index] in (STEP_ARTIFACTS, STEP_CHUNK):
-        # 这两步吃的是解析器给的对象（图片字节 / 分片列表），事后再取不回来：
-        # 只能与 extract 同跑。FAQ 续跑不受影响（只靠正文与页码快照）。
+    if steps[index] == STEP_ARTIFACTS:
+        # artifacts 吃的是解析器给的对象（图片字节 / 版面 JSON），事后再取不回来，
+        # 只能与 extract 同跑。chunk 不在此列：它只需要正文与页码快照，
+        # 换切块口径时可以只重切片、不重新解析（重跑一次 MinerU 是分钟级成本）。
         index = 0
     while index > 0:
         ready, outputs = await STEP_SERVICE.completed_before(
@@ -579,12 +589,19 @@ async def run_parse_job(
                     )
                     warnings.extend(faq_warnings)
                 else:
-                    if chunked is None:
-                        raise CustomException(
-                            msg="续跑缺少解析快照，请从「解析」步骤重跑。",
-                            status_code=status.HTTP_400_BAD_REQUEST,
-                        )
-                    chunks = build_result_chunks(chunked, enabled=chunk_enabled)
+                    if chunked is not None:
+                        # 首次解析：复用 extract 已切好的分片
+                        pieces, page_source = chunked.chunks, chunked.document.page_map
+                    else:
+                        # 续跑（仅重切片）：按快照正文现切，切片策略只在 core.rag 一处
+                        if not text:
+                            raise CustomException(
+                                msg="续跑缺少解析快照，请从「解析」步骤重跑。",
+                                status_code=status.HTTP_400_BAD_REQUEST,
+                            )
+                        pieces = await asyncio.to_thread(split_text, text)
+                        page_source = page_map
+                    chunks = build_result_chunks(pieces, page_source, enabled=chunk_enabled)
                     if chunk_enabled and not chunks:
                         raise CustomException(
                             msg="文档解析后未生成有效切片。", status_code=status.HTTP_400_BAD_REQUEST

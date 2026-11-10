@@ -167,6 +167,16 @@
         <div class="kb-drawer__head">
           <span class="kb-drawer__title">解析任务详情</span>
           <el-button
+            v-if="canReslice"
+            size="small"
+            type="warning"
+            plain
+            :loading="retrying"
+            @click="resliceChunks"
+          >
+            重新切片
+          </el-button>
+          <el-button
             v-if="canRetry"
             size="small"
             type="primary"
@@ -576,7 +586,7 @@
 
 <script setup>
 import { computed, reactive, ref, watch } from 'vue'
-import { ElMessage, genFileId } from 'element-plus'
+import { ElMessage, ElMessageBox, genFileId } from 'element-plus'
 
 import { getPublicationList } from '@/api/module_kb/publication'
 import {
@@ -784,6 +794,17 @@ const failedStep = computed(() => {
 /** 只有失败与运行中可重跑：成功的重跑会覆盖已审核产物（后端同样 409） */
 const canRetry = computed(() => ['failed', 'running'].includes(detail.value?.status))
 
+/**
+ * 已成功的任务可以只重切片：换切块口径时不必重新解析原件（FAQ 没有 chunk 步，不适用）。
+ * 产物里若有人工修订过的切片，后端会 409 拒绝，由拦截器统一提示。
+ */
+const canReslice = computed(
+  () =>
+    detail.value?.status === 'succeeded' &&
+    detail.value?.resource_type !== 'faq' &&
+    detail.value?.file_meta?.options?.chunk !== false,
+)
+
 const retryLabel = computed(() => (failedStep.value ? `从「${stepLabel(failedStep.value.step)}」重跑` : '重新排队'))
 
 const stepTimelineHint = computed(() => {
@@ -843,7 +864,11 @@ async function retryFromStep(step) {
       error_code: out.error_code,
       error_message: out.error_message,
     })
-    ElMessage.success(`已受理重跑（第 ${out.attempt} 轮）${step ? `，从「${stepLabel(step)}」继续` : ''}`)
+    ElMessage.success(
+      step === 'chunk'
+        ? `已受理重新切片（第 ${out.attempt} 轮）`
+        : `已受理重跑（第 ${out.attempt} 轮）${step ? `，从「${stepLabel(step)}」继续` : ''}`,
+    )
     activeTab.value = 'steps'
     load()
     // 新一轮的步骤行由后台任务逐条写入，先同步一次已有记录
@@ -853,6 +878,24 @@ async function retryFromStep(step) {
   } finally {
     retrying.value = false
   }
+}
+
+/**
+ * 只重切片：后端从解析快照重算切片，不重新调解析器。
+ * 会整体替换产物里的切片，所以先弹窗确认（已发布的知识不受影响，需重新写入才生效）。
+ */
+async function resliceChunks() {
+  if (!detail.value?.uuid || retrying.value) return
+  try {
+    await ElMessageBox.confirm(
+      '将按当前切块口径重新切分这份文档，不重新解析原件。产物里的切片会被整体替换；若已有切片被人工修订，后端会拒绝本次操作。',
+      '重新切片',
+      { type: 'warning', confirmButtonText: '开始重切', cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
+  await retryFromStep('chunk')
 }
 
 /** 页图预览数组：只保留带 image_url 的项，供缩略图与放大预览共用 */

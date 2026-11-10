@@ -22,6 +22,7 @@ from app.core.clients import get_embedding_client
 from app.core.database import async_session_factory
 from app.core.exceptions import CustomException
 from app.core.logger import logger
+from app.core.rag.chunker import embedding_text
 from app.core.rag.vector_store import validate_embedding
 
 from ..chunk.crud import KbChunkCRUD
@@ -441,10 +442,16 @@ class KbEntryService:
 
     @staticmethod
     async def _embed(chunks: tuple[EntryChunkData, ...]) -> list[list[float]]:
-        """批量向量化（分批并发 + 重试由客户端负责）；任何依赖异常都归口为可重试失败。"""
+        """批量向量化（分批并发 + 重试由客户端负责）；任何依赖异常都归口为可重试失败。
+
+        送入模型的是「标题路径 + 正文」（与解析链路同一个拼接口径，见
+        :func:`app.core.rag.chunker.embedding_text`）；落库与检索返回的正文仍是原文。
+        """
         try:
             # 进程级单例：每请求 new 一个会让 httpx 连接池既不复用也永不关闭
-            vectors = await get_embedding_client().embed_texts([chunk.content for chunk in chunks])
+            vectors = await get_embedding_client().embed_texts(
+                [embedding_text(chunk.content, chunk.heading) for chunk in chunks]
+            )
             return [validate_embedding(vector) for vector in vectors]
         except Exception as exc:
             detail = exc.msg if isinstance(exc, CustomException) else str(exc)

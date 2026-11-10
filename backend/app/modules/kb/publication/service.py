@@ -26,8 +26,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.base_schema import PageResultSchema
 from app.core.exceptions import CustomException
+from app.core.rag.chunker import split_text
 from app.utils.common_util import search_to_dict
-from app.utils.text_splitter import split_text
 
 from ..chunk.crud import KbChunkCRUD
 from ..parse_job.model import KbParseJobModel

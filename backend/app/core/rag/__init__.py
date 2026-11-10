@@ -2,12 +2,14 @@
 
 分层约定：
 - ``parsers`` / ``mineru``：文件解析与可插拔解析器；
+- ``chunker``：Markdown 结构感知切片与向量化拼接口径（本系统分片口径的唯一实现，后续持续演进）；
 - ``pipeline``：编排（同步解析与分片走线程池，向量化走共享客户端）；
 - ``vector_store``：通用向量层（表 ``sbp_ai_kb_vector_collection`` / ``sbp_ai_kb_vector_embedding``，
   原生 SQL 自持表名与索引名），业务模型由调用方注入，core 不 import modules；当前仅 ``validate_embedding`` 有调用方；
-- 纯文本切片与页码定位放在 ``app.utils``（``text_splitter`` / ``page_locator``），core 复用。
+- 页码定位仍在 ``app.utils``（``page_locator``）：它不承担切片策略，只把版面块换成页码。
 """
 
+from .chunker import TextChunk, embedding_text, split_text
 from .pipeline import (
     ChunkedDocument,
     PipelineResult,
@@ -44,12 +46,15 @@ __all__ = [
     "STAGE_EMBED",
     "STAGE_PARSE",
     "STAGE_WRITE",
+    "TextChunk",
     "build_embedding_rows",
     "embed_chunks",
+    "embedding_text",
     "parse_and_chunk",
     "parse_document",
     "process_document",
     "register_parser",
     "registered_parser_names",
+    "split_text",
     "supported_suffixes",
 ]

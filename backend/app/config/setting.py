@@ -202,6 +202,10 @@ class Settings(BaseSettings):
     PARSE_THREAD_POOL_SIZE: int = Field(default=4, description="文档解析线程池并发（CPU/IO 密集，建议不超过逻辑核数）")
     PARSE_CHUNK_SIZE: int = Field(default=800, description="默认分片长度（字符数）")
     PARSE_CHUNK_OVERLAP: int = Field(default=120, description="默认相邻分片重叠字符数，须小于分片长度")
+    PARSE_CHUNK_MIN: int = Field(
+        default=120,
+        description="分片最小长度（字符数）：末片低于该值并回前一片，避免短残片占一条 seq；取值不超过 PARSE_CHUNK_SIZE",
+    )
     PARSE_FAQ_MAX_CHARS: int = Field(default=30000, description="FAQ 提取时送给模型的文档正文上限（字符数），超出截断并告警")
     PARSE_FAQ_TIMEOUT: float = Field(
         default=300.0,

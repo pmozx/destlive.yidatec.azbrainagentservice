@@ -7,6 +7,8 @@
 from dataclasses import dataclass, replace
 from typing import Any
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.database import async_session_factory
 from app.core.logger import logger
 
@@ -16,6 +18,7 @@ from ..parse_result.service import KbParseResultService
 from .crud import KbParseJobCRUD
 from .model import KbParseJobModel
 from .schema import KbParseJobCreateSchema
+from .step import STEP_CHUNK
 
 STATUS_QUEUED = "queued"
 STATUS_RUNNING = "running"
@@ -153,11 +156,17 @@ class KbParseJobService:
             error_message=error_message,
         )
 
-    async def requeue(self, job_id: str) -> tuple[ParseJobSnapshot | None, str | None]:
+    async def requeue(
+        self, job_id: str, *, from_step: str | None = None
+    ) -> tuple[ParseJobSnapshot | None, str | None]:
         """重跑入口：把 failed（或卡死的 running）重新排队，返回 ``(快照, 拒绝原因)``。
 
-        为什么 succeeded 不允许重跑：页面上的切片可能已被人工修订并写入知识平台，
+        为什么 succeeded 默认不允许重跑：页面上的切片可能已被人工修订并写入知识平台，
         直接重跑会用新解析结果覆盖它；要重解析请重新提交一个新任务。
+
+        ``from_step=chunk`` 是唯一的例外：换切块口径时要重算切片，而这一步只吃正文与
+        页码快照，不必再付一次 MinerU。它仍会覆盖产物里的切片，所以人工改过的切片
+        直接拒绝——要让新口径生效，先确认那几条修订无需保留。
         ``attempt + 1`` 同时让仍在跑的旧协程（卡死但未退出）后续写库全部失效。
         """
         async with async_session_factory() as session, session.begin():
@@ -165,8 +174,12 @@ class KbParseJobService:
             job = await crud.get(uuid=job_id)
             if job is None:
                 return None, "解析任务不存在"
-            if job.status not in (STATUS_FAILED, STATUS_RUNNING):
-                return self._snapshot(job), "任务已成功，重跑会覆盖已审核的产物；如需重解析请重新提交"
+            if job.status == STATUS_SUCCEEDED:
+                reason = await self._succeeded_retry_reason(session, job_id, from_step=from_step)
+                if reason:
+                    return self._snapshot(job), reason
+            elif job.status not in (STATUS_FAILED, STATUS_RUNNING):
+                return self._snapshot(job), f"任务状态为 {job.status}，当前无法重跑"
             new_attempt = job.attempt + 1
             updated = await crud.update_if_attempt(
                 job_uuid=job_id,
@@ -189,6 +202,18 @@ class KbParseJobService:
             error_code=None,
             error_message=None,
         ), None
+
+    async def _succeeded_retry_reason(
+        self, session: AsyncSession, job_id: str, *, from_step: str | None
+    ) -> str | None:
+        """成功任务能否重跑：只放行「仅重切片」，且不能冲掉人工修订过的切片。"""
+        if from_step != STEP_CHUNK:
+            return "任务已成功，重跑会覆盖已审核的产物；如需重解析请重新提交"
+        result = await KbParseResultCRUD(session).get(job_id=job_id)
+        edited = sum(1 for item in (result.chunks or []) if isinstance(item, dict) and item.get("edited"))
+        if edited:
+            return f"产物里有 {edited} 条切片被人工编辑过，重切片会覆盖这些修订；请先确认无需保留"
+        return None
 
     async def reset_unfinished(self, *, error_code: str, error_message: str) -> int:
         """启动期中断恢复：把上次进程留下的 queued/running 任务改判 failed，返回行数。

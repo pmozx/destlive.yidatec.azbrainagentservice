@@ -375,7 +375,7 @@ async def test_admin_retry_resumes_from_failed_step(monkeypatch) -> None:
 
 @requires_db
 async def test_admin_retry_rejects_succeeded_job() -> None:
-    """已成功的任务不允许重跑：页面上的切片可能已人工修订并写入知识平台。"""
+    """已成功的任务不允许重跑（除仅重切片外）：切片可能已人工修订并写入知识平台。"""
     await _prepare_tables()
     response = await _upload(file_name="done.md", content="# 已完成\n\n这段正文用于验证成功任务不允许重跑。".encode())
     job_id = response.json()["data"]["uuid"]
@@ -384,8 +384,81 @@ async def test_admin_retry_rejects_succeeded_job() -> None:
         assert retried.status_code == 409
         assert "已成功" in retried.json()["msg"]
 
+        # 换起点也不行：除 chunk 之外，成功任务一律不能重跑
+        from_suggest = await call(
+            "POST", RETRY_PATH.format(job_id=job_id), body=json.dumps({"from_step": "suggest"}).encode()
+        )
+        assert from_suggest.status_code == 409
+
         ghost = await call("POST", RETRY_PATH.format(job_id="not-exists-job"), body=b"{}")
         assert ghost.status_code == 404
+    finally:
+        await _cleanup(job_id)
+
+
+@requires_db
+async def test_admin_retry_chunk_reslices_succeeded_job(monkeypatch) -> None:
+    """已成功的任务只重切片：起点停在 chunk，不出新的 extract/artifacts 步骤。
+
+    换切块口径是切片的常态需求，而重新解析一次是分钟级成本：chunk 步只吃 extract
+    快照里的正文与页码，所以续跑不能被回退到 extract。
+    """
+    await _prepare_tables()
+    monkeypatch.setattr(settings, "S3_ENABLE", False)
+    section = "这一节讲办理环节的注意事项与常见退回原因。" * 12
+    content = "\n\n".join(f"## 第{index}节\n\n{section}" for index in range(1, 4)).encode()
+    response = await _upload(file_name="reslice.md", content=content)
+    job_id = response.json()["data"]["uuid"]
+    try:
+        before = (await call("GET", DETAIL_PATH.format(job_id=job_id))).json()["data"]
+        # 调小分片尺寸即换了一套切块口径；重叠同步调小，否则不满足"重叠 < 分片长度"
+        monkeypatch.setattr(settings, "PARSE_CHUNK_SIZE", 120)
+        monkeypatch.setattr(settings, "PARSE_CHUNK_OVERLAP", 20)
+
+        retried = await call(
+            "POST", RETRY_PATH.format(job_id=job_id), body=json.dumps({"from_step": "chunk"}).encode()
+        )
+        assert retried.status_code == 200
+        assert retried.json()["data"]["attempt"] == 2
+
+        after = (await call("GET", DETAIL_PATH.format(job_id=job_id))).json()["data"]
+        assert after["status"] == "succeeded"
+        assert after["attempt"] == 2
+        # 切片按新口径重算：条数与旧口径不同；seq 仍然连续
+        chunks = after["result"]["chunks"]
+        assert len(chunks) > len(before["result"]["chunks"])
+        assert [item["seq"] for item in chunks] == list(range(1, len(chunks) + 1))
+        # 台账只看得到 chunk 之后的步骤：解析与产物归档都没有重跑
+        assert [item["step"] for item in after["steps"] if item["attempt"] == 2] == [
+            "chunk",
+            "pages",
+            "suggest",
+            "persist",
+        ]
+    finally:
+        await _cleanup(job_id)
+
+
+@requires_db
+async def test_admin_retry_chunk_rejects_edited_chunks() -> None:
+    """产物里有人工修订过的切片时拒绝重切片：不能让新口径把审核过的正文冲掉。"""
+    await _prepare_tables()
+    response = await _upload(file_name="edited.md", content="# 标题\n\n这段正文会被人工改写。".encode())
+    job_id = response.json()["data"]["uuid"]
+    try:
+        edited = await _put_chunk(job_id, {"seq": 1, "content": "人工修订后的正文。"})
+        assert edited.status_code == 200
+
+        retried = await call(
+            "POST", RETRY_PATH.format(job_id=job_id), body=json.dumps({"from_step": "chunk"}).encode()
+        )
+        assert retried.status_code == 409
+        assert "人工编辑" in retried.json()["msg"]
+
+        # 拒绝后任务状态与产物都不应被动过
+        after = (await call("GET", DETAIL_PATH.format(job_id=job_id))).json()["data"]
+        assert after["status"] == "succeeded" and after["attempt"] == 1
+        assert after["result"]["chunks"][0]["content"] == "人工修订后的正文。"
     finally:
         await _cleanup(job_id)
 

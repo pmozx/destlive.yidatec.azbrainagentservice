@@ -198,10 +198,11 @@ class KbParseJobAdminService:
     async def retry(self, job_id: str, *, from_step: str | None = None) -> tuple[KbParseJobOutSchema, ParseSubmitTask]:
         """重跑：把失败/卡死的任务重新排队，从失败那一步继续（响应后执行）。
 
-        只接受 failed / running（succeeded 会覆盖已审核产物，由服务层拒绕）；
-        起点由流水线自己再往前回退到「前序快照齐全」的位置，这里只做透传。
+        只接受 failed / running；succeeded 只在 ``from_step=chunk`` 时放行（换切块口径
+        重算切片，不重新解析），其余情况一律拒掉。起点由流水线自己再往前回退到
+        「前序快照齐全」的位置，这里只做透传。
         """
-        snapshot, reason = await PARSE_JOB_SERVICE.requeue(job_id)
+        snapshot, reason = await PARSE_JOB_SERVICE.requeue(job_id, from_step=from_step)
         if snapshot is None:
             raise CustomException(msg=reason or "解析任务不存在", status_code=status.HTTP_404_NOT_FOUND)
         if reason:
